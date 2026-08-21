@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head prefix="og: http://ogp.me/ns#">
+	<meta charset="UTF-8">
+	<meta name="format-detection" content="telephone=no,email=no,address=no">
+	<meta name="copyright" content="&copy; SHARP CORPORATION">
+	<meta name="thumbnail" content="/products/device/assets/common/images/ogp.png">
+
+<!-- SEO -->
+	<meta name="description" content="Sharp Corporation. Electronic Components & liquid crystal official global website. Product Lineup, Support information etc">
+	<meta name="keywords" content="SHARP, Electronic Components, LCD module, CMOS Image Sensor, Optoelectronics, RF Components, SENSOR">
+
+<!-- 画面設定 -->
+	<meta name="viewport" content="width=device-width, initial-scale=1">	<!-- aaa --->
+
+<!-- OGP -->
+	<meta property="og:title" content="Electronic Components / Display Devices : Sharp">
+	<meta property="og:description" content="Sharp Corporation. Electronic Components & liquid crystal official global website. Product Lineup, Support information etc">
+	<meta property="og:image" content="/products/device/assets/common/images/ogp.png">
+	<meta property="og:url" content="https://global.sharp/products/device/index.html">
+	<meta property="og:type" content="product">
+
+	<link rel="canonical" href="https://global.sharp/products/device/index.html">
+<!-- BEGIN Title -->
+	<title>Electronic Components / Display Devices : Sharp</title>
+<!-- END Title -->
+
+	<link rel="icon" href="/products/device/assets/common/images/favicon.ico" type="image/x-icon">
+	<link rel="apple-touch-icon" href="/products/device/assets/common/images/apple-touch-icon.png" sizes="180x180">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Source+Sans+Pro&display=swap">
+    <link rel="stylesheet" href="/products/device/assets/common/css/bootstrap-reboot.min.css">
+	<link rel="stylesheet" href="//c.marsflag.com/mf/mfx/1.0/css/mfx-sbox.css" type="text/css" media="all" charset="UTF-8">
+
+	<link rel="stylesheet" href="/products/device/assets/common/css/global.css">	<!-- aaa --->
+	<link rel="stylesheet" href="/products/device/assets/common/plugin/swiper/swiper-bundle.min.css">
+	<link rel="stylesheet" href="/products/device/assets/index/micromodal-custom.css">
+	<link rel="stylesheet" href="/products/device/assets/index/style.css">
+
+	<script src="/products/device/assets/common/plugin/jquery/jquery-3.7.1.min.js"></script>
+</head>
+
+<body>
+<!-- BEGIN google tag manager -->
+	<noscript><iframe src="//www.googletagmanager.com/ns.html?id=GTM-KV79VG" height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
+	<script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0], j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src='//www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);})(window,document,'script','dataLayer','GTM-KV79VG');</script>
+<!-- END google tag manager -->
+
+	<header id="globalHeader" class="outer-base-width mf_finder_header">
+		<div class="base-width">
+			<div class="global-header-wrapper">
+				<button type="button" class="btn-global-header-menu-open" aria-label="Opening/closing the menu" aria-controls="globalHeaderNavi"><img src="/products/device/assets/common/images/ic_menu.svg" alt="" width="50" height="50"></button>
+
+				<div class="global-header-logo"><a href="https://global.sharp/"><img src="/products/device/assets/common/images/logo_sharp.svg" alt="SHARP" width="330" height="114"></a></div>
+
+				<nav id="globalHeaderNavi" class="global-header-navi">
+					<div class="global-header-navi-wrapper">
+						<div class="global-search-form sp-only">
+							<mf-search-box ajax-url="//mf2ap003.marsflag.com/sharpbiz__ja_all__ja_all/x_search.x" serp-url="https://search-b.sharp.co.jp/en_all/search.x" submit-text="Search" placeholder="Search within the site" doctype-hidden options-hidden imgsize-default="3"></mf-search-box>
+						</div><!-- /global-search-form -->
+
+						<ul class="list-global-header-navi">
+							<li><a href="/products/device/index.html">Electronic Components / Display Devices</a></li>
+							<li><a href="/products/device/lineup/selection/index.html" aria-controls="globalHeaderNaviAccordion" data-acod-target="individual">Products Lineup</a></li>
+						</ul>
+						<ul class="list-global-header-sub-navi">
+							<li><a href="/products/device/catalog/index.html">Catalogs</a></li>
+							<li><a href="/products/device/technology/index.html">Technology</a></li>
+							<li><a href="/products/device/base/index.html">List of bases</a></li>
+							<li><a href="/products/device/support/index.html">Support</a></li>
+						</ul>
+					</div><!-- /global-header-navi-wrapper -->
+
+					<div class="global-header-search">
+						<button class="btn-global-header-search" type="button" aria-label="Site search opening/closing" aria-controls="globalSearchForm"><img src="/products/device/assets/common/images/icon-search-b.svg" alt="" width="70" height="70"></button>
+						<div id="globalSearchForm" class="global-search-form-wrapper outer-base-width">
+							<div class="base-width">
+								<div class="global-search-form pc-only">
+									<mf-search-box ajax-url="//mf2ap003.marsflag.com/sharpbiz__ja_all__ja_all/x_search.x" serp-url="https://search-b.sharp.co.jp/en_all/search.x" submit-text="Search" placeholder="Search within the site" doctype-hidden options-hidden imgsize-default="3"></mf-search-box>
+								</div>
+							</div>
+						</div><!-- /global-search-form-wrapper -->
+					</div><!-- /global-header-search -->
+				</nav><!-- /globalHeaderNavi -->
+
+				<button type="button" class="btn-global-header-menu-close" aria-controls="globalHeaderNavi"><img src="/products/device/assets/common/images/ic_close.svg" alt="" width="50" height="50"></button>
+			</div><!-- /global-header-wrapper -->
+		</div><!-- /base-width -->
+	</header><!-- /globalHeader -->
+
+<!-- TOPページ：パンくずリスト無し -->
+	<div id="globalPageTitle">
+		<div class="outer-base-width">
+			<div class="base-width">
+				<h1 class="global-page-title">Electronic Components / Display Devices</h1>
+			</div><!-- /base-width -->
+		</div><!-- /outer-base-width -->
+	</div><!-- /globalPageTitle -->
+<!-- 言語切替は、フッターで。2ndで -->
+
+	<main id="main">
+		<article>
+<!-- メインビジュアル -->
+	<div id="mainVisual" class="main-visual">
+		<div class="swiper is-play">
+			<div class="swiper-wrapper">
+<!--
+				<div class="swiper-slide"><a href="/products/device/newproducts/Tdisp/index.html">
+					<picture>
+						<source media="(max-width:767px)" srcset="/products/device/images/mv/slide-s1_tdisp_e.png" width="750" height="680">
+							<img src="/products/device/images/mv/slide-p1_tdisp_e.png" alt="Link to transparent display introduction page" width="1920" height="660">
+					</picture>
+				</a></div>
+-->
+				<div class="swiper-slide"><a href="https://global.sharp/brand/eshowroom/index.html">
+					<picture>
+						<source media="(max-width:767px)" srcset="/products/device/images/mv/slide-s3_wseeds_e.png" width="750" height="680">
+							<img src="/products/device/images/mv/slide-p3_wseeds_e.png" alt="Link to a page introducing Sharp's new initiatives" width="1920" height="660">
+					</picture>
+				</a></div>
+
+			</div><!-- swiper-wrapper -->
+
+			<div class="mv-pagination-wrap">
+				<div class="mv-pagination"></div>
+				<button type="button" aria-label="Pause main gallery" class="btn-swiper-control">
+					<img src="/products/device/assets/index/images/play.svg" alt="" class="icon-swiper-play" width="13" height="18">
+					<img src="/products/device/assets/index/images/pause.svg" alt="" class="icon-swiper-pause is-active" width="12" height="17">
+				</button>
+			</div><!-- /swiper-pagination-wrap -->
+		</div><!-- /swiper -->
+	</div><!-- /mainVisual -->
+<!-- /メインビジュアル/ -->
+
+<!-- 製品一覧 -->
+	<section id="lineup" class="sub-section outer-base-width">
+		<div class="base-width">
+			<h2 class="section-title">Search by Categoly</h2>
+			<a href="/products/device/lineup/selection/index.html" class="btn-has-arrow-left" aria-label="View products lineup">
+				<svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512">
+					<path fill="currentColor" d="M285.476 272.971L91.132 467.314c-9.373 9.373-24.569 9.373-33.941 0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941 0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"></path>
+				</svg>Products lineup
+			</a>
+
+			<div class="lineup-container">
+				<button type="button" class="btn-lineup-open" aria-label="View Features Products" data-micromodal-trigger="feature">
+					<a href="/products/device/newproducts/index.html">
+					<img src="/products/device/images/thumb/thumb_lineup_feature.svg" alt="" width="100" height="100">Features Products</a>
+				</button>
+
+				<button type="button" class="btn-lineup-open" aria-label="View LCD modules" data-micromodal-trigger="lcd">
+					<a href="/products/device/lineup/selection/lcd/index.html">
+					<img src="/products/device/images/thumb/thumb_lineup_lcd.svg" alt="" width="100" height="100">LCD modules</a>
+				</button>
+
+				<button type="button" class="btn-lineup-open" aria-label="View Image Sensors" data-micromodal-trigger="img_sensor">
+					<a href="/products/device/lineup/selection/imagesensor/index.html">
+					<img src="/products/device/images/thumb/thumb_lineup_image.svg" alt="" width="100" height="100">Image Sensors</a>
+				</button>
+
+				<button type="button" class="btn-lineup-open" aria-label="View Optoelectronics" data-micromodal-trigger="opto">
+					<a href="/products/device/lineup/selection/opto/index.html">
+					<img src="/products/device/images/thumb/thumb_lineup_opto.svg" alt="" width="100" height="100">Optoelectronics</a>
+				</button>
+
+				<button type="button" class="btn-lineup-open" aria-label="View RF Components" data-micromodal-trigger="rf">
+					<a href="/products/device/lineup/selection/rf/index.html">
+					<img src="/products/device/images/thumb/thumb_lineup_rf.svg" alt="" width="100" height="100">RF Components</a>
+				</button>
+
+				<button type="button" class="btn-lineup-open" aria-label="View Sensor" data-micromodal-trigger="sensor">
+					<a href="/products/device/lineup/selection/rf/tem_hum/index.html">
+					<img src="/products/device/images/thumb/thumb_lineup_sensor.svg" alt="" width="100" height="100">Sensor</a>
+				</button>
+
+			</div><!-- /lineup-container -->
+		</div><!-- /base-width -->
+	</section><!-- /sub-section -->
+
+<!-- サポート / -->
+	<section id="support" class="sub-section outer-base-width">
+		<div class="base-width">
+			<h2 class="section-title">Support</h2>
+			<ul class="list-support">
+
+				<li>
+					<a href="/products/device/support/index.html" class="hover hover-parent">
+						<div class="support-img-wrap"><img src="/products/device/assets/common/images/icon_faq.svg" alt="" width="80" height="80"></div>
+						<div class="support-text-wrap">
+							<h2 class="support-title">FAQ</h2>
+							<p>Frequently asked questions<br class="pc-only"> are summarized here.</p>
+
+							<p class="btn-has-arrow-left hover-trigger">
+								<svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512">
+									<path fill="currentColor" d="M285.476 272.971L91.132 467.314c-9.373 9.373-24.569 9.373-33.941 0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941 0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"></path>
+								</svg>View detail
+							</p>
+						</div>
+					</a>
+				</li>
+
+				<li>
+					<a href="/products/device/support/call/index.html" class="hover hover-parent">
+						<div class="support-img-wrap"><img src="/products/device/assets/common/images/icon_site.svg" alt="" width="100" height="100"></div>
+						<div class="support-text-wrap">
+							<h2 class="support-title">Contact Information</h2>
+							<p>We provide location information<br class="pc-only"> for each device group company.</p>
+
+							<p class="btn-has-arrow-left hover-trigger">
+								<svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512">
+									<path fill="currentColor" d="M285.476 272.971L91.132 467.314c-9.373 9.373-24.569 9.373-33.941 0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941 0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"></path>
+								</svg>View detail
+							</p>
+						</div>
+					</a>
+				</li>
+			</ul><!-- /list-support -->
+		</div><!-- /base-width -->
+	</section><!-- /sub-section -->
+<!-- /サポート/ -->
+
+
+
+
+<!-- 新着情報 datetimeの値も修正（yyyy-mm-dd表記）・最大12件表示-->
+	<section id="news" class="sub-section outer-base-width">
+		<div class="base-width">
+			<h1 class="section-title">What's New</h1>
+
+			<ul class="list-news">
+				<li><time datetime="2026-3-10">March 10, 2026</time>
+					<p>Product information for Electronic paper Displays has been published.<br class="sp-only">（<a href="/products/device/newproducts/epd/index.html" target="_blank">Go to product information page</a>）</p>
+				</li>
+				<li><time datetime="2025-10-1">Oct 1, 2025</time>
+					<p>Laser diode product information has been moved to the Sharp Fukuyama Laser Co., Ltd. website.<br></p>
+				</li>
+				<li><time datetime="2025-8-25">Aug 25, 2025</time>
+					<p>Product information for Laser Diodes has been published.</p>
+				</li>
+				<li><time datetime="2025-4-21">April 21, 2025</time>
+					<p>Product information for LCD Modules has been published.<br class="sp-only">（<a href="/products/device/lineup/selection/lcd/index.html" target="_blank">Go to product information page</a>）</p>
+				</li>
+				<li><time datetime="2025-1-15">Jan 15, 2025</time>
+					<p>Product information for Laser Diodes has been published.</p>
+				</li>
+				<li><time datetime="2024-10-16">Oct 16, 2024</time>
+					<p>Product information for LCD Modules has been published.</p>
+				</li>
+				<li><time datetime="2024-10-16">Oct 16, 2024</time>
+					<p>LCD Modules Catalog (September 2024) has been published.</p>
+				</li>
+				<li><time datetime="2024-5-30">May 30, 2024</time>
+					<p>LCD Modules & Laser Diodes Catalog (March 2024) has been published.<br class="sp-only"></p>
+				</li>
+				<li><time datetime="2023-7-1">July 1, 2023</time>
+					<p>Laser Diodes Catalog (March 2023) has been published.</p>
+				</li>
+				<li><time datetime="2023-4-24">April 24, 2023</time>
+					<p>LCD Modules Catalog (March 2023) has been published.</p>
+				</li>
+				<li><time datetime="2022-9-31">October 31, 2022</time>
+					<p>LCD Modules & Laser Diodes Catalog (September 2022) has been published.</p>
+				</li>
+				<li><time datetime="2022-5-6">May 6, 2022</time>
+					<p>LCD Modules & Laser Diodes Catalog (March 2022) has been published.</p>
+				</li>
+				<li><time datetime="2021-9-17">September 17, 2021</time>
+					<p>Product information for transparent displays has been published.<br class="sp-only">（<a href="/products/device/newproducts/Tdisp/index.html" target="_blank">Go to product information page</a>）</p>
+				</li>
+				<li><time datetime="2021-4-1">April 01, 2021</time>
+					<p>We provide high value-added film with low reflection, anti-fog, and transparency using Moth eye technology.<br>（<a href="/products/device/newproducts/lrfilm/index.html" target="_blank">Go to product information page</a>）</p>
+				</li>
+				<li><time datetime="2021-3-22">March 22, 2021</time>
+					<p>Low power consumption display having unique reflection structure, and utilizing ambient light as light source instead of back-light.</p>
+				</li>
+			</ul><!-- /list-news -->
+			<a href="/products/device/news/whatsnew.html" class="btn-has-arrow-left" aria-label="Click to view previous announcements">
+				<svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512">
+					<path fill="currentColor" d="M285.476 272.971L91.132 467.314c-9.373 9.373-24.569 9.373-33.941 0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941 0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"></path>
+				</svg>Click to view previous announcements
+			</a>
+			
+
+		</div><!-- /base-width -->
+	</section><!-- /news -->
+<!-- /新着情報 -->
+
+		</article>
+	</main>
+
+	<div id="pageTop" class="outer-base-width">
+		<div class="base-width"><a href="#" class="link-page-top" aria-label="Go to Top of page"></a></div>
+	</div>
+
+	<footer id="globalFooter">
+		<div class="global-footer-container">
+			<div class="outer-base-width">
+				<nav id="globalFooterNavi" class="base-width">
+					<ul>
+						<li><a href="https://global.sharp">About Sharp</a></li>
+						<li><a href="/products/device/sitemap/index.html">Site Map</a></li>	<!-- aaa --->
+						<li><a href="https://global.sharp/policy-e.html">Site Policy</a></li>
+						<li><a href="https://global.sharp/security/">Global Basic Policy on Information Security</a></li>
+						<li><a href="https://global.sharp/privacy/">Privacy Policies</a></li>
+						<li><a href="https://jp.sharp/products/device/index.html">D-HP Japanese Website</a></li>
+					</ul>
+				</nav>
+			</div><!-- /outer-base-width -->
+		</div><!-- /global-footer-container -->
+
+		<div id="copyright"><a href="https://global.sharp/policy-e.html">&copy; SHARP CORPORATION</a></div>
+	</footer><!-- /globalFooter -->
+
+<!-- SCRIPT -->
+	<script src="//c.marsflag.com/mf/mfx/1.0/js/mfx-sbox.js" charset="UTF-8"></script>
+	<script src="/products/device/assets/common/plugin/allBasics/jquery.allBasics5.js"></script>
+	<script src="/products/device/assets/common/plugin/swiper/swiper-bundle.min.js"></script>
+	<script src="/products/device/assets/common/plugin/micromodal/micromodal.js"></script>
+	<script src="/products/device/assets/common/js/global.js"></script>
+	<script src="/products/device/assets/common/js/index-global.js"></script>
+	<script src="/products/device/assets/index/script.js"></script>
+<!-- /SCRIPT -->
+
+
+</body>
+
+</html>
