@@ -26,6 +26,13 @@ This screen is dedicated to visualizing the outputs from Layer 3. It shows a mas
 
 ![Forecasting UI Mockup](ui_mockups/aqss_dashboard_main.jpg)
 
+### 1.2 V2 Updates
+
+- **Space Selector:** The Dashboard now uses a Space selector dropdown (replacing the device selector) to monitor air quality by logical area rather than physical node.
+- **Early Warning Banner:** A new banner component appears on the Dashboard when the DL forecast predicts a breach within 2 hours.
+- **Actuator Control Panel:** Added an AUTO/MANUAL toggle and manual level slider for actuator control (relay) within `SpaceControlView`.
+- **Decision Timeline:** Added a chronological timeline component in `SpaceControlView` to track all `ControlDecision` events (trigger, threshold used, dosage prescribed).
+
 ---
 
 ## 2. Technology Stack & Architecture
@@ -60,6 +67,7 @@ frontend/src/
 │   └── useForecast.ts     # TanStack query hooks for Layer 3 API
 ├── pages/           # Route-level components
 │   ├── Dashboard/         # Main real-time view (Screen 1)
+│   ├── Spaces/            # SpaceManagement and SpaceControlView
 │   ├── Devices/           # List of ESP32-S3 nodes
 │   ├── Forecasting/       # Deep learning view (Screen 2)
 │   └── Settings/
@@ -77,7 +85,9 @@ frontend/src/
 
 | Path | Component | Description |
 | :--- | :--- | :--- |
-| `/` | `Dashboard` | Real-time overview of the selected/default device. |
+| `/` | `Dashboard` | Real-time overview of the selected/default Space. |
+| `/spaces` | `SpaceManagement` | CRUD interface for spaces, threshold inference view. |
+| `/spaces/:id` | `SpaceControlView` | Real-time PM2.5 vs threshold line, actuator panel, decision timeline. |
 | `/devices` | `DeviceList` | Table view of all registered ESP32-S3 nodes with status. |
 | `/devices/:id` | `DeviceDetail` | Specific node details and historical charts. |
 | `/forecasting` | `Forecasting` | Deep learning predictions and anomaly evaluation. |

@@ -1,6 +1,6 @@
 # Layer 3 — Deep Learning & AI Inference Module: Detailed Implementation Plan
 
-> **Version:** 1.0 — Advanced Time-Series Forecasting & Evaluation
+> **Version:** 2.0 — V2 Closed-Loop: 2 ML Models + 1 DL Model
 > **Stack:** Python 3.11 · PyTorch 2.2 / TensorFlow 2.15 · FastAPI · Pandas · Scikit-Learn
 > **Agent Alignment:** `dl-engineer`
 > **Complexity Level:** Critical (Highest complexity module in the system)
@@ -15,6 +15,17 @@ The Deep Learning layer (Layer 3) is the cognitive core of the Air Quality Super
 2.  **The Evaluation Engine (Assessment Model):** Evaluates and assesses the air quality of the *past 1 hour* or the *past 1 day* (24-hour rolling window) based on data from the hour/day immediately preceding it. This goes beyond simple averaging by incorporating anomaly detection and sensor drift analysis to ensure data integrity before assessment.
 
 Given that this is a greenfield IoT project, the system faces the "Cold Start Problem." We will design a strategy utilizing open-source datasets (OpenAQ, UCI Beijing PM2.5) combined with transfer learning to pre-train the models before fine-tuning them on our specific ESP32-S3 sensor data.
+
+---
+
+## V2 Model Architecture Overview
+
+V2 shifts from 2 models (predictor + evaluator) to 3 models:
+1. **ML#1 Threshold (GP Regression):** Infers a space-specific PM2.5 threshold based on space characteristics.
+2. **ML#2 Dosage (XGBoost):** Prescribes intervention dosage given the space, current PM2.5, and threshold.
+3. **DL Forecast (Seq2Seq LSTM):** Predicts 24h rolling window with 15-min resample (96 steps), using quantile loss (q10, q50, q90) instead of MSE + fake CI.
+
+The Autoencoder Evaluator is now DEPRECATED.
 
 ---
 
@@ -165,26 +176,28 @@ class AQIPredictorWithAttention(nn.Module):
         # Apply attention
         context_vector, _ = self.attention_net(lstm_out)
         
-        # Decode 24 steps
-        decoder_input = context_vector.unsqueeze(1).repeat(1, 24, 1)
+        # Decode 96 steps (24h @ 15-min intervals)
+        decoder_input = context_vector.unsqueeze(1).repeat(1, 96, 1)
         decoder_out, _ = self.decoder(decoder_input)
         
-        # Output [pm25, conf_upper, conf_lower]
+        # Output [pm25_q10, pm25_q50, pm25_q90]
         predictions = F.relu(self.out_layer(decoder_out))
         
-        return predictions # Shape: (batch, 24, 3)
+        return predictions # Shape: (batch, 96, 3)
 ```
 
 ### 4.4 Loss Function
 
 We use a custom multi-task loss function combining Mean Squared Error (MSE) with a penalty for underpredicting hazardous spikes (as underpredicting bad air quality is a higher risk to public health than overpredicting).
 
-$$ Loss = \lambda_1 MSE_{hour} + \lambda_2 MSE_{day} + \lambda_3 \max(0, Y_{true} - Y_{pred})^2 $$
-Where $\lambda_3$ acts as an asymmetric penalty.
+$$ Loss = \mathcal{L}_{0.1} + \mathcal{L}_{0.5} + \mathcal{L}_{0.9} $$
+Where $\mathcal{L}_\tau$ is the quantile loss function to produce true prediction intervals (q10, q50, q90), replacing the old MSE + fake CI approach.
 
 ---
 
-## 5. Model 2: The Evaluation Engine (Assessment)
+## 5. Model 2: The Evaluation Engine (Assessment) (DEPRECATED)
+
+> **DEPRECATED IN V2:** The Autoencoder evaluator is removed from the core closed-loop logic.
 
 The evaluation model is NOT a simple SQL `AVG()` query. It is a **Deep Autoencoder-based Anomaly Detection and Drift Analysis System**. 
 
@@ -332,10 +345,10 @@ class EvaluationRequest(BaseModel):
     target_window: List[SensorReading]
     reference_window: List[SensorReading]
 
-@app.post("/api/v1/predict")
-async def run_prediction(req: PredictionRequest):
+@app.post("/api/v1/forecast")
+async def run_forecast(req: PredictionRequest):
     if len(req.data_since_6am) == 0:
-        raise HTTPException(status_code=400, detail="Missing 6AM sequence")
+        raise HTTPException(status_code=400, detail="Missing sequence")
         
     try:
         # Pass to PyTorch Seq2Seq inference engine
@@ -343,27 +356,7 @@ async def run_prediction(req: PredictionRequest):
         return {
             "device_id": req.device_id,
             "status": "success",
-            "forecast_sequence": forecast_sequence # List of dicts {timestamp, pm25, conf_upper, conf_lower}
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/api/v1/evaluate")
-async def run_evaluation(req: EvaluationRequest):
-    try:
-        # Pass to PyTorch Autoencoder engine
-        is_anomaly, reconstruction_error, avg_aqi = evaluate_past(
-            req.target_window, req.reference_window
-        )
-        return {
-            "device_id": req.device_id,
-            "status": "success",
-            "evaluation": {
-                "is_sensor_anomaly": bool(is_anomaly),
-                "reconstruction_error": float(reconstruction_error),
-                "assessed_aqi": int(avg_aqi),
-                "reliability_score": max(0, 100 - (reconstruction_error * 10))
-            }
+            "forecast_sequence": forecast_sequence # List of dicts {timestamp, pm25_mean, pm25_q10, pm25_q90}
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -437,7 +430,7 @@ Layer 2 acts as the orchestrator. It does not run heavy math. Instead, it delega
 ### Workflow:
 1. **Trigger:** A cron job in Spring Boot (Layer 2) fires every hour.
 2. **Fetch:** Layer 2 queries PostgreSQL for the specific data windows (e.g., `WHERE recorded_at >= 6:00 AM`).
-3. **HTTP Request:** Layer 2 serializes the data to JSON and POSTs it to Layer 3's `/api/v1/predict` and `/api/v1/evaluate` endpoints.
+3. **HTTP Request:** Layer 2 serializes the data to JSON and POSTs it to Layer 3's `/api/v1/forecast` endpoint. For space threshold and dosage, it calls `/api/v1/threshold` and `/api/v1/dosage`.
 4. **Processing:** Layer 3 executes the PyTorch forward pass (Tensor operations are vectorized and take < 50ms).
 5. **Storage:** Layer 3 returns JSON. Layer 2 persists the results into the `predictions` table in PostgreSQL.
 6. **Broadcast:** Layer 2 pushes the new prediction to the frontend via STOMP WebSocket.

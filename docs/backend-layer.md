@@ -119,7 +119,7 @@ CREATE TABLE telemetry_data (
     temperature        REAL NOT NULL,
     humidity           REAL NOT NULL,
     aqi_index          SMALLINT NOT NULL,
-    aqi_level          VARCHAR(30) NOT NULL,
+    aqi_level          VARCHAR(40) NOT NULL,
     wifi_rssi          SMALLINT,
     uptime_sec         INT,
     free_heap          INT,
@@ -160,16 +160,7 @@ CREATE TABLE alerts (
 CREATE INDEX idx_alerts_active ON alerts (device_id)
     WHERE resolved_at IS NULL;
 
--- ─── AI Predictions & Evaluations ──────────────────────────────────
-CREATE TABLE model_evaluations (
-    id                 BIGSERIAL PRIMARY KEY,
-    device_id          VARCHAR(32) REFERENCES devices(device_id),
-    evaluated_at       TIMESTAMPTZ DEFAULT NOW(),
-    is_sensor_anomaly  BOOLEAN NOT NULL,
-    reconstruction_error REAL NOT NULL,
-    assessed_aqi       SMALLINT NOT NULL,
-    reliability_score  REAL NOT NULL
-);
+-- ─── AI Predictions (V2: Autoencoder evaluator removed) ────────────
 
 CREATE TABLE predictions (
     id                 BIGSERIAL PRIMARY KEY,
@@ -447,7 +438,7 @@ public class TelemetryData {
     @Column(nullable = false) private Float temperature;
     @Column(nullable = false) private Float humidity;
     @Column(name = "aqi_index", nullable = false) private Short aqiIndex;
-    @Column(name = "aqi_level", length = 30, nullable = false) private String aqiLevel;
+    @Column(name = "aqi_level", length = 40, nullable = false) private String aqiLevel;
     
     @Column(name = "wifi_rssi") private Short wifiRssi;
     @Column(name = "uptime_sec") private Integer uptimeSec;
@@ -684,10 +675,6 @@ services:
     ports: ["1883:1883", "9001:9001"]
     volumes: ["./mosquitto/config/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro"]
 
-  redis:
-    image: redis:7-alpine
-    command: redis-server --appendonly yes
-    ports: ["6379:6379"]
 
   backend:
     build: .
@@ -886,3 +873,27 @@ volumes:
 5. Connect STOMP client → subscribe `/topic/devices/ESP32S3_AQSS_01`
 6. Check partitions: `SELECT * FROM pg_catalog.pg_inherits;`
 7. Check matview freshness: `SELECT * FROM telemetry_hourly LIMIT 10;`
+
+---
+
+## 14. V2 — Spaces & Actuation Layer
+
+As part of the V2 architecture update, new entities have been added to support closed-loop indoor control:
+
+### 14.1 Database Migration (`V4__spaces_and_actuation.sql`)
+- `spaces`: Space registry (id, name, volume_m3, purpose, region, created_at).
+- `space_devices`: Many-to-many relationship tracking which sensor/actuator nodes belong to which space.
+- `space_thresholds`: Cached ML#1 output per space.
+- `actuators`: Actuator registry for relay control.
+- `control_decisions`: Audit log for every intervention decision made by the system.
+
+### 14.2 New Services & Controllers
+- **SpaceService** / **SpaceController**: CRUD for spaces, assign/remove devices.
+- **ThresholdService**: Calls ML#1, caches result in `space_thresholds`.
+- **DosageService**: Calls ML#2 with current readings + threshold to prescribe intervention.
+- **ControlDecisionService**: Evaluates readings and DL forecast vs threshold. Decides ALERT / AUTO / IDLE.
+- **ActuatorService** / **ActuatorController**: Publishes `set_actuator` commands via MQTT.
+
+### 14.3 New STOMP Topics
+- `/topic/spaces/{id}/decision`: Real-time control decision stream `{action, mode, trigger, threshold, dosage}`.
+- `/topic/actuators/{id}`: Actuator state updates `{state, level, since, mode}`.

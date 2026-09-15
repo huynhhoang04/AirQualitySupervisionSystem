@@ -164,6 +164,10 @@
 ```cpp
 // Shared sensor data struct across Tasks (mutex-protected)
 typedef struct {
+    char  space_id[32];      // Space ID the device belongs to
+    bool  warning_active;    // True if early warning is active
+    char  warning_msg[64];   // Warning message from backend
+    
     // SCD40 data
     float co2_ppm;           // CO2 (ppm), range 400-2000
     float temperature_c;     // Temperature (°C)
@@ -194,6 +198,7 @@ SemaphoreHandle_t g_dataMutex;
 ```json
 {
   "device_id": "AQSS_ESP32S3_01",
+  "space_id": "space_201",
   "timestamp": 1724217600,
   "sensors": {
     "pm25": 35.4,
@@ -478,16 +483,21 @@ void Task_UpdateOLED(void* pvParam) {
         // === Body: Sensor Values ===
         u8g2.setFont(u8g2_font_helvR08_tr);
         
-        char line1[32], line2[32], line3[32];
-        snprintf(line1, sizeof(line1), "PM2.5  %.1f ug/m3", data.pm25_ugm3);
-        snprintf(line2, sizeof(line2), "CO2    %d ppm", (int)data.co2_ppm);
-        snprintf(line3, sizeof(line3), "T:%.1fC  H:%.1f%%", 
-                 data.temperature_c, data.humidity_pct);
-        
-        u8g2.drawStr(ox, 29, line1);
-        u8g2.drawStr(ox + 100, 29, data.aqi_level);
-        u8g2.drawStr(ox, 43, line2);
-        u8g2.drawStr(ox, 60, line3);
+        if (data.warning_active) {
+            u8g2.drawStr(ox, 29, "WARNING!");
+            u8g2.drawStr(ox, 43, data.warning_msg);
+        } else {
+            char line1[32], line2[32], line3[32];
+            snprintf(line1, sizeof(line1), "PM2.5  %.1f ug/m3", data.pm25_ugm3);
+            snprintf(line2, sizeof(line2), "CO2    %d ppm", (int)data.co2_ppm);
+            snprintf(line3, sizeof(line3), "T:%.1fC  H:%.1f%%", 
+                     data.temperature_c, data.humidity_pct);
+            
+            u8g2.drawStr(ox, 29, line1);
+            u8g2.drawStr(ox + 100, 29, data.aqi_level);
+            u8g2.drawStr(ox, 43, line2);
+            u8g2.drawStr(ox, 60, line3);
+        }
         
         // MQTT status dot
         if (data.mqtt_connected) {
@@ -558,7 +568,10 @@ void Task_MQTT_Network(void* pvParam) {
         // Auto-reconnect MQTT
         if (!mqttClient.connected()) {
             String clientId = String(DEVICE_ID) + "_" + String(random(0xffff), HEX);
-            if (mqttClient.connect(clientId.c_str(), MQTT_USER, MQTT_PASS)) {
+            const char* willTopic = "aqss/devices/" DEVICE_ID "/status";
+            const char* willPayload = "{\"status\":\"OFFLINE\"}";
+            if (mqttClient.connect(clientId.c_str(), MQTT_USER, MQTT_PASS, willTopic, 1, true, willPayload)) {
+                mqttClient.publish(willTopic, "{\"status\":\"ONLINE\"}", true);
                 mqttClient.subscribe(TOPIC_CMD);
                 if (xSemaphoreTake(g_dataMutex, pdMS_TO_TICKS(10))) {
                     g_sensorData.mqtt_connected = true;
@@ -602,6 +615,7 @@ void publishTelemetry() {
     
     JsonDocument doc;
     doc["device_id"] = DEVICE_ID;
+    doc["space_id"] = data.space_id;  // V2: Space association
     doc["timestamp"] = data.timestamp;
     
     JsonObject sensors = doc["sensors"].to<JsonObject>();
@@ -701,6 +715,19 @@ esp_task_wdt_reset(); // Feed watchdog
 ### 9.4 Offline Data Buffer
 - When MQTT disconnects, cache up to 60 records (5 minutes of data) into a ring buffer.
 - Batch upload all cached data when the connection recovers.
+
+---
+
+## V2 — Actuator Node Firmware
+
+The V2 architecture introduces Actuator Nodes (e.g., relays controlling air filters) alongside Sensor Nodes.
+- Reuses the ESP32-S3 hardware platform.
+- Subscribes to `aqss/devices/{id}/command` for `set_actuator` commands.
+- Controls a relay module (GPIO output) connected to the air filter power line.
+- Publishes actuator state to `aqss/devices/{id}/actuator/state` every 5 seconds.
+- Physical manual override button (GPIO input) — always takes priority.
+- Fail-safe: if no command received for 10 minutes, turn OFF relay.
+- Watchdog timer: 30 seconds, auto-reboot on hang.
 
 ---
 

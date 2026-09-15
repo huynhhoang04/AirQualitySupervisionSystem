@@ -1,15 +1,15 @@
-# Air Quality Supervision System (AQSS)
+# Air Quality Supervision System (AQSS) — Closed-Loop Indoor Control
 
-You are working on the **Air Quality Supervision System**, an end-to-end IoT project that monitors, evaluates, and predicts air quality in real time. The system is built across four distinct layers.
+You are working on the **Air Quality Supervision System**, an end-to-end IoT project that monitors, evaluates, and predicts air quality in real time, functioning as a closed-loop indoor control system. The system is built across four distinct layers.
 
 ## Architecture
 
 | Layer | Directory | Stack | Description |
 | :---: | :--- | :--- | :--- |
-| 1 | `embedded/` | ESP32-S3, C++17, FreeRTOS, PlatformIO, Arduino Core | Sensor acquisition (SCD40 + GP2Y1023AU0F), OLED display, MQTT telemetry |
-| 2 | `backend/` | Java 21, Spring Boot 3.3, Maven, PostgreSQL 16, Mosquitto, STOMP WebSocket | MQTT ingestion, REST API, JWT auth, RBAC, batch writes, materialized views |
-| 3 | `layer3_dl/` | Python 3.11, PyTorch 2.2, FastAPI, Pandas, Scikit-Learn | Seq2Seq LSTM forecasting (24h), Autoencoder anomaly evaluation |
-| 4 | `frontend/` | React 18, TypeScript, Vite, TailwindCSS, Zustand, TanStack Query, Recharts | Real-time dark-mode dashboard, AQI gauge, forecast charts with confidence intervals |
+| 1 | `embedded/` | ESP32-S3, C++17, FreeRTOS, PlatformIO, Arduino Core | Sensor acquisition, Actuator relay control, OLED display, MQTT telemetry |
+| 2 | `backend/` | Java 21, Spring Boot 3.3, Maven, PostgreSQL 16, Mosquitto, STOMP WebSocket | Space/Actuation management, MQTT ingestion, REST API, JWT auth, RBAC |
+| 3 | `layer3_dl/` | Python 3.11, PyTorch 2.2, FastAPI, Pandas, Scikit-Learn | ML#1 Threshold (GPR), ML#2 Dosage (XGBoost), Seq2Seq LSTM forecasting (24h) |
+| 4 | `frontend/` | React 18, TypeScript, Vite, TailwindCSS, Zustand, TanStack Query, Recharts | Real-time dark-mode dashboard, Space selector, forecast charts, actuator control |
 
 ## Hardware
 
@@ -57,6 +57,8 @@ All protected endpoints require `Authorization: Bearer <JWT>`. Device endpoints 
 | `/api/v1/telemetry/history` | GET | JWT | Raw range query |
 | `/api/v1/telemetry/aggregate` | GET | JWT | `date_trunc()` aggregates |
 | `/api/v1/forecast/{device_id}` | GET | JWT | 24-point forecast sequence |
+| `/api/v1/threshold` | POST | JWT | Infer space-specific threshold |
+| `/api/v1/dosage` | POST | JWT | Calculate intervention dosage |
 | `/api/v1/alerts` | GET | JWT | Active alerts list |
 
 ## WebSocket Contract (Layer 2 → Layer 4)
@@ -67,8 +69,9 @@ All protected endpoints require `Authorization: Bearer <JWT>`. Device endpoints 
 
 ## DL API Contract (Layer 2 → Layer 3)
 
-- **Prediction:** `POST http://layer3-dl:8000/api/v1/predict` — receives sensor arrays (6AM-to-now + last 1h), returns 24-point `forecast_sequence` with `conf_upper` / `conf_lower`
-- **Evaluation:** `POST http://layer3-dl:8000/api/v1/evaluate` — receives target/reference windows, returns `is_sensor_anomaly`, `reconstruction_error`, `assessed_aqi`, `reliability_score`
+- **Prediction:** `POST http://layer3-dl:8000/api/v1/forecast` — receives sensor arrays (6AM-to-now + last 1h), returns 96-point `forecast_sequence` with `q10`, `q50`, `q90`
+- **Threshold:** `POST http://layer3-dl:8000/api/v1/threshold` — infers base PM2.5 threshold for a space
+- **Dosage:** `POST http://layer3-dl:8000/api/v1/dosage` — calculates filter level and run duration
 - **Pydantic validation:** pm25 [0, 2000], co2 [400, 5000], temperature [-20, 80], humidity [0, 100]
 
 ## Subagents
