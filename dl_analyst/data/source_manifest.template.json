@@ -1,0 +1,15 @@
+{
+  "provider": "",
+  "dataset": "",
+  "station_or_site_id": "",
+  "retrieved_at_utc": "",
+  "license": "",
+  "source_url_or_citation": "",
+  "timestamp_column": "timestamp",
+  "timezone": "",
+  "measurement_column": "pm25",
+  "measurement_unit": "ug/m3",
+  "cadence": "",
+  "transformations": [],
+  "notes": "Record actual provenance and limitations before using this source."
+}

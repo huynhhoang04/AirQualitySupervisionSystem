@@ -1,0 +1,28 @@
+{
+  "source_id": "uci_beijing_multisite_501",
+  "site_id": "Aotizhongxin",
+  "cadence": "1h",
+  "context_steps": 168,
+  "horizon_steps": 24,
+  "evaluated_origins": 487,
+  "scores": {
+    "persistence": {
+      "mae": 39.887790896972504,
+      "rmse": 47.323398314121285,
+      "pinball_q10": 12.822985173536441,
+      "pinball_q50": 19.943895448486252,
+      "pinball_q90": 13.488209837687332,
+      "interval_80_coverage": 0.5035078713210129,
+      "interval_80_width": 48.552368679085795
+    },
+    "seasonal_naive": {
+      "mae": 56.3038671822029,
+      "rmse": 66.71116690567142,
+      "pinball_q10": 21.607712072023865,
+      "pinball_q50": 28.15193359110145,
+      "pinball_q90": 19.2835529917809,
+      "interval_80_coverage": 0.370037645448323,
+      "interval_80_width": 49.50955521742176
+    }
+  }
+}

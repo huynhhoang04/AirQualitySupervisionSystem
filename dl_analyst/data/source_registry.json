@@ -1,0 +1,39 @@
+{
+  "sources": [
+    {
+      "source_id": "uci_beijing_pm25_381",
+      "name": "Beijing PM2.5",
+      "provider": "UCI Machine Learning Repository",
+      "doi": "10.24432/C5JS49",
+      "url": "https://archive.ics.uci.edu/dataset/381/beijing+pm2+5+data",
+      "license": "CC BY 4.0",
+      "attribution": "Song Chen. Beijing PM2.5. UCI Machine Learning Repository, 2017. https://doi.org/10.24432/C5JS49.",
+      "cadence": "1 hour",
+      "setting": "ambient_outdoor",
+      "status": "downloaded_and_audited"
+    },
+    {
+      "source_id": "uci_beijing_multisite_501",
+      "name": "Beijing Multi-Site Air Quality",
+      "provider": "UCI Machine Learning Repository",
+      "doi": "10.24432/C5RK5G",
+      "url": "https://archive.ics.uci.edu/dataset/501/beijing+pm2+5+data",
+      "license": "CC BY 4.0",
+      "attribution": "Chen, S. (2017). Beijing Multi-Site Air Quality [Dataset]. UCI Machine Learning Repository. https://doi.org/10.24432/C5RK5G.",
+      "cadence": "1 hour",
+      "setting": "ambient_outdoor",
+      "status": "downloaded_and_audited"
+    },
+    {
+      "source_id": "openaq_v3_vietnam",
+      "name": "OpenAQ Vietnam PM2.5",
+      "provider": "OpenAQ and underlying data providers",
+      "url": "https://docs.openaq.org/",
+      "license": "Per-source; retrieve license metadata before use",
+      "attribution": "OpenAQ and each underlying data provider, according to its license.",
+      "cadence": "unknown_until_sensor_metadata_audit",
+      "setting": "ambient_outdoor",
+      "status": "pending_api_key_and_coverage_audit"
+    }
+  ]
+}

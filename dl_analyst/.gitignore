@@ -1,0 +1,13 @@
+data/raw/*
+data/processed/*
+data/reports/*
+!data/reports/uci_inventory.json
+!data/reports/uci_aotizhongxin_backtest.json
+models/*
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+!data/reports/.gitkeep
+!models/.gitkeep
+__pycache__/
+.pytest_cache/
+.venv/

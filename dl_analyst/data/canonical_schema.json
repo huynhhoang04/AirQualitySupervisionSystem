@@ -1,0 +1,30 @@
+{
+  "schema_version": "1.0",
+  "format": "parquet",
+  "partition_keys": ["source_id", "site_id", "year", "month"],
+  "fields": {
+    "timestamp_utc": "UTC timestamp of the original observation; do not synthesize missing times",
+    "source_id": "Stable identifier from source_registry.json",
+    "dataset_version": "Source release/version identifier",
+    "site_id": "Source site or station identifier; one independent series per site",
+    "sensor_id": "Source sensor identifier when available",
+    "setting": "ambient_outdoor or indoor",
+    "latitude": "Optional decimal degrees",
+    "longitude": "Optional decimal degrees",
+    "pm25_ug_m3": "PM2.5 normalized to micrograms per cubic metre",
+    "pm10_ug_m3": "Optional PM10 normalized to micrograms per cubic metre",
+    "co2_ppm": "Optional directly measured CO2 only",
+    "co2_kind": "measured, equivalent, or null; eCO2 must never be marked measured",
+    "temperature_c": "Optional degrees Celsius",
+    "humidity_pct": "Optional relative humidity percent",
+    "pressure_hpa": "Optional hectopascals",
+    "original_value": "Original source value before normalization",
+    "original_unit": "Original source unit",
+    "quality_flags": "List: invalid_range, saturated, duplicate, missing, or source_quality_unknown",
+    "license_id": "Source-specific license identifier or URL",
+    "attribution": "Required attribution string",
+    "source_url": "Dataset/source reference",
+    "retrieved_at_utc": "Retrieval timestamp",
+    "transform_version": "Version of the deterministic adapter transformation"
+  }
+}
