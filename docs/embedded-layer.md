@@ -1,7 +1,9 @@
 # Detailed Plan — Layer 1: Embedded System Layer
 
-> **Version:** 2.1 (Translated to English, aligned with `embedded-engineer` and `cpp-platformIO-pro` subagent definitions)
-> **Reference:** [hardware_datasheet_reference.md](./hardware_datasheet_reference.md)
+> **Version:** 3.0 — **Single Integrated Node** (sensing + display + fan actuation on one ESP32-S3)
+> **Reference:** [hardware_datasheet_reference.md](./hardware_datasheet_reference.md) · [aqss-concept-v2.md](./aqss-concept-v2.md) · [io_contract.md](./io_contract.md)
+>
+> **Change from the earlier V2 draft:** the separate Actuator Node + relay is **removed**. One ESP32-S3 does everything, and the filter fan is an **Intel 4-wire PWM fan** driven through its PWM control pin (the 12 V rail stays constant) — not a relay.
 
 ---
 
@@ -9,81 +11,98 @@
 
 | # | Component | Model | Interface | Power | I2C Addr |
 | :---: | :--- | :--- | :---: | :---: | :---: |
-| 1 | Microcontroller | ESP32-S3-DevKitC-1 (N16R8) | — | 5V USB | — |
+| 1 | Microcontroller | ESP32-S3-DevKitC-1 (N16R8) | — | 5V (VIN) | — |
 | 2 | CO2/Temp/Hum Sensor | Sensirion SCD40 | **I2C** | 2.4–5.5V | **0x62** |
 | 3 | PM2.5 Dust Sensor | Sharp GP2Y1023AU0F | **PWM Digital** | 5V | — |
 | 4 | OLED Display | SSD1306 128×64 0.96" | **I2C** | 3.3V | **0x3C** |
+| 5 | **Filter fan** | **Intel CPU cooler fan, 4-wire PWM** | **PWM control pin** | 12V | — |
+| 6 | Filter media | HEPA H13 (mounted on fan outlet) | — | — | — |
+| 7 | Buck converter | LM2596S module (12V → 5V) | — | — | — |
+| 8 | Power supply | 12V/400W PSU (+ fuse 2–3A) | — | — | — |
+| 9 | Manual override | Push button + status LED | GPIO | 3.3V | — |
+
+**Physical limit (must be stated):** one Intel stock fan moves ~85–100 m³/h free-air and **~30–50 m³/h through HEPA media** ⇒ suitable for **rooms ≤ 10 m²** only. Larger rooms need a fan bank (5–6 fans for a 20 m² room).
 
 ---
 
-## 🔌 2. Hardware Wiring Diagram
+## 🔌 2. Hardware Wiring
+
+### 2.1 System Diagram
 
 ```text
-                    ┌──────────────────────────────┐
-                    │     ESP32-S3-DevKitC-1        │
-                    │          (N16R8)               │
-                    │                                │
-    I2C Bus ◄───────┤ GPIO 8 (SDA) ─────────────────┤──── SCD40 SDA (Pin 4)
-    (400 kHz)       │ GPIO 9 (SCL) ─────────────────┤──── SCD40 SCL (Pin 5)
-                    │                                │──── OLED SDA (Pin 4)
-                    │                    ────────────┤──── OLED SCL (Pin 3)
-                    │                                │
-                    │ GPIO 18 (Input) ◄──[Divider]───┤──── GP2Y1023 Vo (Pin 1)
-                    │                                │
-                    │ 3V3 ──────────────────────────┤──── SCD40 VDD (Pin 1)
-                    │                   ────────────┤──── OLED VCC (Pin 2)
-                    │                                │
-                    │ 5V  ──────────────────────────┤──── GP2Y1023 VCC (Pin 5)
-                    │               ──[150Ω]────────┤──── GP2Y1023 V_LED (Pin 4)
-                    │                                │
-                    │ GND ──────────────────────────┤──── All GNDs (Star Ground)
-                    └──────────────────────────────┘
+  ┌────────────────────────── POWER BLOCK ──────────────────────────┐
+  │                                                                  │
+  │  12V/400W PSU ──[Fuse 2-3A]──┬── Fan pin 2 (+12V, CONSTANT)      │
+  │                              │                                   │
+  │                              └── LM2596 IN                       │
+  │                                    LM2596 OUT (5.0V) ── ESP32 VIN│
+  │                                                                  │
+  │  GND (star): PSU ── Fan pin 1 ── ESP32 GND   ← MANDATORY common  │
+  └──────────────────────────────────────────────────────────────────┘
 
-    ┌─────────────────────────────────────────────────────┐
-    │ VOLTAGE DIVIDER CIRCUIT for GP2Y1023 Vo             │
-    │                                                     │
-    │  GP2Y1023 Vo ──── R1=1.0kΩ ──── GPIO 18 ──── R2=2.0kΩ ──── GND │
-    │                                                     │
-    │  HIGH: 5V × 2.0/(1.0+2.0) = 3.33V ✅              │
-    │  LOW:  < 0.8V ✅                                    │
-    └─────────────────────────────────────────────────────┘
+  ┌────────────────────────── I2C BLOCK (400 kHz) ───────────────────┐
+  │  ESP32 GPIO 8 (SDA) ──┬── SCD40 SDA (0x62)                       │
+  │                       └── OLED SDA  (0x3C)                       │
+  │  ESP32 GPIO 9 (SCL) ──┬── SCD40 SCL                              │
+  │                       └── OLED SCL                               │
+  └──────────────────────────────────────────────────────────────────┘
 
-    ┌─────────────────────────────────────────────────────┐
-    │ RC CIRCUIT for GP2Y1023 V_LED                       │
-    │                                                     │
-    │  +5V ──── R=150Ω ──── V_LED (Pin 4)                │
-    │                            │                        │
-    │                        C=220µF (Electrolytic)       │
-    │                            │                        │
-    │                       LED-GND (Pin 2)               │
-    └─────────────────────────────────────────────────────┘
+  ┌────────────────────────── DUST SENSOR BLOCK ─────────────────────┐
+  │  GP2Y1023 Vo ──[R1=1kΩ]──●──[R2=2kΩ]── GND                       │
+  │                          └──── GPIO 18 (input)                   │
+  │  GP2Y1023 V_LED ──[150Ω]── +5V,  C=220µF to LED-GND              │
+  └──────────────────────────────────────────────────────────────────┘
+
+  ┌────────────────────────── FAN CONTROL BLOCK ─────────────────────┐
+  │  ESP32 GPIO 5 ──[LEDC 25 kHz]──[2N2222 if needed]── Fan pin 4     │
+  │                (PWM INPUT — the 12V rail is NOT switched)         │
+  │  Fan pin 1 = GND · pin 2 = +12V · pin 3 = Tach (reserved)         │
+  └──────────────────────────────────────────────────────────────────┘
+
+  ┌────────────────────────── INTERFACE BLOCK ───────────────────────┐
+  │  GPIO 6 ── Push button (manual override, INPUT_PULLUP)            │
+  │  GPIO 7 ── Status LED + 220Ω ── GND                               │
+  └──────────────────────────────────────────────────────────────────┘
 ```
 
-### Detailed Pin Connection Table
+### 2.2 Pin Connection Table
 
 | Device | Device Pin | ESP32-S3 Pin | Protocol | Notes |
 | :--- | :--- | :--- | :--- | :--- |
-| **SCD40** | Pin 1 (VDD) | 3V3 | Power | + 100nF & 10µF decoupling caps close to pin |
-| | Pin 2 (VDDH) | Connect to VDD | Power | **Must be connected to VDD on PCB** |
+| **SCD40 (Module)**| Pin VCC | 3V3 | Power | Plugs directly to 3.3V (breakout board handles VDD/VDDH internally) |
 | | Pin 3 (GND) | GND | Power | |
-| | Pin 4 (SDA) | **GPIO 8** | I2C Data | Pull-up on board module |
-| | Pin 5 (SCL) | **GPIO 9** | I2C Clock | Pull-up on board module |
-| **OLED SSD1306** | Pin 1 (GND) | GND | Power | ⚠️ Check silkscreen carefully! |
-| | Pin 2 (VCC) | 3V3 | Power | Module has 3.3V LDO onboard |
+| | Pin 4 (SDA) | **GPIO 8** | I2C Data | Pull-up on module |
+| | Pin 5 (SCL) | **GPIO 9** | I2C Clock | Pull-up on module |
+| **OLED SSD1306** | Pin 1 (GND) | GND | Power | ⚠️ Check silkscreen (GND-VCC vs VCC-GND)! |
+| | Pin 2 (VCC) | 3V3 | Power | Onboard LDO |
 | | Pin 3 (SCL) | **GPIO 9** | I2C Clock | Shared bus with SCD40 |
 | | Pin 4 (SDA) | **GPIO 8** | I2C Data | Shared bus with SCD40 |
-| **GP2Y1023AU0F** | Pin 1 (Vo) | **GPIO 18** (via divider) | PWM Input | R1=1kΩ + R2=2kΩ voltage divider |
+| **GP2Y1023AU0F** | Pin 1 (Vo) | **GPIO 18** (via divider) | PWM Input | R1=1kΩ + R2=2kΩ |
 | | Pin 2 (LED-GND) | GND | Power | Star ground, isolated |
-| | Pin 3 (S-GND) | GND | Power | Connect to shield/casing |
-| | Pin 4 (V_LED) | 5V via 150Ω | Power | + 220µF capacitor to LED-GND |
+| | Pin 3 (S-GND) | GND | Power | Shield/casing |
+| | Pin 4 (V_LED) | 5V via 150Ω | Power | + 220µF to LED-GND |
 | | Pin 5 (VCC) | 5V | Power | Regulated 5V ±5% |
+| **Intel fan (4-wire)** | Pin 1 (GND) | GND | Power | Common GND mandatory |
+| | Pin 2 (+12V) | 12V rail via fuse | Power | **Constant — never PWM this line** |
+| | Pin 3 (Tach) | *(reserved)* | Input | For future RPM feedback |
+| | Pin 4 (PWM) | **GPIO 5** | PWM Input | LEDC 25 kHz; level-shift via 2N2222 if the fan ignores 3.3V |
+| **Button** | — | **GPIO 6** | GPIO Input | `INPUT_PULLUP`, manual override |
+| **Status LED** | — | **GPIO 7** | GPIO Output | + 220Ω series |
 
-### Reasons for Choosing GPIO 18 for GP2Y1023:
-- **Not a Strapping pin** (Avoid GPIO 0, 3, 45, 46).
-- **Not used for USB** (GPIO 19, 20 are reserved for USB D−/D+).
+### 2.3 Pin Selection Rationale (GPIO 5 & 18)
+
+- **Not strapping pins** (avoid GPIO 0, 3, 45, 46).
+- **Not used by USB** (GPIO 19, 20) or UART bridge (GPIO 43, 44).
 - **Not blocked by Octal PSRAM** (GPIO 33–37 are locked on N16R8).
-- **ADC2 Group** (GPIO 18 = ADC2_CH7) but we use it as a digital input, not ADC → **not affected by Wi-Fi**.
-- Supports **Interrupts (attachInterrupt)** and **PCNT** via the GPIO Matrix.
+- GPIO 18 is in the ADC2 group but used as a **digital input** → unaffected by Wi-Fi.
+
+### 2.4 Pre-Power Checklist (do this before the first boot)
+
+1. **Set the LM2596 output to exactly 5.0 V with a multimeter BEFORE connecting the ESP32.** Modules ship unadjusted and can exceed 5 V — this destroys the board.
+2. OLED silkscreen orientation (GND-VCC vs VCC-GND) — reversed polarity kills the SSD1306.
+3. If the PSU is an **ATX** unit: short **PS_ON (green wire)** to GND to switch it on without a motherboard; it also provides a free 5 V rail (buck optional).
+4. Identify the fan's 4 wires with a multimeter — do not trust colours.
+5. Verify common GND between PSU, fan and ESP32 (continuity test).
 
 ---
 
@@ -105,164 +124,156 @@
 | Library | Version | Purpose |
 | :--- | :--- | :--- |
 | `SensirionI2CScd4x` | Latest | Official Sensirion driver for SCD40 (I2C) |
-| `U8g2` | Latest | OLED SSD1306 128×64 driver (Full framebuffer, UTF-8) |
+| `U8g2` | Latest | OLED SSD1306 128×64 driver (full framebuffer, UTF-8) |
 | `WiFi` | Built-in | 2.4 GHz Wi-Fi connectivity |
-| `PubSubClient` | Latest | Lightweight MQTT Client |
+| `PubSubClient` | Latest | Lightweight MQTT client |
 | `ArduinoJson` | v7.x | Serialize/Deserialize JSON payloads |
-| `NTPClient` / `time.h` | Built-in | NTP time synchronization |
+| `Preferences` | Built-in | NVS storage (space_id, fan baseline W₀, config) |
+| LEDC | Built-in | Hardware PWM for the fan |
+
+> **AQI is no longer computed on the device.** AQI is a NowCast-derived, display-only metric computed by the backend (see `io_contract.md` §13). This removes `aqi_calculator` from the firmware entirely.
 
 ### 3.3 FreeRTOS Task Allocation (Dual-Core)
 
 ```text
 ┌─── Core 0 (PRO_CPU) ──────────────────────────────────────────┐
-│  ┌─────────────────────────────────────────────────────────┐   │
-│  │ [System Tasks - Automatic]                              │   │
-│  │  • wifi_task (Wi-Fi driver)                             │   │
-│  │  • lwIP tcp/ip thread                                   │   │
-│  │  • BLE controller (if used)                             │   │
-│  └─────────────────────────────────────────────────────────┘   │
-│  ┌─────────────────────────────────────────────────────────┐   │
-│  │ Task_MQTT_Network (Priority 2, Stack 8192)              │   │
-│  │  • Maintain Wi-Fi connection (auto-reconnect)           │   │
-│  │  • NTP sync every 1 hour                                │   │
-│  │  • MQTT connect / publish / subscribe                   │   │
-│  │  • Publish telemetry JSON every 5 seconds               │   │
-│  │  • Handle server commands (subscribe topic)             │   │
-│  └─────────────────────────────────────────────────────────┘   │
-└────────────────────────────────────────────────────────────────┘
+│  [System Tasks - Automatic] wifi_task, lwIP, events           │
+│  ┌─────────────────────────────────────────────────────────┐  │
+│  │ Task_MQTT_Network (Priority 2, Stack 8192)              │  │
+│  │  • Wi-Fi connection (auto-reconnect)                    │  │
+│  │  • NTP sync every 1 hour                                │  │
+│  │  • MQTT connect (with LWT) / publish / subscribe        │  │
+│  │  • Publish telemetry JSON every 5 seconds               │  │
+│  │  • Publish actuator/state on change + every 5 s when ON │  │
+│  │  • Handle server commands (set_actuator, warnings...)   │  │
+│  │  • Fail-safe watchdog: no command for 10 min → fan OFF  │  │
+│  └─────────────────────────────────────────────────────────┘  │
+└───────────────────────────────────────────────────────────────┘
 
 ┌─── Core 1 (APP_CPU) ──────────────────────────────────────────┐
-│  ┌─────────────────────────────────────────────────────────┐   │
-│  │ Task_ReadSCD40 (Priority 2, Stack 4096)                 │   │
-│  │  • Call scd4x.readMeasurement() every 5 seconds         │   │
-│  │  • Check data ready flag before reading                 │   │
-│  │  • Apply Moving Average (N=5) for CO2, Temp, Hum        │   │
-│  │  • Write to shared struct (mutex-protected)             │   │
-│  └─────────────────────────────────────────────────────────┘   │
-│  ┌─────────────────────────────────────────────────────────┐   │
-│  │ Task_ReadDustPWM (Priority 3, Stack 4096)               │   │
-│  │  • Interrupt-based pulse width measurement              │   │
-│  │  • Rolling average ~100 samples/sec → 1 value/sec       │   │
-│  │  • Subtract baseline W₀, convert to µg/m³               │   │
-│  │  • Filter outliers (drop pulse < 6µs or > 7500µs)       │   │
-│  │  • Write to shared struct (mutex-protected)             │   │
-│  └─────────────────────────────────────────────────────────┘   │
-│  ┌─────────────────────────────────────────────────────────┐   │
-│  │ Task_UpdateOLED (Priority 1, Stack 4096)                │   │
-│  │  • Read from shared struct                              │   │
-│  │  • Render 128×64 OLED UI (U8g2 Full Buffer)             │   │
-│  │  • Update every 1 second                                │   │
-│  │  • Display Wi-Fi/MQTT status icons                      │   │
-│  │  • Anti burn-in: pixel shift ±1px every 30 mins         │   │
-│  │  • Auto-sleep after 3 mins of no value change           │   │
-│  └─────────────────────────────────────────────────────────┘   │
-└────────────────────────────────────────────────────────────────┘
+│  ┌─────────────────────────────────────────────────────────┐  │
+│  │ Task_ReadSCD40 (Priority 2, Stack 4096)                 │  │
+│  │  • readMeasurement() every 5 s, moving average N=5      │  │
+│  └─────────────────────────────────────────────────────────┘  │
+│  ┌─────────────────────────────────────────────────────────┐  │
+│  │ Task_ReadDustPWM (Priority 3, Stack 4096)               │  │
+│  │  • IRAM_ATTR ISR pulse measurement (~100 samples/s)     │  │
+│  │  • Subtract baseline W₀ → µg/m³, filter outliers        │  │
+│  └─────────────────────────────────────────────────────────┘  │
+│  ┌─────────────────────────────────────────────────────────┐  │
+│  │ Task_FanControl (Priority 3, Stack 3072)                │  │
+│  │  • Apply commanded level → PWM duty (LEDC 25 kHz)       │  │
+│  │  • Kickstart pulse on start-up from OFF                 │  │
+│  │  • Accumulate filter runtime                            │  │
+│  │  • Read manual override button (priority over network)  │  │
+│  └─────────────────────────────────────────────────────────┘  │
+│  ┌─────────────────────────────────────────────────────────┐  │
+│  │ Task_UpdateOLED (Priority 1, Stack 4096)                │  │
+│  │  • Values + fan state + backend early warnings          │  │
+│  │  • Anti burn-in pixel shift, auto-sleep                 │  │
+│  └─────────────────────────────────────────────────────────┘  │
+└───────────────────────────────────────────────────────────────┘
 ```
 
 ### 3.4 Shared Data Structure & Thread Safety
 
 ```cpp
-// Shared sensor data struct across Tasks (mutex-protected)
+// Shared state across tasks (mutex-protected)
 typedef struct {
-    char  space_id[32];      // Space ID the device belongs to
-    bool  warning_active;    // True if early warning is active
-    char  warning_msg[64];   // Warning message from backend
-    
-    // SCD40 data
-    float co2_ppm;           // CO2 (ppm), range 400-2000
-    float temperature_c;     // Temperature (°C)
-    float humidity_pct;      // Humidity (%)
-    bool  scd40_ready;       // SCD40 read success flag
-    
-    // GP2Y1023AU0F data  
-    float pm25_ugm3;         // PM2.5 Dust (µg/m³)
-    float dust_pulse_us;     // Average pulse width (µs) — debug
-    bool  dust_ready;        // Dust sensor stabilized flag
-    
-    // Computed
-    int   aqi_index;         // AQI calculated from PM2.5
-    char  aqi_level[16];     // "Good", "Moderate", "Unhealthy", etc.
-    
+    char  space_id[24];        // NVS-persisted, set via set_space
+    bool  warning_active;      // Early warning from backend
+    char  warning_msg[96];     // Warning message from display_warning
+
+    // SCD40
+    float co2_ppm;
+    float temperature_c;
+    float humidity_pct;
+    bool  scd40_ready;
+
+    // GP2Y1023AU0F
+    float pm25_ugm3;
+    float dust_pulse_us;       // Average pulse width (µs) — debug
+    bool  dust_ready;
+
+    // Fan (V2 actuation)
+    uint8_t fan_level;         // 0-3 commanded level
+    uint8_t fan_duty_pct;      // 0-100 actual duty
+    bool    fan_state;         // ON/OFF
+    uint8_t fan_mode;          // 0=AUTO, 1=MANUAL
+    uint32_t filter_runtime_s; // Cumulative filter runtime (seconds)
+
     // System
-    int   wifi_rssi;         // Wi-Fi signal strength (dBm)
-    bool  mqtt_connected;    // MQTT connection status
-    uint32_t timestamp;      // Unix timestamp (NTP)
+    int   wifi_rssi;
+    bool  mqtt_connected;
+    uint32_t timestamp;
+    uint32_t min_free_heap;
 } SensorData_t;
 
 SensorData_t g_sensorData;
 SemaphoreHandle_t g_dataMutex;
 ```
 
-### 3.5 MQTT Telemetry Payload (JSON)
+> `aqi_index` / `aqi_level` were **removed** — the device no longer computes AQI (server-side NowCast, display-only). The old `char aqi_level[16]` also overflowed on `"Unhealthy for Sensitive Groups"` (30 chars).
+
+### 3.5 MQTT Telemetry Payload
 
 ```json
 {
   "device_id": "AQSS_ESP32S3_01",
-  "space_id": "space_201",
+  "space_id": "SP_201",
   "timestamp": 1724217600,
   "sensors": {
     "pm25": 35.4,
-    "co2": 620,
+    "co2": 620.0,
     "temperature": 29.5,
     "humidity": 68.2
-  },
-  "computed": {
-    "aqi_index": 101,
-    "aqi_level": "Unhealthy"
   },
   "system": {
     "wifi_rssi": -65,
     "uptime_sec": 3600,
-    "free_heap": 245760
+    "free_heap": 245760,
+    "min_free_heap": 185000
   }
 }
 ```
 
-**MQTT Topics:**
-- **Publish:** `aqss/devices/AQSS_ESP32S3_01/telemetry` (QoS 1, every 5 seconds)
-- **Subscribe:** `aqss/devices/AQSS_ESP32S3_01/command` (Receive commands: reboot, recalibrate, set interval...)
+**MQTT Topics** (full registry in `io_contract.md` §8):
+
+| Topic | Direction | Notes |
+| :--- | :--- | :--- |
+| `aqss/devices/{id}/telemetry` | Publish | QoS 1, every 5 s |
+| `aqss/devices/{id}/actuator/state` | Publish | On change + every 5 s while ON |
+| `aqss/devices/{id}/status` | Publish | `ONLINE` on connect (retain), `OFFLINE` via LWT |
+| `aqss/devices/{id}/command` | Subscribe | `set_actuator`, `display_warning`, `set_space`, `reboot`, ... |
+
+> Buffer size must be **≥512 bytes** (`mqttClient.setBufferSize(512)` and `char jsonBuffer[512]`). The V1 384-byte buffer overflows once `space_id` + `min_free_heap` are added.
 
 ---
 
-## 🧪 4. GP2Y1023AU0F Reading Method (PWM Interrupt-Based)
+## 🧪 4. GP2Y1023AU0F Reading (PWM Interrupt-Based)
 
-> **⚠️ GP2Y1023AU0F ≠ GP2Y1010AU0F.** This sensor has an integrated MCU, triggers its own IR LED, and outputs digital PWM. NO NEED to manually pulse the LED, NEVER use `analogRead()`.
+> **⚠️ GP2Y1023AU0F ≠ GP2Y1010AU0F.** Integrated MCU, self-triggered IR LED, digital PWM output. Never `analogRead()`, never pulse an LED pin.
 
-### 4.1 Operating Principle
+### 4.1 Conversion
 
-```text
-     GP2Y1023AU0F Internal MCU
-     ┌──────────────────────────────────────┐
-     │  Self-triggers IR LED (100 Hz)       │
-     │  Self-reads phototransistor (10-bit) │
-     │  Converts to PWM output              │
-     └──────────────────────┬───────────────┘
-                            │ VOUT (PWM)
-                            ▼
-     ┌─────────────────────────────────────────────────────────┐
-     │  PWM Signal (T = 10ms, f = 100Hz):                      │
-     │                                                         │
-     │   ┌──── W (High) ────┐                                  │
-     │   │                  │                                  │
-     │ ──┘                  └──────────────── (Low) ──────── ──│
-     │   |<--- W (µs) ----->|<-- (T - W) -->|                  │
-     │                                                         │
-     │  W is directly proportional to dust concentration:      │
-     │  Dust (µg/m³) = (W - W₀) / 14.0                         │
-     └─────────────────────────────────────────────────────────┘
+```
+Dust (µg/m³) = (W − W₀) / 14.0          W = pulse width (µs), W₀ = clean-air baseline
+PWM period 10 ms (100 Hz) · pulse range 6.8 µs – 7000 µs · detection 0–500 µg/m³ (saturates ~750)
 ```
 
-### 4.2 Reading Code (Interrupt-Based, Non-Blocking, Production-Ready)
+### 4.2 Reading Code
 
 ```cpp
-// ===== GP2Y1023AU0F PWM Reader =====
-#define DUST_PWM_PIN          18      // GPIO 18 (via 1kΩ/2kΩ voltage divider)
-#define DUST_SENSITIVITY      14.0f   // µs per µg/m³
-#define DUST_BASELINE_W0      1350    // µs — calibrate in clean air
-#define DUST_SAMPLE_WINDOW_MS 1000    // Average window (1 second)
-#define DUST_PULSE_MIN_US     6       // Minimum valid pulse width
-#define DUST_PULSE_MAX_US     7500    // Maximum valid pulse width
+#include <Preferences.h>
 
+#define DUST_PWM_PIN          18
+#define DUST_SENSITIVITY      14.0f   // µs per µg/m³
+#define DUST_SAMPLE_WINDOW_MS 1000
+#define DUST_PULSE_MIN_US     7       // datasheet min ≈ 6.8 µs  (V1 used 6 — too permissive)
+#define DUST_PULSE_MAX_US     7000    // datasheet max = 7.0 ms  (V1 used 7500 — accepted invalid pulses)
+#define PM25_SATURATION       750.0f  // physical saturation limit
+
+Preferences nvs;                        // NVS — the ESP32-S3 has NO EEPROM
 volatile uint32_t _dustPulseStart = 0;
 volatile uint32_t _dustPulseWidth = 0;
 volatile bool     _dustNewPulse   = false;
@@ -271,137 +282,100 @@ void IRAM_ATTR dustPWM_ISR() {
     uint32_t now = micros();
     if (digitalRead(DUST_PWM_PIN) == HIGH) {
         _dustPulseStart = now;
-    } else {
-        if (_dustPulseStart > 0) {
-            _dustPulseWidth = now - _dustPulseStart;
-            _dustNewPulse = true;
-        }
+    } else if (_dustPulseStart > 0) {
+        _dustPulseWidth = now - _dustPulseStart;
+        _dustNewPulse = true;
     }
 }
 
 void Task_ReadDustPWM(void* pvParam) {
     pinMode(DUST_PWM_PIN, INPUT);
-    
-    // Wait 1.5s for GP2Y1023 to boot (1s HIGH startup)
-    vTaskDelay(pdMS_TO_TICKS(1500));
-    
+    vTaskDelay(pdMS_TO_TICKS(1500));      // GP2Y1023 holds HIGH for 1 s at boot
+
+    // Baseline W₀ from NVS (set via `recalibrate_dust` in clean air)
+    nvs.begin("aqss", false);
+    float baselineW0 = nvs.getFloat("w0", 1350.0f);
+    nvs.end();
+
     attachInterrupt(digitalPinToInterrupt(DUST_PWM_PIN), dustPWM_ISR, CHANGE);
-    
-    float sumPulse = 0;
-    int sampleCount = 0;
+
+    float sumPulse = 0; int sampleCount = 0;
     uint32_t lastCalc = millis();
-    
+
     for (;;) {
         if (_dustNewPulse) {
             _dustNewPulse = false;
             uint32_t pw = _dustPulseWidth;
-            
-            // Filter valid pulses
             if (pw >= DUST_PULSE_MIN_US && pw <= DUST_PULSE_MAX_US) {
-                sumPulse += pw;
-                sampleCount++;
+                sumPulse += pw; sampleCount++;
             }
         }
-        
-        // Calculate average every 1 second (~100 samples)
+
         if (millis() - lastCalc >= DUST_SAMPLE_WINDOW_MS && sampleCount > 0) {
             float avgPulse = sumPulse / sampleCount;
-            sumPulse = 0;
-            sampleCount = 0;
-            lastCalc = millis();
-            
-            float deltaPulse = avgPulse - DUST_BASELINE_W0;
-            if (deltaPulse < 0) deltaPulse = 0;
-            float pm25 = deltaPulse / DUST_SENSITIVITY;
-            
-            // Write to shared struct
+            sumPulse = 0; sampleCount = 0; lastCalc = millis();
+
+            float delta = avgPulse - baselineW0;
+            if (delta < 0) delta = 0;
+            float pm25 = delta / DUST_SENSITIVITY;
+            if (pm25 > PM25_SATURATION) pm25 = PM25_SATURATION;   // flag saturation, not a real value
+
             if (xSemaphoreTake(g_dataMutex, pdMS_TO_TICKS(10))) {
                 g_sensorData.pm25_ugm3 = pm25;
                 g_sensorData.dust_pulse_us = avgPulse;
                 g_sensorData.dust_ready = true;
-                // Calculate AQI from PM2.5
-                g_sensorData.aqi_index = calculateAQI_PM25(pm25);
-                getAQILevel(g_sensorData.aqi_index, g_sensorData.aqi_level);
                 xSemaphoreGive(g_dataMutex);
             }
         }
-        
-        vTaskDelay(pdMS_TO_TICKS(1)); // Yield CPU
+        vTaskDelay(pdMS_TO_TICKS(1));
     }
 }
 ```
 
 ---
 
-## 📡 5. SCD40 Reading (I2C — Official Sensirion Library)
+## 📡 5. SCD40 Reading (I2C)
 
 ```cpp
 #include <SensirionI2CScd4x.h>
-#include <Wire.h>
 
+// Wire.begin() is called ONCE in setup() — shared with U8g2 (see §6).
+extern TwoWire g_i2c;
 SensirionI2CScd4x scd4x;
 
 void Task_ReadSCD40(void* pvParam) {
-    // Init I2C
-    Wire.begin(8, 9, 400000); // SDA=GPIO8, SCL=GPIO9, 400kHz
-    scd4x.begin(Wire);
-    
-    // Wait 1 second for SCD40 I2C to be ready
-    vTaskDelay(pdMS_TO_TICKS(1000));
-    
-    // Stop any ongoing measurements
+    scd4x.begin(g_i2c);
+    vTaskDelay(pdMS_TO_TICKS(1000));      // power-on → I2C ready
+
     scd4x.stopPeriodicMeasurement();
     vTaskDelay(pdMS_TO_TICKS(500));
-    
-    // (Optional) Set Temperature Offset to compensate for ESP32 heat
-    // Default factory = 4.0°C, adjust as needed
-    // scd4x.setTemperatureOffset(4.0);
-    
-    // (Optional) Set altitude compensation
-    // scd4x.setSensorAltitude(10);
-    
-    // Start periodic measurement (every 5 seconds)
-    scd4x.startPeriodicMeasurement();
-    
-    // Moving Average buffers
-    float co2Buffer[5] = {0};
-    float tempBuffer[5] = {0};
-    float humBuffer[5] = {0};
-    int bufIdx = 0;
-    
+    // scd4x.setTemperatureOffset(4.0);   // optional: ESP32 self-heating
+    scd4x.startPeriodicMeasurement();     // 5 s cycle (SCD40 has NO single-shot mode)
+
+    float co2Buf[5] = {0}, tBuf[5] = {0}, hBuf[5] = {0};
+    int idx = 0;
+
     for (;;) {
-        vTaskDelay(pdMS_TO_TICKS(5000)); // Wait 5 seconds (SCD40 cycle)
-        
-        // Check data ready flag
+        vTaskDelay(pdMS_TO_TICKS(5000));
         bool dataReady = false;
         scd4x.getDataReadyFlag(dataReady);
         if (!dataReady) continue;
-        
+
         uint16_t co2Raw;
         float temperature, humidity;
-        uint16_t error = scd4x.readMeasurement(co2Raw, temperature, humidity);
-        
-        if (error != 0 || co2Raw == 0) continue; // Skip on error
-        
-        // Moving Average
-        co2Buffer[bufIdx] = (float)co2Raw;
-        tempBuffer[bufIdx] = temperature;
-        humBuffer[bufIdx] = humidity;
-        bufIdx = (bufIdx + 1) % 5;
-        
-        float avgCO2 = 0, avgTemp = 0, avgHum = 0;
-        for (int i = 0; i < 5; i++) {
-            avgCO2 += co2Buffer[i];
-            avgTemp += tempBuffer[i];
-            avgHum += humBuffer[i];
-        }
-        avgCO2 /= 5.0f; avgTemp /= 5.0f; avgHum /= 5.0f;
-        
-        // Write to shared struct
+        if (scd4x.readMeasurement(co2Raw, temperature, humidity) != 0 || co2Raw == 0) continue;
+
+        co2Buf[idx] = co2Raw; tBuf[idx] = temperature; hBuf[idx] = humidity;
+        idx = (idx + 1) % 5;
+
+        float co2 = 0, t = 0, h = 0;
+        for (int i = 0; i < 5; i++) { co2 += co2Buf[i]; t += tBuf[i]; h += hBuf[i]; }
+        co2 /= 5.0f; t /= 5.0f; h /= 5.0f;
+
         if (xSemaphoreTake(g_dataMutex, pdMS_TO_TICKS(10))) {
-            g_sensorData.co2_ppm = avgCO2;
-            g_sensorData.temperature_c = avgTemp;
-            g_sensorData.humidity_pct = avgHum;
+            g_sensorData.co2_ppm = co2;
+            g_sensorData.temperature_c = t;
+            g_sensorData.humidity_pct = h;
             g_sensorData.scd40_ready = true;
             xSemaphoreGive(g_dataMutex);
         }
@@ -409,113 +383,158 @@ void Task_ReadSCD40(void* pvParam) {
 }
 ```
 
+> **I2C bus ownership fix (V1 bug):** V1 called `Wire.begin()` inside `Task_ReadSCD40` while the U8g2 constructor initialised the same peripheral independently. Fix: call `Wire.begin(8, 9, 400000)` **once in `setup()`**, and lock the bus at 400 kHz (overclocking causes SCD40 CRC errors).
+
 ---
 
-## 🖥️ 6. OLED 128x64 Interface (U8g2 Full Framebuffer)
+## 🖥️ 6. OLED 128×64 (U8g2 Full Framebuffer) — Values + Early Warning
 
-### Screen Layout
+The OLED is now a **warning channel**: the backend pushes `display_warning` commands with forecast-based messages *before* a threshold breach.
 
 ```text
-┌──────────────────────────────────────┐ 128px
-│ AQI:101 [▓▓▓▓▓░░░░░]    ▲ 10:24│   Row 0-15  (16px)
+┌──────────────────────────────────────┐
+│ PM2.5 35.4     FAN:L2 ▓▓▓░░    ▲wifi │
+│ CO2 620 ppm    T:29.5C  H:68.2%      │
 ├──────────────────────────────────────┤
-│ PM2.5    35.4 µg/m³     [UnH]  │   Row 16-31 (16px)
-│ CO2      620  ppm       [OK]   │   Row 32-47 (16px)
-│ Temp  29.5°C  Hum  68.2%      │   Row 48-63 (16px)
+│ ⚠ PM2.5 rising — breach ~01:00       │   ← pushed by backend (display_warning)
 └──────────────────────────────────────┘
-  ▲ = Wi-Fi icon    [UnH] = AQI Level badge
 ```
-
-### OLED Render Code
 
 ```cpp
 #include <U8g2lib.h>
 
-#define I2C_SDA 8
-#define I2C_SCL 9
-
-U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(
-    U8G2_R0, U8X8_PIN_NONE, I2C_SCL, I2C_SDA
-);
+U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, U8X8_PIN_NONE, /*SCL*/ 9, /*SDA*/ 8);
 
 void Task_UpdateOLED(void* pvParam) {
     u8g2.begin();
-    u8g2.enableUTF8Print();
-    u8g2.setContrast(0xCF); // High contrast
-    
-    int8_t pixelShiftX = 0; // Anti burn-in
-    uint32_t lastShift = millis();
-    
+    u8g2.setContrast(0xCF);
+
+    int8_t shift = 0; uint32_t lastShift = millis();
+
     for (;;) {
-        SensorData_t data;
-        if (xSemaphoreTake(g_dataMutex, pdMS_TO_TICKS(10))) {
-            data = g_sensorData; // Copy snapshot
-            xSemaphoreGive(g_dataMutex);
-        }
-        
-        // Anti burn-in: shift ±1px every 30 mins
-        if (millis() - lastShift > 1800000) {
-            pixelShiftX = (pixelShiftX == 0) ? 1 : 0;
-            lastShift = millis();
-        }
-        
+        SensorData_t d;
+        if (xSemaphoreTake(g_dataMutex, pdMS_TO_TICKS(10))) { d = g_sensorData; xSemaphoreGive(g_dataMutex); }
+
+        if (millis() - lastShift > 1800000) { shift ^= 1; lastShift = millis(); }
+
         u8g2.clearBuffer();
-        int ox = pixelShiftX; // X Offset
-        
-        // === Header: AQI Gauge + Wi-Fi Icon ===
-        u8g2.setFont(u8g2_font_helvB10_tr);
-        char aqiBuf[16];
-        snprintf(aqiBuf, sizeof(aqiBuf), "AQI:%d", data.aqi_index);
-        u8g2.drawStr(ox, 13, aqiBuf);
-        
-        // AQI Progress Bar (50px wide)
-        u8g2.drawFrame(ox + 52, 3, 50, 10);
-        int barWidth = constrain(data.aqi_index * 48 / 500, 0, 48);
-        u8g2.drawBox(ox + 53, 4, barWidth, 8);
-        
-        // Wi-Fi icon (simple triangle)
-        if (data.wifi_rssi < 0) {
-            u8g2.drawTriangle(ox+118, 12, ox+122, 2, ox+126, 12);
-        }
-        
-        u8g2.drawHLine(0, 16, 128); // Separator
-        
-        // === Body: Sensor Values ===
         u8g2.setFont(u8g2_font_helvR08_tr);
-        
-        if (data.warning_active) {
-            u8g2.drawStr(ox, 29, "WARNING!");
-            u8g2.drawStr(ox, 43, data.warning_msg);
+
+        char l1[32];
+        snprintf(l1, sizeof(l1), "PM2.5 %.1f  FAN:%s L%u", d.pm25_ugm3,
+                 d.fan_state ? "ON" : "OFF", d.fan_level);
+        u8g2.drawStr(shift, 12, l1);
+
+        char l2[32];
+        snprintf(l2, sizeof(l2), "CO2 %dppm T:%.1fC H:%.0f%%",
+                 (int)d.co2_ppm, d.temperature_c, d.humidity_pct);
+        u8g2.drawStr(shift, 26, l2);
+
+        u8g2.drawHLine(0, 32, 128);
+
+        if (d.warning_active) {                       // Early warning from backend
+            u8g2.setFont(u8g2_font_6x10_tr);
+            u8g2.drawStr(shift, 46, "! EARLY WARNING");
+            u8g2.drawStr(shift, 58, d.warning_msg);
         } else {
-            char line1[32], line2[32], line3[32];
-            snprintf(line1, sizeof(line1), "PM2.5  %.1f ug/m3", data.pm25_ugm3);
-            snprintf(line2, sizeof(line2), "CO2    %d ppm", (int)data.co2_ppm);
-            snprintf(line3, sizeof(line3), "T:%.1fC  H:%.1f%%", 
-                     data.temperature_c, data.humidity_pct);
-            
-            u8g2.drawStr(ox, 29, line1);
-            u8g2.drawStr(ox + 100, 29, data.aqi_level);
-            u8g2.drawStr(ox, 43, line2);
-            u8g2.drawStr(ox, 60, line3);
+            u8g2.setFont(u8g2_font_6x10_tr);
+            u8g2.drawStr(shift, 46, "Monitoring...");
         }
-        
-        // MQTT status dot
-        if (data.mqtt_connected) {
-            u8g2.drawDisc(ox + 124, 58, 2); // Filled circle = connected
-        } else {
-            u8g2.drawCircle(ox + 124, 58, 2); // Empty circle = disconnected
-        }
-        
-        u8g2.sendBuffer(); // Takes ~23ms @ 400kHz
-        
-        vTaskDelay(pdMS_TO_TICKS(1000)); // Update every 1 second
+
+        if (d.mqtt_connected) u8g2.drawDisc(124, 60, 2); else u8g2.drawCircle(124, 60, 2);
+        u8g2.sendBuffer();
+        vTaskDelay(pdMS_TO_TICKS(1000));
     }
 }
 ```
 
 ---
 
-## 🌐 7. Network & MQTT Connection (Wi-Fi + NTP + MQTT)
+## 🌀 7. Fan Control (NEW — the actuation path)
+
+The fan is an **Intel 4-wire PWM fan**: pin 2 is fed a **constant +12 V**, and speed is set by a 25 kHz PWM signal on **pin 4** (PWM input — not a tachometer). PWMing the power line is **not** used.
+
+### 7.1 Level → Duty Mapping
+
+| Level (backend) | PWM duty | Meaning |
+| :---: | :---: | :--- |
+| 0 | 0 % | OFF |
+| 1 | 35 % | Low |
+| 2 | 60 % | Medium |
+| 3 | 90 % | High |
+
+Duty below ~20 % can stall a BLDC fan, hence discrete levels + a `min_duty` floor + a kickstart pulse.
+
+### 7.2 Code
+
+```cpp
+#define FAN_PWM_PIN     5
+#define FAN_PWM_CH      0
+#define FAN_PWM_FREQ    25000   // 25 kHz — above audible range
+#define FAN_PWM_RES     8       // 0-255
+#define FAN_MIN_DUTY    51      // ≈20% — below this a BLDC fan may stall
+#define FAN_KICKSTART_MS 200
+
+static const uint8_t levelToDuty[4] = {0, 89, 153, 230};  // 0/35/60/90 %
+
+volatile uint8_t  cmdLevel = 0;
+volatile uint8_t  cmdMode  = 0;          // 0=AUTO 1=MANUAL
+volatile bool     cmdState = false;
+volatile uint32_t lastCommandMs = 0;
+
+void fanApplyLevel(uint8_t level, bool on) {
+    uint8_t duty = (on && level > 0) ? max((int)levelToDuty[level], (int)FAN_MIN_DUTY) : 0;
+
+    if (on && duty > 0) {
+        ledcWrite(FAN_PWM_CH, 255);          // kickstart pulse
+        vTaskDelay(pdMS_TO_TICKS(FAN_KICKSTART_MS));
+    }
+    ledcWrite(FAN_PWM_CH, duty);
+
+    if (xSemaphoreTake(g_dataMutex, pdMS_TO_TICKS(10))) {
+        g_sensorData.fan_level = level;
+        g_sensorData.fan_duty_pct = (duty * 100) / 255;
+        g_sensorData.fan_state = on && duty > 0;
+        g_sensorData.fan_mode = cmdMode;
+        xSemaphoreGive(g_dataMutex);
+    }
+}
+
+void Task_FanControl(void* pvParam) {
+    ledcSetup(FAN_PWM_CH, FAN_PWM_FREQ, FAN_PWM_RES);
+    ledcAttachPin(FAN_PWM_PIN, FAN_PWM_CH);
+    ledcWrite(FAN_PWM_CH, 0);                // ensure OFF at boot
+
+    pinMode(6, INPUT_PULLUP);                // manual override button
+    bool lastBtn = HIGH;
+
+    for (;;) {
+        // Physical button toggles MANUAL ON/OFF — always wins
+        bool btn = digitalRead(6);
+        if (lastBtn == HIGH && btn == LOW) {
+            cmdMode = 1;
+            cmdState = !cmdState;
+            lastCommandMs = millis();
+        }
+        lastBtn = btn;
+
+        fanApplyLevel(cmdLevel, cmdState);
+
+        // Accumulate filter runtime while running
+        if (g_sensorData.fan_state) {
+            if (xSemaphoreTake(g_dataMutex, pdMS_TO_TICKS(10))) {
+                g_sensorData.filter_runtime_s++;
+                xSemaphoreGive(g_dataMutex);
+            }
+        }
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    }
+}
+```
+
+---
+
+## 🌐 8. Network & MQTT (Wi-Fi + NTP + MQTT + Actuation)
 
 ```cpp
 #include <WiFi.h>
@@ -523,246 +542,270 @@ void Task_UpdateOLED(void* pvParam) {
 #include <ArduinoJson.h>
 #include <time.h>
 
-#define WIFI_SSID     "YourSSID"
-#define WIFI_PASS     "YourPassword"
-#define MQTT_SERVER   "192.168.1.100"   // Or MQTT broker domain
-#define MQTT_PORT     1883
-#define MQTT_USER     "aqss_device"
-#define MQTT_PASS     "device_secret"
-#define DEVICE_ID     "AQSS_ESP32S3_01"
+#define WIFI_SSID   "YourSSID"
+#define WIFI_PASS   "YourPassword"
+#define MQTT_SERVER "192.168.1.100"
+#define MQTT_PORT   1883
+#define MQTT_USER   "aqss_device"
+#define MQTT_PASS   "device_secret"
+#define DEVICE_ID   "AQSS_ESP32S3_01"
 #define TOPIC_TELE    "aqss/devices/" DEVICE_ID "/telemetry"
 #define TOPIC_CMD     "aqss/devices/" DEVICE_ID "/command"
-#define NTP_SERVER    "pool.ntp.org"
+#define TOPIC_STATE   "aqss/devices/" DEVICE_ID "/actuator/state"
+#define TOPIC_STATUS  "aqss/devices/" DEVICE_ID "/status"
+#define NTP_SERVER  "pool.ntp.org"
+#define FAILSAFE_MS 600000UL     // 10 min without a command → fan OFF
 
 WiFiClient wifiClient;
 PubSubClient mqttClient(wifiClient);
+extern volatile uint8_t cmdLevel, cmdMode;
+extern volatile bool cmdState;
+extern volatile uint32_t lastCommandMs;
 
 void Task_MQTT_Network(void* pvParam) {
-    // Connect Wi-Fi
     WiFi.begin(WIFI_SSID, WIFI_PASS);
     WiFi.setAutoReconnect(true);
-    
-    while (WiFi.status() != WL_CONNECTED) {
-        vTaskDelay(pdMS_TO_TICKS(500));
-    }
-    
-    // Sync NTP
-    configTime(7 * 3600, 0, NTP_SERVER); // GMT+7
-    
-    // Configure MQTT
+    while (WiFi.status() != WL_CONNECTED) vTaskDelay(pdMS_TO_TICKS(500));
+
+    configTime(7 * 3600, 0, NTP_SERVER);              // GMT+7
     mqttClient.setServer(MQTT_SERVER, MQTT_PORT);
     mqttClient.setCallback(mqttCallback);
-    mqttClient.setBufferSize(512);
-    
-    uint32_t lastPublish = 0;
-    uint32_t lastNTPSync = 0;
-    
+    mqttClient.setBufferSize(512);                    // V1 used 384 — overflows now
+
+    uint32_t lastPublish = 0, lastNTP = 0, lastStatePub = 0;
+    uint8_t lastPubState = 255;
+
     for (;;) {
-        // Auto-reconnect Wi-Fi
-        if (WiFi.status() != WL_CONNECTED) {
-            WiFi.reconnect();
-            vTaskDelay(pdMS_TO_TICKS(5000));
-            continue;
-        }
-        
-        // Auto-reconnect MQTT
+        if (WiFi.status() != WL_CONNECTED) { WiFi.reconnect(); vTaskDelay(pdMS_TO_TICKS(5000)); continue; }
+
         if (!mqttClient.connected()) {
             String clientId = String(DEVICE_ID) + "_" + String(random(0xffff), HEX);
-            const char* willTopic = "aqss/devices/" DEVICE_ID "/status";
-            const char* willPayload = "{\"status\":\"OFFLINE\"}";
-            if (mqttClient.connect(clientId.c_str(), MQTT_USER, MQTT_PASS, willTopic, 1, true, willPayload)) {
-                mqttClient.publish(willTopic, "{\"status\":\"ONLINE\"}", true);
+            // LWT: broker announces OFFLINE if we die ungracefully (V1 never published this topic)
+            bool ok = mqttClient.connect(clientId.c_str(), MQTT_USER, MQTT_PASS,
+                                         TOPIC_STATUS, 1, true, "{\"status\":\"OFFLINE\"}");
+            if (ok) {
+                mqttClient.publish(TOPIC_STATUS, "{\"status\":\"ONLINE\"}", true);
                 mqttClient.subscribe(TOPIC_CMD);
                 if (xSemaphoreTake(g_dataMutex, pdMS_TO_TICKS(10))) {
-                    g_sensorData.mqtt_connected = true;
-                    xSemaphoreGive(g_dataMutex);
+                    g_sensorData.mqtt_connected = true; xSemaphoreGive(g_dataMutex);
                 }
             }
         }
-        
+
         mqttClient.loop();
-        
-        // Publish telemetry every 5 seconds
-        if (millis() - lastPublish >= 5000) {
-            lastPublish = millis();
-            publishTelemetry();
+
+        if (millis() - lastPublish >= 5000) { lastPublish = millis(); publishTelemetry(); }
+
+        uint8_t s = g_sensorData.fan_state;
+        if (s != lastPubState || (s && millis() - lastStatePub >= 5000)) {
+            lastStatePub = millis(); lastPubState = s; publishActuatorState();
         }
-        
-        // Re-sync NTP every 1 hour
-        if (millis() - lastNTPSync >= 3600000) {
-            configTime(7 * 3600, 0, NTP_SERVER);
-            lastNTPSync = millis();
+
+        if (millis() - lastNTP >= 3600000) { configTime(7 * 3600, 0, NTP_SERVER); lastNTP = millis(); }
+
+        // Fail-safe: backend brain silent for 10 min → stop the fan
+        if (cmdState && millis() - lastCommandMs > FAILSAFE_MS && cmdMode == 0) {
+            cmdState = false; cmdLevel = 0;
         }
-        
-        // Update System Status
+
         if (xSemaphoreTake(g_dataMutex, pdMS_TO_TICKS(10))) {
             g_sensorData.wifi_rssi = WiFi.RSSI();
             g_sensorData.mqtt_connected = mqttClient.connected();
             g_sensorData.timestamp = (uint32_t)time(nullptr);
+            g_sensorData.min_free_heap = ESP.getMinFreeHeap();
             xSemaphoreGive(g_dataMutex);
         }
-        
         vTaskDelay(pdMS_TO_TICKS(100));
     }
 }
 
 void publishTelemetry() {
-    SensorData_t data;
-    if (xSemaphoreTake(g_dataMutex, pdMS_TO_TICKS(10))) {
-        data = g_sensorData;
-        xSemaphoreGive(g_dataMutex);
-    }
-    
+    SensorData_t d;
+    if (xSemaphoreTake(g_dataMutex, pdMS_TO_TICKS(10))) { d = g_sensorData; xSemaphoreGive(g_dataMutex); }
+
     JsonDocument doc;
     doc["device_id"] = DEVICE_ID;
-    doc["space_id"] = data.space_id;  // V2: Space association
-    doc["timestamp"] = data.timestamp;
-    
+    doc["space_id"]  = d.space_id;
+    doc["timestamp"] = d.timestamp;
+
     JsonObject sensors = doc["sensors"].to<JsonObject>();
-    sensors["pm25"] = round(data.pm25_ugm3 * 10) / 10.0;
-    sensors["co2"] = (int)data.co2_ppm;
-    sensors["temperature"] = round(data.temperature_c * 10) / 10.0;
-    sensors["humidity"] = round(data.humidity_pct * 10) / 10.0;
-    
-    JsonObject computed = doc["computed"].to<JsonObject>();
-    computed["aqi_index"] = data.aqi_index;
-    computed["aqi_level"] = data.aqi_level;
-    
+    sensors["pm25"]        = round(d.pm25_ugm3 * 10) / 10.0;
+    sensors["co2"]         = d.co2_ppm;
+    sensors["temperature"] = round(d.temperature_c * 10) / 10.0;
+    sensors["humidity"]    = round(d.humidity_pct * 10) / 10.0;
+
     JsonObject system = doc["system"].to<JsonObject>();
-    system["wifi_rssi"] = data.wifi_rssi;
-    system["uptime_sec"] = millis() / 1000;
-    system["free_heap"] = ESP.getFreeHeap();
-    
-    char jsonBuffer[384];
+    system["wifi_rssi"]     = d.wifi_rssi;
+    system["uptime_sec"]    = millis() / 1000;
+    system["free_heap"]     = ESP.getFreeHeap();
+    system["min_free_heap"] = d.min_free_heap;
+
+    char jsonBuffer[512];                       // V1 used 384 — too small now
     serializeJson(doc, jsonBuffer, sizeof(jsonBuffer));
-    
     mqttClient.publish(TOPIC_TELE, jsonBuffer);
 }
 
-void mqttCallback(char* topic, byte* payload, unsigned int length) {
-    // Handle incoming commands from server
+void publishActuatorState() {
+    SensorData_t d;
+    if (xSemaphoreTake(g_dataMutex, pdMS_TO_TICKS(10))) { d = g_sensorData; xSemaphoreGive(g_dataMutex); }
+
     JsonDocument doc;
-    deserializeJson(doc, payload, length);
-    
-    const char* cmd = doc["command"];
+    doc["device_id"] = DEVICE_ID;
+    doc["timestamp"] = d.timestamp;
+    doc["state"]     = d.fan_state ? "ON" : "OFF";
+    doc["level"]     = d.fan_level;
+    doc["duty_pct"]  = d.fan_duty_pct;
+    doc["mode"]      = d.fan_mode == 0 ? "AUTO" : "MANUAL";
+    doc["filter_runtime_h"] = round((d.filter_runtime_s / 3600.0) * 10) / 10.0;
+
+    char buf[256];
+    serializeJson(doc, buf, sizeof(buf));
+    mqttClient.publish(TOPIC_STATE, buf);
+}
+
+void mqttCallback(char* topic, byte* payload, unsigned int length) {
+    JsonDocument doc;
+    if (deserializeJson(doc, payload, length) != DeserializationError::Ok) return;
+
+    // V1 BUG: `const char* cmd = doc["command"]; strcmp(cmd, ...)` crashes (nullptr)
+    // when the field is missing. Always null-check first.
+    const char* cmd = doc["command"] | (const char*)nullptr;
+    if (cmd == nullptr) return;
+    lastCommandMs = millis();
+
     if (strcmp(cmd, "reboot") == 0) {
         ESP.restart();
+    } else if (strcmp(cmd, "set_actuator") == 0) {
+        JsonObject p = doc["params"];
+        cmdState = (p["state"] | "OFF") == String("ON");
+        cmdLevel = p["level"] | 0;
+        if (cmdLevel > 3) cmdLevel = 3;
+        cmdMode = 0;                                    // backend command → AUTO
+    } else if (strcmp(cmd, "display_warning") == 0) {
+        if (xSemaphoreTake(g_dataMutex, pdMS_TO_TICKS(10))) {
+            g_sensorData.warning_active = true;
+            strlcpy(g_sensorData.warning_msg, doc["params"]["message"] | "", sizeof(g_sensorData.warning_msg));
+            xSemaphoreGive(g_dataMutex);
+        }
+    } else if (strcmp(cmd, "set_space") == 0) {
+        if (xSemaphoreTake(g_dataMutex, pdMS_TO_TICKS(10))) {
+            strlcpy(g_sensorData.space_id, doc["params"]["space_id"] | "", sizeof(g_sensorData.space_id));
+            xSemaphoreGive(g_dataMutex);
+        }
+        nvs.begin("aqss", false);
+        nvs.putString("space_id", g_sensorData.space_id);
+        nvs.end();
+    } else if (strcmp(cmd, "recalibrate_dust") == 0) {
+        float w0 = doc["params"]["baseline_w0"] | 1350.0f;
+        nvs.begin("aqss", false);          // NVS — NOT EEPROM (ESP32-S3 has no EEPROM)
+        nvs.putFloat("w0", w0);
+        nvs.end();
+    } else if (strcmp(cmd, "set_interval") == 0) {
+        // adjust telemetry interval (persisted to NVS)
+    } else if (strcmp(cmd, "force_ntp_sync") == 0) {
+        configTime(7 * 3600, 0, NTP_SERVER);
     }
-    // Handle other commands...
 }
 ```
 
 ---
 
-## 🔧 8. main.cpp — Entry Point
+## 🔧 9. main.cpp — Entry Point
 
 ```cpp
 #include <Arduino.h>
+#include <Wire.h>
 
-// Forward declarations
-void Task_ReadSCD40(void* pvParam);
-void Task_ReadDustPWM(void* pvParam);
-void Task_UpdateOLED(void* pvParam);
-void Task_MQTT_Network(void* pvParam);
+TwoWire g_i2c = Wire;   // ONE bus instance shared by SCD40 + OLED (V1 initialised it twice)
+
+void Task_ReadSCD40(void*); void Task_ReadDustPWM(void*);
+void Task_UpdateOLED(void*); void Task_MQTT_Network(void*); void Task_FanControl(void*);
 
 extern SemaphoreHandle_t g_dataMutex;
 extern SensorData_t g_sensorData;
 
 void setup() {
     Serial.begin(115200);
-    Serial.println("\n=== AQSS - Air Quality Supervision System ===");
-    Serial.println("ESP32-S3 | SCD40 | GP2Y1023AU0F | OLED 0.96\"");
-    
-    // Initialize mutex
+    Serial.println("\n=== AQSS V2 — Integrated Node ===");
+
     g_dataMutex = xSemaphoreCreateMutex();
     memset(&g_sensorData, 0, sizeof(g_sensorData));
-    
-    // Create FreeRTOS Tasks
+    strlcpy(g_sensorData.space_id, "SP_201", sizeof(g_sensorData.space_id));  // NVS default
+
+    Wire.begin(8, 9, 400000);                 // single init, 400 kHz, shared bus
+
     xTaskCreatePinnedToCore(Task_ReadSCD40,    "SCD40",   4096, NULL, 2, NULL, 1);
     xTaskCreatePinnedToCore(Task_ReadDustPWM,  "DustPWM", 4096, NULL, 3, NULL, 1);
+    xTaskCreatePinnedToCore(Task_FanControl,   "Fan",     3072, NULL, 3, NULL, 1);
     xTaskCreatePinnedToCore(Task_UpdateOLED,   "OLED",    4096, NULL, 1, NULL, 1);
     xTaskCreatePinnedToCore(Task_MQTT_Network, "MQTT",    8192, NULL, 2, NULL, 0);
-    
-    Serial.println("All tasks started successfully.");
 }
 
-void loop() {
-    vTaskDelay(pdMS_TO_TICKS(10000)); // Main loop idle
-}
+void loop() { vTaskDelay(pdMS_TO_TICKS(10000)); }
 ```
 
 ---
 
-## 🔋 9. Additional Features (Production-Ready)
+## 🔋 10. Production Features
 
-### 9.1 Watchdog Timer (WDT)
+### 10.1 Watchdog — actually fed
 ```cpp
 #include <esp_task_wdt.h>
-// In setup():
-esp_task_wdt_init(30, true); // 30 seconds timeout, auto-reboot
-// In each task loop:
-esp_task_wdt_reset(); // Feed watchdog
+// setup():  esp_task_wdt_init(30, true);
+//           esp_task_wdt_add(NULL);          // subscribe each task
+// each task loop (V1 said this but never did it):
+esp_task_wdt_reset();
 ```
 
-### 9.2 OTA (Over-The-Air) Update
-- ESP32-S3 with 16MB Flash supports OTA 2 partitions (app0 + app1).
-- Use `ArduinoOTA` or `HTTPUpdate` for remote firmware updates via Wi-Fi without USB.
+### 10.2 OTA
+16 MB flash supports two OTA partitions (app0/app1) — `ArduinoOTA` or `HTTPUpdate` over Wi-Fi.
 
-### 9.3 NTP Time Sync
-- Integrated in `Task_MQTT_Network`.
-- Timezone configured via `configTime()`.
+### 10.3 Offline buffer
+On MQTT loss, cache up to 60 telemetry records (5 min) in a ring buffer in PSRAM and batch-upload on reconnect, preserving the original `timestamp` so the backend can back-fill monthly partitions.
 
-### 9.4 Offline Data Buffer
-- When MQTT disconnects, cache up to 60 records (5 minutes of data) into a ring buffer.
-- Batch upload all cached data when the connection recovers.
+### 10.4 Fail-safe
+No backend command for 10 minutes in AUTO mode → fan OFF (§7.2 / §8). The physical button always works.
 
 ---
 
-## V2 — Actuator Node Firmware
+## ✅ 11. Pre-Deployment Verification Checklist
 
-The V2 architecture introduces Actuator Nodes (e.g., relays controlling air filters) alongside Sensor Nodes.
-- Reuses the ESP32-S3 hardware platform.
-- Subscribes to `aqss/devices/{id}/command` for `set_actuator` commands.
-- Controls a relay module (GPIO output) connected to the air filter power line.
-- Publishes actuator state to `aqss/devices/{id}/actuator/state` every 5 seconds.
-- Physical manual override button (GPIO input) — always takes priority.
-- Fail-safe: if no command received for 10 minutes, turn OFF relay.
-- Watchdog timer: 30 seconds, auto-reboot on hang.
-
----
-
-## ✅ 10. Pre-Deployment Verification Checklist
-
-- [ ] Check OLED silkscreen (GND-VCC vs VCC-GND) before powering on.
-- [ ] Verify 1kΩ/2kΩ voltage divider on GP2Y1023 Vo → GPIO 18 wire.
-- [ ] Verify RC filter (150Ω + 220µF) on GP2Y1023 V_LED.
-- [ ] SCD40: VDD and VDDH tied together, 100nF + 10µF caps close to pins.
-- [ ] Run I2C Scanner to confirm 2 devices: 0x3C (OLED) and 0x62 (SCD40).
-- [ ] GP2Y1023: Wait 1.5 seconds after power-on before reading PWM.
-- [ ] SCD40: Wait 5+ seconds after `start_periodic` before reading.
-- [ ] Monitor Serial output to debug individual sensors.
-- [ ] Calibrate GP2Y1023 baseline W₀ in clean air.
+- [ ] **LM2596 adjusted to exactly 5.0 V with a multimeter BEFORE connecting the ESP32.**
+- [ ] OLED silkscreen (GND-VCC vs VCC-GND) checked before power-on.
+- [ ] 1kΩ/2kΩ divider on GP2Y1023 Vo → GPIO 18 verified.
+- [ ] RC filter (150Ω + 220µF) on GP2Y1023 V_LED verified.
+- [ ] SCD40 Module correctly powered from 3.3V (not 5V).
+- [ ] I2C scanner sees both `0x3C` (OLED) and `0x62` (SCD40) at 400 kHz.
+- [ ] Fan: 4 wires identified with a multimeter; pin 2 on +12 V **via fuse**; pin 4 to GPIO 5; common GND verified.
+- [ ] Fan spins at levels 1/2/3 and **stays off at boot** (pulldown/boot bias verified).
+- [ ] Fan kickstart works from a dead stop; `min_duty` found and enforced.
+- [ ] LWT verified: kill the node → broker publishes `OFFLINE` on the status topic.
+- [ ] `set_actuator` / `display_warning` / `set_space` / `recalibrate_dust` handled without crashing on malformed JSON.
+- [ ] GP2Y1023 baseline W₀ calibrated in clean air and persisted to NVS.
+- [ ] Fail-safe verified: stop the backend → fan turns OFF after 10 min.
 
 ---
 
-## 📁 11. Source Code Directory Structure
+## 📁 12. Source Code Directory Structure
 
 ```text
 embedded/
 ├── include/
-│   ├── config.h              # WiFi, MQTT, Pin definitions
-│   ├── sensor_data.h         # SensorData_t struct & mutex
-│   ├── dust_sensor.h         # GP2Y1023AU0F task header
-│   ├── scd40_sensor.h        # SCD40 task header
-│   ├── oled_display.h        # OLED task header
-│   ├── mqtt_network.h        # MQTT + WiFi task header
-│   └── aqi_calculator.h      # AQI calculation functions
+│   ├── config.h           # WiFi, MQTT, pin map, device/space IDs
+│   ├── sensor_data.h      # SensorData_t struct & mutex
+│   ├── dust_sensor.h      # GP2Y1023AU0F task
+│   ├── scd40_sensor.h     # SCD40 task
+│   ├── oled_display.h     # OLED task (values + warnings)
+│   ├── fan_control.h      # Fan PWM task (NEW)
+│   └── mqtt_network.h     # WiFi + NTP + MQTT + commands
 ├── src/
-│   ├── main.cpp              # Entry point, task creation
-│   ├── dust_sensor.cpp       # GP2Y1023AU0F PWM interrupt reader
-│   ├── scd40_sensor.cpp      # SCD40 I2C periodic reader
-│   ├── oled_display.cpp      # U8g2 OLED rendering
-│   ├── mqtt_network.cpp      # WiFi + NTP + MQTT + JSON publish
-│   └── aqi_calculator.cpp    # AQI breakpoint calculation
-└── platformio.ini            # PlatformIO project config
+│   ├── main.cpp           # Entry point, single Wire init, task creation
+│   ├── dust_sensor.cpp
+│   ├── scd40_sensor.cpp
+│   ├── oled_display.cpp
+│   ├── fan_control.cpp    # LEDC PWM, kickstart, min_duty, button (NEW)
+│   └── mqtt_network.cpp   # telemetry + actuator/state + status/LWT + callbacks
+└── platformio.ini
 ```
+
+> Removed from V1: `aqi_calculator.h/.cpp` — AQI is a backend-side NowCast metric (display only).

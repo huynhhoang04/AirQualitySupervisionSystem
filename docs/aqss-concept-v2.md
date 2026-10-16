@@ -1,6 +1,6 @@
 # AQSS V2 — Closed-Loop Indoor Air Quality Control System
 
-> **Version:** 2.0 — Concept & Architecture Document
+> **Version:** 2.1 — Concept & Architecture Document
 > **Date:** 2026-09-16
 > **Status:** Draft for End-of-Week Report
 > **Audience:** Academic reviewers, project stakeholders, team members
@@ -29,9 +29,10 @@ If the system only reacts *after* a fixed threshold is crossed (the V1 paradigm)
 | **Positioning** | Passive supervision (monitoring) | Closed-loop control with actuation |
 | **Scope** | Ambient / outdoor | Indoor, per-space |
 | **Thresholds** | Global constants (e.g., 150 µg/m³ for all rooms) | Space-derived functions of volume, purpose, region |
-| **Actions** | None (display only) | Soft alert (OLED) + hard intervention (air filter relay) |
+| **Actions** | None (display only) | Soft alert (OLED) + hard intervention (PWM-controlled filter fan) |
 | **ML/DL role** | Decorative (thresholds are hardcoded, DL adds no value beyond `if/else`) | Essential and irreplaceable: threshold inference, dosage calculation, early warning |
 | **AQI usage** | Primary metric — computed from instantaneous PM2.5 using EPA 24h breakpoints (incorrect for real-time) | Display-only indicator computed via NowCast; control logic uses raw PM2.5 + space-derived thresholds |
+| **Node topology** | Sensor node only | **Single integrated node**: sensing + display + fan control on one ESP32-S3 |
 
 ---
 
@@ -68,33 +69,33 @@ Applying the same 150 µg/m³ PM2.5 threshold to both rooms is **physically wron
   └──────────────┬────────────────────────────────┬─────────────────────────┘
                  │                                │
                  ▼                                ▼
-        ┌────────────────┐               ┌────────────────┐
-        │  ML#1 Threshold │               │  ML#2 Dosage   │
-        │  (GP Regression)│               │ (GB Regression) │
-        └───────┬────────┘               └───────┬────────┘
-                │                                │
-                ▼                                ▼
-        ┌────────────┐                   ┌────────────────┐
-        │ Base       │                   │ Filter Level + │
-        │ Threshold  │                   │ Run Duration   │
-        └──────┬─────┘                   └───────┬────────┘
-               │                                 │
-               │    ┌────────────────────────┐   │
-               └───►│  DECISION ENGINE       │◄──┘
-                    │  (Backend Service)      │
-  PM2.5  ──────────►│                        │
-  (real-time)       │  Compare:              │
-                    │  pm25 vs threshold     │
-  DL Forecast ─────►│  forecast vs threshold │
-  (24h ahead)       │                        │
-                    └───────┬──────────┬─────┘
-                            │          │
-                            ▼          ▼
-                 ┌──────────────┐  ┌──────────────────┐
-                 │ SOFT ALERT   │  │ HARD INTERVENTION │
-                 │ (OLED warn)  │  │ (Relay → filter)  │
-                 │ Before breach│  │ At/after breach   │
-                 └──────────────┘  └──────────────────┘
+         ┌────────────────┐               ┌────────────────┐
+         │  ML#1 Threshold │               │  ML#2 Dosage   │
+         │  (GP Regression)│               │ (GB Regression) │
+         └───────┬────────┘               └───────┬────────┘
+                 │                                │
+                 ▼                                ▼
+         ┌────────────┐                   ┌────────────────┐
+         │ Base       │                   │ Filter Level + │
+         │ Threshold  │                   │ Run Duration   │
+         └──────┬─────┘                   └───────┬────────┘
+                │                                 │
+                │    ┌────────────────────────┐   │
+                └───►│  DECISION ENGINE       │◄──┘
+                     │  (Backend Service)      │
+   PM2.5  ──────────►│                        │
+   (real-time)       │  Compare:              │
+                     │  pm25 vs threshold     │
+   DL Forecast ─────►│  forecast vs threshold │
+   (24h ahead)       │                        │
+                     └───────┬──────────┬─────┘
+                             │          │
+                             ▼          ▼
+                  ┌──────────────┐  ┌──────────────────┐
+                  │ SOFT ALERT   │  │ HARD INTERVENTION │
+                  │ (OLED warn)  │  │ (PWM → filter fan)│
+                  │ Before breach│  │ At/after breach   │
+                  └──────────────┘  └──────────────────┘
 ```
 
 ### 4.1 Decision Logic (Backend `ControlDecisionService`)
@@ -106,35 +107,45 @@ Every control_cycle (60 seconds):
     threshold    ← cached ML#1 output for this space
     dosage       ← cached ML#2 output for this space
 
-    hours_to_breach ← first index i where forecast_24h[i].pm25 > threshold
+    hours_to_breach ← first index i where forecast_24h[i].pm25_q90 > threshold
 
     IF current_pm25 >= threshold:
-        → ACTIVATE filter at dosage.level for dosage.duration_minutes
+        → ACTIVATE filter fan at dosage.level for dosage.duration_minutes
         → mode = AUTO
-        → publish aqss/devices/{actuator_id}/command {set_actuator: ON, level: dosage.level}
+        → publish aqss/devices/{id}/command {set_actuator, state: ON, level: dosage.level}
 
     ELSE IF hours_to_breach <= 2:
         → WARN on OLED: "Air quality declining. Forecast breach in {hours_to_breach}h."
-        → publish aqss/devices/{sensor_id}/command {display_warning: "..."}
+        → publish aqss/devices/{id}/command {display_warning: "..."}
         → mode = ALERT (awaiting manual confirmation or auto-escalation)
 
     ELSE:
         → IDLE
-        → IF filter currently running AND current_pm25 < threshold × 0.7:
-            → DEACTIVATE filter (hysteresis: 70% of threshold to prevent relay chatter)
+        → IF fan currently running AND current_pm25 < threshold × 0.7:
+            → DEACTIVATE fan (hysteresis: 70% of threshold to prevent chatter)
 ```
 
 ### 4.2 Safety Constraints
 
 | Constraint | Value | Rationale |
 | :--- | :--- | :--- |
-| Minimum ON time | 5 minutes | Prevent relay chatter damage |
+| Minimum ON time | 5 minutes | Prevent actuator chatter damage |
 | Minimum OFF time | 3 minutes | Allow motor cooldown |
-| Maximum continuous ON | 120 minutes | Prevent filter overheating |
+| Maximum continuous ON | 120 minutes | Prevent filter/fan overheating |
 | Hysteresis band | 70% of threshold | Prevent oscillation at boundary |
-| Manual override priority | Always | User can always override AUTO |
-| Fail-safe on network loss | Filter OFF after 10 min | No runaway operation without backend brain |
+| Manual override priority | Always | User can always override AUTO (dashboard button **and** physical button) |
+| Fail-safe on network loss | Fan OFF after 10 min | No runaway operation without backend brain |
 | Audit log | Every decision | Full traceability for debugging |
+
+### 4.3 CO2 Handling — Alert Only (Explicit Design Decision)
+
+The HEPA media removes **particulate matter only — it does not remove CO2**. CO2 is reduced exclusively by **ventilation** (fresh-air exchange), and ventilating a sealed room in a polluted city (Hanoi) trades CO2 down for PM2.5 up. Therefore:
+
+- **CO2 above threshold (1,000 ppm indoor guideline; ~420 ppm outdoor baseline) → ALERT ONLY.**
+- CO2 generates an OLED/dashboard warning and a ventilation *recommendation* ("open the window").
+- **CO2 never enters the automatic actuation path.** No auto-actuation for CO2 in V2.
+
+This keeps the control thesis clean (PM2.5 + filter fan) and avoids a physically incorrect loop.
 
 ---
 
@@ -148,7 +159,7 @@ Every control_cycle (60 seconds):
 | **Algorithm** | Gaussian Process Regression (GPR) or Gradient Boosting (XGBoost) |
 | **Input features** | `volume_m3`, `purpose_encoded`, `region_encoded`, `ventilation_estimate`, `occupancy_typical` |
 | **Output** | `base_threshold_pm25` (µg/m³) — the PM2.5 concentration at which intervention should begin |
-| **Uncertainty** | GPR natively produces `µ ± σ` → gives principled confidence interval (unlike V1's Linear+ReLU fake CI) |
+| **Uncertainty** | GPR natively produces `µ ± σ` → principled confidence interval (unlike V1's Linear+ReLU fake CI) |
 
 **Training data source (the critical question):**
 
@@ -187,6 +198,8 @@ There is no off-the-shelf dataset that maps `(volume, purpose, region)` → PM2.
 | **Output** | `filter_level` (0–3, where 0=off, 1=low, 2=medium, 3=high), `run_duration_minutes` |
 | **Interpretation** | "In this room, at this pollution level, run the filter at level 2 for 45 minutes to bring PM2.5 below threshold." |
 
+**Mapping to the physical actuator (Intel 4-wire PWM fan):** firmware maps `filter_level` to PWM duty — `0 → 0%`, `1 → 35%`, `2 → 60%`, `3 → 90%` — consistent with measured OEM fan duty curves (low/medium/high ≈ 35.7% / 56% / 92% on a commercial purifier). Duty below ~20% can stall a BLDC fan, hence the discrete levels and a firmware-enforced `min_duty`.
+
 **Training data source:**
 
 Again generated via physics model:
@@ -201,7 +214,7 @@ Where $CADR_{effective}$ depends on the filter level setting. We compute the min
 | **Problem type** | Sequence-to-sequence time-series regression |
 | **Architecture** | Attention-augmented Seq2Seq LSTM (Encoder-Decoder) |
 | **Input** | 24 hours of PM2.5 data resampled to **15-minute intervals** = 96 time steps × 10 features |
-| **Output** | 24 hours ahead = 96 time steps × `[pm25_mean, pm25_q10, pm25_q90]` |
+| **Output** | 24 hours ahead = 96 time steps × `[pm25_q50, pm25_q10, pm25_q90]` |
 | **Uncertainty** | **Quantile regression loss** (τ = 0.1, 0.5, 0.9) → true prediction intervals, not fake CI |
 | **Pre-training** | OpenAQ Southeast Asia + UCI Beijing PM2.5 |
 | **Fine-tuning** | AQSS device data (when available) |
@@ -240,45 +253,128 @@ The decision engine uses **q90** (worst-case) for safety-critical early warning,
 
 ---
 
-## 6. Architecture Changes by Layer
+## 6. Hardware: The Integrated Node (As-Built Configuration)
 
-### 6.1 New First-Class Entity: Space
+### 6.1 Component Connection Map (small → large)
+
+**LEVEL 0 — Discrete components**
+```
+[ESP32-S3 N16R8]  [SCD40]  [SSD1306 OLED]  [GP2Y1023]  [Intel 4-wire PWM fan]
+[LM2596 buck]  [Fuse]  [2N2222 + resistors]  [Button]  [LED]  [HEPA H13 media]
+```
+
+**LEVEL 1 — Circuit blocks**
+```
+① POWER BLOCK
+   12V/400W PSU ──[fuse]──┬── Fan pin 2 (+12V constant)
+                         └── LM2596 (set to 5.0V) ── ESP32 VIN/5V
+   Common GND: PSU ↔ fan ↔ ESP32   (MANDATORY)
+
+② I2C BLOCK (400 kHz, GPIO8 SDA / GPIO9 SCL)
+   ESP32 ──┬── SCD40   (0x62)
+           └── SSD1306 (0x3C)
+
+③ DUST SENSOR BLOCK
+   GP2Y1023 Vo ──[1kΩ/2kΩ divider]── GPIO18 (IRAM_ATTR ISR PWM measurement)
+
+④ FAN CONTROL BLOCK
+   ESP32 GPIO_x ──[LEDC 25kHz]──[2N2222 if required]── Fan pin 4 (PWM input)
+   Fan pin 2 (+12V constant) · pin 1 (GND) · pin 3 (Tach — reserved)
+
+⑤ INTERFACE BLOCK
+   GPIO_y ── Push button (manual override)      GPIO_z ── Status LED
+```
+
+**LEVEL 2 — Device node**
+```
+ESP32-S3 { power + I2C + dust + fan + interface }
+FreeRTOS:  Core 0 = Wi-Fi / MQTT / NTP   ·   Core 1 = SCD40 + dust + OLED + fan
+```
+
+**LEVEL 3 — Appliance cluster (one room)**
+```
+Node + Intel fan + HEPA media + airtight enclosure
+  → Measures:  CO2 · temperature · humidity · PM2.5
+  → Acts:      Fan PWM duty (0–100%, via 4 discrete levels)
+```
+
+**LEVEL 4 — Single-room system (end-to-end)**
+```
+Appliance cluster ──MQTT QoS1──► Mosquitto ──► Backend (BRAIN) ──► PostgreSQL (batch)
+                                                   │
+                                                   ├──HTTP──► Layer 3 AI (2 ML + 1 DL)
+                                                   ├──STOMP─► Layer 4 Frontend
+                                                   └──MQTT cmd──► Appliance (set_actuator)
+```
+
+**LEVEL 5 — Multi-room scale-out**
+```
+N appliance clusters (one node per room, each with its own Space profile) ──► one Backend
+```
+
+### 6.2 Bill of Materials
+
+**Already owned:** ESP32-S3 DevKitC-1 N16R8 · GP2Y1023AU0F · 1× Intel CPU cooler fan (4-wire PWM, 12V) · 12V/400W PSU.
+
+**Ordered (~649,000 VND):** SSD1306 0.96" I2C OLED (60k) · LM2596S buck module (59k) · HEPA H13 filter media (79k) · SCD40/SCD41 sensor module (451k).
+
+**To buy locally (~50–80k):** push button · LED + 220Ω resistor · fuse + holder (2–3A) · 10kΩ ×2 + 1kΩ ×1 · 2N2222 ×1 · 100µF + 100nF capacitors · terminal blocks + heat-shrink · dupont jumpers · perfboard · fan connector/leads.
+
+**Mechanical (self-made):** frame/duct joining fan ↔ HEPA media, **airtight** (leaks bypass the filter and collapse effective CADR), foam sealing, screws, stand.
+
+### 6.3 Physical Limits (must be stated honestly)
+
+- Intel stock cooler fan: ~85–100 m³/h free-air; **~30–50 m³/h through the HEPA media**.
+- ⇒ **One Intel fan suits a small room (~≤10 m²)**. A 20 m² room needs ~240 m³/h ⇒ a bank of 5–6 fans.
+- The ~79k HEPA media has **no rated airflow** ⇒ **CADR must be measured experimentally** (Phase 11) — which doubles as report evidence.
+
+### 6.4 Pre-Power Checklist
+
+1. **Set the LM2596 output to exactly 5.0V with a multimeter BEFORE connecting the ESP32** — modules ship unadjusted and can exceed 5V, which destroys the board.
+2. OLED: check pin order (Type A GND-VCC vs Type B VCC-GND) — reversed polarity kills the driver IC.
+3. HEPA: verify actual dimensions fit the frame; confirm it is genuinely **H13** (not "HEPA-type" = H10/H11).
+4. SCD40 vs SCD41: identify the exact chip — SCD41 supports Single-Shot mode, SCD40 does not (periodic 5s only).
+5. If the 12V/400W PSU is an ATX unit: short PS_ON (green wire) to GND to switch it on without a motherboard; it also provides a free 5V rail.
+
+---
+
+## 7. Architecture Changes by Layer
+
+### 7.1 New First-Class Entity: Space
 
 A **Space** is the fundamental unit of V2. All thresholds, dosages, and control decisions are scoped to a Space — never to a raw device.
 
 ```
 Space (phòng trọ "201")
-├── Sensor Node: AQSS_ESP32S3_01 (PM2.5, CO2, Temp, Hum)
-├── Actuator Node: AQSS_ESP32S3_ACT_01 (Relay → air filter)
-├── Derived Threshold: 25 µg/m³ (from ML#1)
-├── Dosage Profile: Level 2 for 30 min (from ML#2)
-└── Control Decisions: [2026-09-16T10:00 AUTO ON, 2026-09-16T10:32 AUTO OFF, ...]
+├── Integrated Node: AQSS_ESP32S3_01 (SCD40 + GP2Y1023 + OLED + Intel fan PWM)
+├── Derived Threshold: 18 µg/m³ (from ML#1, with GP uncertainty band)
+├── Dosage Profile: Level 2 for 25 min (from ML#2)
+└── Control Decisions: [2026-09-16T23:00 ALERT, 2026-09-17T00:15 AUTO ON, ...]
 ```
 
-### 6.2 Layer 1 — Embedded (Sensor Node + Actuator Node)
+### 7.2 Layer 1 — Embedded (Single Integrated Node)
 
-**Sensor Node changes:**
-- Add `space_id` field to MQTT telemetry payload.
-- OLED: add a new screen showing early-warning messages received via `aqss/devices/{id}/command` with `display_warning` command.
-- Publish Last Will and Testament (LWT) to `aqss/devices/{id}/status` with payload `{"status": "OFFLINE"}` so backend detects disconnection.
+One ESP32-S3 performs sensing, display, and actuation. FreeRTOS: Core 0 = Wi-Fi/MQTT/NTP; Core 1 = SCD40 + dust + OLED + fan.
 
-**New: Actuator Node firmware:**
-- Reuses ESP32-S3 hardware (same DevKit).
-- Subscribes to `aqss/devices/{id}/command` for `set_actuator` commands.
-- Controls a relay module (GPIO output) connected to the air filter power line.
-- Publishes actuator state to `aqss/devices/{id}/actuator/state` every 5 seconds.
-- Physical manual override button (GPIO input) — always takes priority.
-- Fail-safe: if no command received for 10 minutes, turn OFF relay.
+**Firmware responsibilities:**
+
+- **Fan control:** PWM via LEDC @ 25 kHz on the fan's PWM input pin (12V rail stays constant). **Kickstart** pulse (100% for ~200 ms) before settling on the target duty; firmware-enforced `min_duty` (~20%) to avoid BLDC stall.
+- **OLED as a warning channel:** receives `display_warning` commands from the backend and renders forecast-based early warnings *before* the threshold is breached — not just local sensor values.
+- Telemetry payload gains **`space_id`**.
+- **Publishes `actuator/state`** (`duty`, `level`, `mode`, `filter_runtime_h` — cumulative runtime for filter-life tracking).
+- **Publishes `status` + Last Will and Testament** (see §8.2) — V1 subscribed to this topic but never published it.
+- **Physical manual override button** — always takes priority over network commands.
+- **Fail-safe:** if no command received for 10 minutes, fan OFF.
 - Watchdog timer: 30 seconds, auto-reboot on hang.
 
-### 6.3 Layer 2 — Backend (The Brain)
+### 7.3 Layer 2 — Backend (The Brain)
 
 **New database tables (`V4__spaces_and_actuation.sql`):**
 
 | Table | Purpose |
 | :--- | :--- |
 | `spaces` | Space registry (id, name, volume_m3, purpose, region, created_at) |
-| `space_devices` | Many-to-many: which sensor/actuator nodes belong to which space |
+| `space_devices` | Many-to-many: which nodes belong to which space |
 | `space_thresholds` | Cached ML#1 output per space (recalculated when space config changes) |
 | `actuators` | Actuator registry (device_id, space_id, current_state, last_command_at) |
 | `control_decisions` | Audit log of every decision (space_id, timestamp, trigger, action, mode, threshold_used, dosage_used) |
@@ -306,9 +402,9 @@ Space (phòng trọ "201")
 | :--- | :--- |
 | `model_evaluations` table | Autoencoder evaluator removed from core loop |
 | Redis service in docker-compose | Never used in any service; remove to reduce complexity |
-| `aqi_level VARCHAR(30)` | Changed to `VARCHAR(40)` — "Unhealthy for Sensitive Groups" is 35 chars |
+| `aqi_level VARCHAR(30)` | Changed to `VARCHAR(40)` — "Unhealthy for Sensitive Groups" is exactly 30 chars, zero headroom |
 
-### 6.4 Layer 3 — AI Service (3 Models)
+### 7.4 Layer 3 — AI Service (3 Models)
 
 **New endpoints:**
 
@@ -335,17 +431,16 @@ Raw data arrives at 5-second intervals = 17,280 readings per day. Feeding this d
 - Median (not mean) is robust to sensor glitches
 - Backend performs the resampling before calling `/api/v1/forecast`
 
-### 6.5 Layer 4 — Frontend (New Screens)
+### 7.5 Layer 4 — Frontend (New Screens)
 
 **New page: Space Management (`/spaces`)**
 - CRUD interface for creating/editing spaces (name, volume, purpose, region).
-- Assign sensor and actuator nodes to spaces via drag-and-drop or dropdown.
-- Display ML#1-derived threshold and ML#2-derived dosage profile.
-- Visual indicator: threshold confidence interval (from GP uncertainty).
+- Assign nodes to spaces.
+- Display ML#1-derived threshold (with GP uncertainty band) and ML#2-derived dosage profile.
 
 **New page: Space Control View (`/spaces/:id`)**
 - Real-time PM2.5 vs threshold line (threshold shown as horizontal reference line with uncertainty band).
-- 24h forecast overlay with q10/q50/q90 shaded bands.
+- 24h forecast overlay with q10/q50/q90 shaded bands (both bands drawn — V1 only drew the upper one).
 - Actuator control panel: AUTO / MANUAL toggle, current state indicator (ON/OFF/level), manual level slider.
 - Decision timeline: chronological list of all `ControlDecision` events with expandable detail (trigger, threshold used, dosage prescribed).
 
@@ -356,23 +451,17 @@ Raw data arrives at 5-second intervals = 17,280 readings per day. Feeding this d
 
 ---
 
-## 7. Bug Fixes & Contract Corrections from V1 Audit
+## 8. MQTT Topic Registry (V2, Complete)
 
-During the V2 architecture review, the following inconsistencies in V1 were discovered and must be corrected regardless of V2 adoption:
+| Topic | Direction | QoS | Retain | Payload | V1? |
+| :--- | :---: | :---: | :---: | :--- | :---: |
+| `aqss/devices/{id}/telemetry` | Device → Server | 1 | No | Sensor JSON (+ `space_id`) | ✅ |
+| `aqss/devices/{id}/status` | Device → Server | 1 | **Yes** | `{"status": "ONLINE/OFFLINE"}` | ❌ NEW |
+| `aqss/devices/{id}/command` | Server → Device | 1 | No | `{command, params}` — adds `set_actuator`, `display_warning` | ✅ |
+| `aqss/devices/{id}/actuator/state` | Device → Server | 1 | No | `{duty, level, mode, filter_runtime_h, ts}` | ❌ NEW |
 
-### 7.1 AQI Calculation Error
+### 8.2 LWT Implementation (fixing the V1 gap)
 
-**Problem:** V1 computes `aqi_index` from *instantaneous* PM2.5 readings using EPA breakpoints that are defined for *24-hour average* PM2.5. This produces wildly fluctuating AQI values that don't match what citizens see on government monitoring sites.
-
-**Fix:** Compute AQI using the **NowCast algorithm** (EPA 2013), which applies a weighted average of the last 12 hours of readings. The firmware sends raw PM2.5; the backend computes NowCast AQI.
-
-In V2, AQI becomes a **display-only metric**. All control logic uses raw PM2.5 + space-derived thresholds.
-
-### 7.2 Missing LWT (Last Will and Testament)
-
-**Problem:** Backend subscribes to `aqss/devices/{id}/status` but this topic is never published by the firmware, and the MQTT contract doesn't define it.
-
-**Fix:** Firmware sets LWT on `mqttClient.connect()`:
 ```cpp
 mqttClient.connect(clientId, user, pass,
     "aqss/devices/AQSS_ESP32S3_01/status",  // will topic
@@ -380,43 +469,8 @@ mqttClient.connect(clientId, user, pass,
     true,                                     // will retain
     "{\"status\":\"OFFLINE\"}"                // will payload
 );
+// On successful connect: publish {"status":"ONLINE"} with retain=true.
 ```
-On successful connect, publish `{"status":"ONLINE"}` with retain=true.
-
-### 7.3 Redis Not Used
-
-**Problem:** `docker-compose.yml` includes a Redis service, but no Spring Boot service references it.
-
-**Fix:** Remove Redis from docker-compose. If caching is needed in the future, use Spring Cache with Caffeine (in-process).
-
-### 7.4 MQTT Auth Undefined
-
-**Problem:** `mosquitto.conf` configuration for authentication is not specified in any plan document.
-
-**Fix:** Add to V4 migration documentation:
-```
-# mosquitto.conf
-listener 1883
-allow_anonymous false
-password_file /mosquitto/config/pwfile
-```
-
-### 7.5 `aqi_level` Column Too Short
-
-**Problem:** `aqi_level VARCHAR(30)` is exactly 30 characters, but "Unhealthy for Sensitive Groups" is 35 characters.
-
-**Fix:** Change to `VARCHAR(40)` in V4 migration.
-
----
-
-## 8. Updated MQTT Topics (Complete Registry)
-
-| Topic | Direction | QoS | Retain | Payload | V1? |
-| :--- | :---: | :---: | :---: | :--- | :---: |
-| `aqss/devices/{id}/telemetry` | Device → Server | 1 | No | Sensor JSON (+ `space_id` in V2) | ✅ |
-| `aqss/devices/{id}/status` | Device → Server | 1 | **Yes** | `{"status": "ONLINE/OFFLINE"}` | ❌ NEW |
-| `aqss/devices/{id}/command` | Server → Device | 1 | No | `{command, params}` (+ `set_actuator`, `display_warning` in V2) | ✅ |
-| `aqss/devices/{id}/actuator/state` | Actuator → Server | 1 | No | `{"state": "ON/OFF", "level": 2, "mode": "AUTO/MANUAL"}` | ❌ NEW |
 
 ---
 
@@ -436,7 +490,7 @@ password_file /mosquitto/config/pwfile
 | Region | Hanoi (Cau Giay) |
 | Typical outdoor PM2.5 | ~35 µg/m³ (Hanoi average) |
 | Ventilation estimate | Low (sealed room, no mechanical vent) |
-| Filter CADR | 150 m³/h (typical HEPA portable) |
+| Fan + HEPA effective CADR | ~40 m³/h (to be measured in Phase 11) |
 
 ### Step 2: ML#1 Threshold Inference
 
@@ -448,8 +502,7 @@ Using the mass-balance surrogate:
 - Natural ventilation λ_nat ≈ 0.3 h⁻¹
 - Steady-state indoor PM2.5 ≈ C_outdoor × P = 35 × 0.8 = **28 µg/m³**
 
-WHO 24h guideline = 15 µg/m³. For 8h sleeping exposure, we want cumulative dose < WHO target:
-- Target C_indoor = 15 µg/m³ × (24/8) correction... but we use the direct guideline for simplicity.
+WHO 24h guideline = 15 µg/m³. For 8h sleeping exposure, we want cumulative dose below the WHO target.
 
 **ML#1 Output:** `{base_threshold: 18 µg/m³, uncertainty: [15, 22]}` (conservative for sleeping)
 
@@ -490,15 +543,15 @@ At **22:30**, the next cycle runs. Forecast now shows q90 breach at 01:00 (2.5h 
 At **23:00**, forecast shows q90 breach at 00:45 (**1.75 hours away** — within 2h window):
 
 **Decision: SOFT ALERT.**
-- Push `display_warning` command to sensor node OLED: "⚠ Air quality may decline by 01:00. Consider turning on filter."
+- Push `display_warning` command to node OLED: "⚠ Air quality may decline by 01:00. Consider turning on the filter."
 - STOMP push to frontend `/topic/spaces/201/decision`: `{action: "ALERT", reason: "forecast_breach_q90", hours_to_breach: 1.75}`
-- User sees warning on dashboard and OLED. They can manually activate the filter or wait.
+- User sees the warning on the dashboard and OLED. They can manually activate the fan or wait.
 
 At **00:15**, real PM2.5 has risen to **19 µg/m³** (above threshold 18):
 
 **Decision: AUTO ACTIVATE.**
-- ML#2 Dosage: `{filter_level: 2 (medium), run_duration: 25 min}` (for 15 m³ room at 19 µg/m³ with CADR 150 on medium)
-- Publish to actuator: `{command: "set_actuator", params: {state: "ON", level: 2}}`
+- ML#2 Dosage: `{filter_level: 2 (medium), run_duration: 25 min}` (15 m³ room at 19 µg/m³, ~40 m³/h effective CADR)
+- Publish to node: `{command: "set_actuator", params: {state: "ON", level: 2}}`
 - Log to `control_decisions`: `{space_id: 201, action: "ACTIVATE", mode: "AUTO", threshold: 18, dosage: {level: 2, duration: 25}, trigger: "threshold_breach"}`
 
 At **00:40**, PM2.5 has dropped to **11 µg/m³** (below threshold × 0.7 = 12.6):
@@ -511,37 +564,165 @@ The occupant slept through the entire episode. The system handled it autonomousl
 
 ---
 
-## 10. Impact Metrics (For Report)
+## 10. Bug Fixes & Contract Corrections from the V1 Audit
+
+The following inconsistencies in V1 were discovered during the V2 architecture review and must be corrected regardless of V2 adoption.
+
+### 10.1 Layer 1 (embedded-layer.md)
+- `aqi_level[16]` buffer overflow — the contract permits a 30-character string. Widen to ≥32.
+- `recalibrate_dust` writes "EEPROM" — the ESP32-S3 has **no EEPROM**; use **NVS**.
+- Pulse filter accepts `<= 7500 µs` — datasheet max is 7,000 µs.
+- PM2.5 valid range declared 0–1000 — the GP2Y1023 saturates at ~750 µg/m³.
+- AQI computed from *instantaneous* PM2.5 against 24h-averaged EPA breakpoints — incorrect. V2: control uses raw PM2.5 + space threshold; AQI is display-only via NowCast.
+- `mqttCallback` crashes when `command` is absent (`strcmp(nullptr, ...)`).
+- Both `Wire.begin()` and the U8g2 constructor initialise the same I2C peripheral — share one `Wire` instance.
+- `jsonBuffer[384]` has no headroom — adding `space_id` will overflow it.
+- Watchdog: the doc instructs feeding it, the sample code never does.
+
+### 10.2 Layer 2 (backend-layer.md)
+- **Monthly partitions are never auto-created** — `create_monthly_partition()` exists but nothing schedules it; the pre-created partitions end 2026-12, so inserts start failing in 2027-01.
+- `dropOldPartitions()` is wrong: it derives a partition name from `now − 90 days` and drops it — this can drop a partition still holding data newer than 90 days.
+- **Entity/table PK mismatch**: table PK is `(id, recorded_at)` (composite) but `TelemetryData` declares `@Id` on `id` only with `@GeneratedValue(IDENTITY)` → `ddl-auto: validate` fails at startup.
+- Redis sits in docker-compose but is referenced by no service.
+- MQTT runs plaintext on 1883 (no TLS); port 9001 is exposed but unused; auth defaults are empty in `application.yml` while `mosquitto.conf` defines credentials.
+- `device_id` examples are inconsistent (`ESP32S3_AQSS_01` in SQL vs `AQSS_ESP32S3_01` in the contract).
+- Hibernate `dialect` is set manually (auto-detected in Hibernate 6); no dev profile for `JWT_SECRET`.
+
+### 10.3 Layer 3 (dl.md)
+- Input is infeasible and redundant: `data_since_6am` (~12,960 points) + `data_last_hour` (720) are sent together despite being a union. V2's rolling 24h must be **resampled** (96 steps @ 15 min).
+- "95% confidence interval" is fake: output is `nn.Linear(hidden, 3)` + `ReLU` — no uncertainty mechanism, and ReLU clips negative bounds. Replaced by **quantile loss**.
+- Loss references `MSE_hour`/`MSE_day` but the architecture has a single 24-point output head; λ weights undefined.
+- The Autoencoder diagram shows a "Feature Extractor CNN" while the code is LSTM-only.
+- `reference_window` is a dead input — the model consumes only the evaluation window.
+- Anomaly threshold τ is never defined.
+- `RobustScaler` is not constrained to be fit on the training split only.
+- Transfer learning from UCI Beijing is weak — that dataset has no CO2 feature.
+- The Dockerfile may re-install the CUDA torch build via `requirements.txt`.
+- `config.yaml` defines `seq_length_eval` but no predictor sequence length.
+
+### 10.4 Layer 4 (fontend-layer.md)
+- The two mockup images are **swapped** relative to their captions (Dashboard ↔ Forecasting).
+- REST calls carry no `Authorization` header and the STOMP client sets no `connectHeaders` — the frontend cannot authenticate at all.
+- `useWebSocket` stores each message in `useState`, contradicting the stated strategy of using a ref/Zustand to avoid re-renders.
+- WebSocket URL is hardcoded to `http://localhost:8080/ws`; no env config; no Vite dev proxy.
+- The forecast chart draws `confidence_upper` but not `confidence_lower` — a misleading band.
+- `tailwind.config.js` uses CommonJS in a Vite + TypeScript stack.
+
+### 10.5 Cross-layer
+- README links to `docs/plan_layer1_embedded.md` (and siblings) which do not exist — actual files are `embedded-layer.md`, `backend-layer.md`, `dl.md`, `fontend-layer.md`.
+- `Agents.md` and `Claude.md` are byte-identical duplicates; `install-agents.sh`, `ci.yml`, and `License` are empty; `License` duplicates `LICENSE`.
+- Temperature validation ranges disagree across layers (`< -40 / > 85` vs `[-20, 80]` vs `[-10, 60]`) — unify.
+- The embedded example labels AQI 101 as `"Unhealthy"` — correct category is `"Unhealthy for Sensitive Groups"`.
+- CO2 alert threshold is relaxed at 2,000 ppm — unify on **1,000 ppm**.
+- Typos: `fontend-layer.md`, `py-pytourch-pro`, `prosgresql-pro`, `react-typescripts-pro`.
+
+---
+
+## 11. Impact Metrics (For Report)
 
 | Metric | How to Measure | Target |
 | :--- | :--- | :--- |
+| **CADR (measured)** | Sealed-chamber decay test of the fan + HEPA assembly | Report measured value |
 | **Anticipation accuracy** | % of real breaches preceded by a SOFT ALERT ≥ 1h before | > 70% |
 | **False alert rate** | % of SOFT ALERTS where no breach actually occurred | < 30% |
-| **Intervention efficiency** | Average filter runtime per breach event (minutes) | < 30 min |
+| **Intervention efficiency** | Average fan runtime per breach event (minutes) | < 30 min |
 | **Occupant exposure reduction** | Cumulative µg·m³·h in controlled space vs uncontrolled baseline | > 40% reduction |
 | **Forecast RMSE (q50)** | Root Mean Squared Error of median prediction (15-min resolution) | < 8 µg/m³ |
 | **Threshold inference error** | MAE between ML#1 output and physics-model ground truth | < 5 µg/m³ |
 
 ---
 
-## 11. Files to Update (Execution Checklist)
+## 12. Implementation Roadmap (Phased)
+
+> Each phase has deliverables and a definition of done. Milestones: **M1** node reporting · **M2** closed loop running · **M3** intelligent · **M4** measured evidence.
+
+### Group A — Hardware (Phases 0–4)
+
+| Phase | Work | Definition of Done |
+| :---: | :--- | :--- |
+| **0** Preparation | Inspect parts, identify PSU type, set LM2596 = 5.0V | 5.0V measured; 4 fan wires identified |
+| **1** Power + I2C | Buck → ESP32; SCD40 + OLED on I2C 400 kHz; I2C scan | `0x3C + 0x62` found; OLED shows CO2/T/H every 5s |
+| **2** Dust sensing | GP2Y1023 → GPIO18, ISR PWM measurement, zero-calibrate W0 → NVS | Stable PM2.5, no garbage readings |
+| **3** Fan PWM | Wire 4 pins; LEDC 25 kHz; duty sweep 0→100; kickstart; find `min_duty` | Fan runs smoothly, no stall, no whine |
+| **4** Node + MQTT 🏁M1 | Assemble FreeRTOS tasks; Wi-Fi/NTP/MQTT; publish telemetry + state + status/LWT; subscribe command | `mosquitto_pub/sub` confirms all topics |
+
+### Group B — Basic Closed Loop (Phases 5–7)
+
+| Phase | Work | Definition of Done |
+| :---: | :--- | :--- |
+| **5** Backend ingestion | docker-compose; Flyway V1; MQTT → queue → batch; REST + JWT | Telemetry lands in DB, STOMP broadcast works |
+| **6** Space + threshold (rule) | `spaces` table; rule-based `ThresholdService` (stand-in for ML#1); alert pushed to OLED | Changing Space config changes threshold changes alert |
+| **7** AUTO closed loop 🏁M2 | `ActuatorService` publishes `set_actuator`; node executes PWM; hysteresis + audit; manual override | Introduce dust ⇒ fan auto-runs ⇒ PM2.5 falls ⇒ auto-stops |
+
+### Group C — Intelligence (Phases 8–9)
+
+| Phase | Work | Definition of Done |
+| :---: | :--- | :--- |
+| **8** DL forecast | Resample 24h→24h; train on public data; `/forecast`; backend cron + STOMP + OLED | 24-point forecast renders; early warning fires pre-breach |
+| **9** ML threshold + dosage 🏁M3 | Physics-model label generation; train GP; `/threshold` + `/dosage` | Two different Spaces yield different thresholds and duties |
+
+### Group D — Polish & Evidence (Phases 10–11)
+
+| Phase | Work | Definition of Done |
+| :---: | :--- | :--- |
+| **10** Frontend | Space UI, AUTO/MANUAL, decision timeline, forecast chart with both CI bands; fix token/CORS/mockups | All features usable from the UI |
+| **11** CADR + evaluation 🏁M4 | Sealed-chamber CADR measurement; DL metrics (RMSE/MAE/MAPE) vs naive baseline | CADR table + model-vs-baseline comparison |
+
+### Phase ↔ Layer Map
+
+| Phase | Layer 1 | Layer 2 | Layer 3 | Layer 4 |
+| :---: | :--- | :--- | :--- | :--- |
+| 0 | inspect parts | — | — | — |
+| 1 | power + I2C | — | — | — |
+| 2 | dust sensing | — | — | — |
+| 3 | fan PWM | — | — | — |
+| 4 | node + MQTT | broker test | — | — |
+| 5 | — | ingestion + REST | — | — |
+| 6 | receive alert | Space + rule threshold | — | temp config |
+| 7 | execute set_actuator | closed loop + audit | — | temp AUTO/MANUAL |
+| 8 | OLED forecast | forecast cron | DL forecast | forecast chart |
+| 9 | — | call ML | ML#1 + ML#2 | — |
+| 10 | — | — | — | full UI |
+| 11 | — | — | evaluation | — |
+
+---
+
+## 13. Locked Decisions
+
+| Item | Decision |
+| :--- | :--- |
+| Concept | Indoor closed loop; **backend is 100% the brain** |
+| Threshold | Function of space (volume · purpose · region) |
+| Models | 2 ML (threshold, dosage) + 1 DL (24h→24h) |
+| Actuators | OLED = soft alert · **1× Intel 4-wire PWM fan** = hard intervention (AUTO + MANUAL) |
+| Node | **Single integrated ESP32-S3** per room (sensing + display + fan) |
+| **CO2** | **Alert only** — never in the automatic actuation path (HEPA cannot remove CO2) |
+| Filtration | DIY: HEPA H13 media (~79k) + Intel fan, PWM on the fan's PWM pin |
+| Scale | One small room per fan; larger rooms require a fan bank |
+
+**Open items:** label source for ML#1/#2 (physics/standard-informed proposed) · fan P-Q curve selection if scaling up · CO2 threshold standardised at 1,000 ppm.
+
+---
+
+## 14. Files to Update (Execution Checklist)
 
 | # | File | Action |
 | :--- | :--- | :--- |
 | 1 | `docs/aqss-concept-v2.md` | ✅ **THIS DOCUMENT** |
-| 2 | `docs/io_contract.md` | Add Space, Actuator, Decision, ML/DL contracts; fix §7.1–7.5 |
-| 3 | `docs/backend-layer.md` | Add Space, Actuation, ControlDecisionService, V4 migration |
+| 2 | `docs/io_contract.md` | Add Space, Actuator, Decision, ML/DL contracts; fix §10 issues |
+| 3 | `docs/backend-layer.md` | Add Space, Actuation, ControlDecisionService, V4 migration; fix §10.2 |
 | 4 | `docs/dl.md` | Replace 2 models with 3 (ML#1, ML#2, DL); remove Autoencoder; fix CI |
-| 5 | `docs/embedded-layer.md` | Add actuator node firmware, LWT, OLED warning, `space_id` |
-| 6 | `docs/fontend-layer.md` | Add Space Management, Control View, NowCast AQI, decision timeline |
-| 7 | `README.md` + `Agents.md` | Reposition: "Supervision" → "Closed-Loop Indoor Control" |
+| 5 | `docs/embedded-layer.md` | Integrated node, fan PWM, LWT, OLED warning, `space_id`; fix §10.1 |
+| 6 | `docs/fontend-layer.md` | Add Space Management, Control View, NowCast AQI, decision timeline; fix §10.4 |
+| 7 | `README.md` + `Agents.md` | Reposition: "Supervision" → "Closed-Loop Indoor Control"; fix dead links |
 
 ---
 
-## 12. Out of Scope (This Iteration)
+## 15. Out of Scope (This Iteration)
 
-- Physical demo chamber construction and sensor calibration procedure.
+- Node separation (sensor node vs actuator node) — V2 uses one integrated node per room.
+- Feedback instrumentation (current sense INA219, tachometer RPM read-back) — reserved for a later phase.
 - Production deployment (Kubernetes, CI/CD pipeline).
-- Mobile app or notification service (push notifications).
+- Mobile app or push notification service.
 - Multi-space aggregation and building-level dashboards.
 - Implementation code — this document covers architecture and contracts only.

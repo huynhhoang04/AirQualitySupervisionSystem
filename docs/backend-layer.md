@@ -1,7 +1,10 @@
 # Layer 2 — Backend System: Detailed Implementation Plan
 
-> **Version:** 4.0 — Java Spring Boot + PostgreSQL
-> **Stack:** Java 21 · Spring Boot 3.3 · PostgreSQL 16 · Mosquitto MQTT · STOMP WebSocket · Redis · Docker
+> **Version:** 5.0 — The Brain (closed-loop control, Space-aware)
+> **Stack:** Java 21 · Spring Boot 3.3 · PostgreSQL 16 · Mosquitto MQTT · STOMP WebSocket · Docker
+> **Reference:** [aqss-concept-v2.md](./aqss-concept-v2.md) · [io_contract.md](./io_contract.md)
+>
+> **V2 changes:** Space is a first-class entity · `ControlDecisionService` is the decision brain · `ActuatorService` drives the filter fan via `set_actuator` · AQI is a **NowCast display-only** metric computed at read time · Redis **removed** (was never referenced) · partition management is actually scheduled · `model_evaluations` removed with the Autoencoder.
 
 ---
 
@@ -9,60 +12,53 @@
 
 ```
  ┌────────────────┐          ┌───────────────────────┐
- │ ESP32-S3 IoT   │ ───────► │ Eclipse Mosquitto     │
- │ Devices        │   MQTT   │ MQTT Broker (1883)    │
+ │ ESP32-S3 node  │ ───────► │ Eclipse Mosquitto     │
+ │ (integrated)   │   MQTT   │ Broker (1883, auth)   │
  └────────────────┘          └───────────┬───────────┘
-                                         │
-                      ┌──────────────────┼──────────────────────────┐
-                      │ Spring Boot 3 Application                   │
-                      │                  │                          │
-                      │     ┌────────────▼────────────┐             │
-                      │     │ Spring Integration MQTT │             │
-                      │     │ (MqttPahoMessageDriven  │             │
-                      │     │  ChannelAdapter)         │             │
-                      │     └────────────┬────────────┘             │
-                      │                  │ Async Event              │
-                      │     ┌────────────▼────────────┐             │
-                      │     │ TelemetryIngestionService│             │
-                      │     └───────┬──────────┬──────┘             │
-                      │             │          │                    │
-                      │             ▼          ▼                    │
-                      │     ┌────────────┐ ┌──────────────────┐     │
-                      │     │ BlockingQ  │ │ SimpMessaging    │     │
-                      │     │ Batch Buf  │ │ Template (STOMP) │     │
-                      │     └─────┬──────┘ └────────┬─────────┘     │
-                      └───────────┼─────────────────┼───────────────┘
-                                  │ @Scheduled      │
-                                  │ flush 1s        │ STOMP frames
-                                  ▼                 ▼
-                      ┌──────────────────┐  ┌───────────────────┐
-                      │ PostgreSQL 16    │  │ React Dashboard   │
-                      │                  │  │ SockJS + STOMP    │
-                      └──────────────────┘  └───────────────────┘
-                                  │
-                         Internal HTTP call
-                                  ▼
-                      ┌──────────────────┐
-                      │ Layer 3: DL      │
-                      │ Inference API    │
-                      └──────────────────┘
+                                         │ telemetry / actuator/state / status
+                       ┌─────────────────▼────────────────────────────┐
+                       │ Spring Boot 3                                │
+                       │  MqttInboundAdapter                          │
+                       │        │                                     │
+                       │        ├──► TelemetryIngestionService        │
+                       │        │      ├── BlockingQueue ──► batch DB │
+                       │        │      └── SimpMessagingTemplate      │
+                       │        ├──► DeviceStatusService (LWT)        │
+                       │        └──► ActuatorService (state tracking) │
+                       │                                              │
+                       │  ControlDecisionService  ←── @Scheduled 60 s │
+                       │    ├─ ThresholdService (ML#1, cached)        │
+                       │    ├─ DosageService (ML#2)                   │
+                       │    ├─ ForecastService (DL, cached hourly)    │
+                       │    └─► ActuatorService ──► MQTT set_actuator │
+                       └───────┬──────────────────────┬───────────────┘
+                               │                      │ STOMP
+                        ┌──────▼───────┐      ┌───────▼────────┐
+                        │ PostgreSQL 16│      │ React Frontend │
+                        └──────┬───────┘      └────────────────┘
+                               │ HTTP (RestClient)
+                        ┌──────▼───────────────────────────┐
+                        │ Layer 3: AI (threshold/dosage/   │
+                        │            forecast)             │
+                        └──────────────────────────────────┘
 ```
+
+> **Decision authority lives here.** The node only measures, displays and actuates.
 
 ### Technology Selection Rationale
 
 | Component | Choice | Why |
 | :--- | :--- | :--- |
-| **Language** | Java 21 LTS | Strong typing, mature ecosystem, `java-springboot-pro` agent |
-| **Framework** | Spring Boot 3.3 | Spring Integration MQTT, Spring Security 6, STOMP WebSocket built-in |
-| **MQTT** | Spring Integration MQTT + Eclipse Paho v3 | Auto-reconnect, QoS, wildcard topics, error channel |
-| **WebSocket** | STOMP over WebSocket + SockJS | Per-topic pub/sub (`/topic/devices/{id}`), auth via interceptor |
-| **Database** | PostgreSQL 16 | Industry standard RDBMS, range partitioning for time-series, mature indexing |
-| **ORM** | Spring Data JPA + Hibernate 6 | `@EmbeddedId` composite key, native `@Query`, type-safe projections |
+| **Language** | Java 21 LTS | Strong typing, mature ecosystem |
+| **Framework** | Spring Boot 3.3 | Spring Integration MQTT, Security 6, STOMP built-in |
+| **MQTT** | Spring Integration MQTT + Paho v3 | Auto-reconnect, QoS, wildcard topics, error channel |
+| **WebSocket** | STOMP + SockJS | Per-topic pub/sub, JWT auth via interceptor |
+| **Database** | PostgreSQL 16 | Range partitioning for time-series, mature indexing |
+| **ORM** | Spring Data JPA + Hibernate 6 | `@EmbeddedId` composite key, native queries, projections |
 | **Migrations** | Flyway | SQL-based, version-controlled |
-| **Auth** | Spring Security 6 + JJWT 0.12 | Stateless JWT, dual filter chain (Device API Key + User Bearer), RBAC |
-| **Mapping** | MapStruct | Compile-time DTO ↔ Entity mapping, zero reflection |
-| **Build** | Maven (pom.xml) | Standard Java build tool, extensive plugin ecosystem |
-| **Container** | Docker Compose | Single `docker-compose up` for all services |
+| **Auth** | Spring Security 6 + JJWT 0.12 | Stateless JWT, dual filter chain, RBAC |
+| **Mapping** | MapStruct | Compile-time DTO mapping |
+| **AI calls** | Spring `RestClient` | Blocking, 30 s timeout — no extra dependency |
 
 ---
 
@@ -72,17 +68,16 @@
 
 | Decision | Choice | Rationale |
 | :--- | :--- | :--- |
-| Table layout | **Wide table** (one row = one reading with all metrics) | Sensors sampled simultaneously; avoids 5× row explosion |
-| Primary key | `id BIGSERIAL` + composite unique on `(device_id, recorded_at)` | Standard PG pattern, simple JPA mapping, efficient FK references |
-| Float type | `REAL` (4 bytes) | 50% savings vs `DOUBLE PRECISION`; sensor precision doesn't need 64-bit |
-| Time column | `TIMESTAMPTZ` | Timezone-aware, standard `date_trunc()` support |
-| AQI | `SMALLINT` (2 bytes) | Range 0–500 fits int2 |
-| Partitioning | Range partition by `recorded_at` (monthly) | Efficient data lifecycle, fast range queries, partition pruning |
+| Table layout | **Wide table** (one row = one reading) | Sensors sampled simultaneously |
+| Primary key | **Composite `(id, recorded_at)`** | Required by partitioning; JPA must map it with `@EmbeddedId` |
+| Float type | `REAL` (4 bytes) | Sensor precision does not need 64-bit |
+| Time column | `TIMESTAMPTZ` | `date_trunc()` support |
+| AQI | **Not persisted** | Derived at read time (NowCast) — it is not a raw measurement |
+| Partitioning | Range by `recorded_at` (monthly) | Lifecycle management, pruning |
 
-### 2.2 Flyway Migration (`V1__init_schema.sql`)
+### 2.2 `V1__init_schema.sql`
 
 ```sql
--- ─── Device Registry ───────────────────────────────────────────────
 CREATE TABLE devices (
     device_id          VARCHAR(32) PRIMARY KEY,
     name               VARCHAR(100) NOT NULL,
@@ -97,508 +92,446 @@ CREATE TABLE devices (
     updated_at         TIMESTAMPTZ DEFAULT NOW()
 );
 
--- ─── Users (RBAC) ─────────────────────────────────────────────────
 CREATE TABLE users (
     id                 BIGSERIAL PRIMARY KEY,
     email              VARCHAR(255) UNIQUE NOT NULL,
     password_hash      VARCHAR(255) NOT NULL,
     full_name          VARCHAR(100),
     role               VARCHAR(20) DEFAULT 'ROLE_USER'
-                       CHECK (role IN ('ROLE_ADMIN', 'ROLE_USER', 'ROLE_VIEWER')),
+                       CHECK (role IN ('ROLE_ADMIN','ROLE_USER','ROLE_VIEWER')),
     is_active          BOOLEAN DEFAULT TRUE,
     created_at         TIMESTAMPTZ DEFAULT NOW()
 );
 
--- ─── Telemetry Data (Partitioned by Month) ─────────────────────────
+-- Raw telemetry only — no AQI columns (AQI is derived, see §9)
 CREATE TABLE telemetry_data (
     id                 BIGSERIAL,
     recorded_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     device_id          VARCHAR(32) NOT NULL REFERENCES devices(device_id),
+    space_id           VARCHAR(20),
     pm25               REAL NOT NULL,
     co2                REAL NOT NULL,
     temperature        REAL NOT NULL,
     humidity           REAL NOT NULL,
-    aqi_index          SMALLINT NOT NULL,
-    aqi_level          VARCHAR(40) NOT NULL,
     wifi_rssi          SMALLINT,
     uptime_sec         INT,
     free_heap          INT,
+    min_free_heap      INT,
     PRIMARY KEY (id, recorded_at)
 ) PARTITION BY RANGE (recorded_at);
 
--- Unique constraint for deduplication
-CREATE UNIQUE INDEX uq_telemetry_device_time
-    ON telemetry_data (device_id, recorded_at);
+CREATE UNIQUE INDEX uq_telemetry_device_time ON telemetry_data (device_id, recorded_at);
+CREATE INDEX idx_telemetry_device_time_desc ON telemetry_data (device_id, recorded_at DESC);
 
--- Index for per-device time-range queries
-CREATE INDEX idx_telemetry_device_time_desc
-    ON telemetry_data (device_id, recorded_at DESC);
+-- Initial partitions (always extend to current month + 2 ahead)
+CREATE TABLE telemetry_data_2026_09 PARTITION OF telemetry_data FOR VALUES FROM ('2026-09-01') TO ('2026-10-01');
+CREATE TABLE telemetry_data_2026_10 PARTITION OF telemetry_data FOR VALUES FROM ('2026-10-01') TO ('2026-11-01');
+CREATE TABLE telemetry_data_2026_11 PARTITION OF telemetry_data FOR VALUES FROM ('2026-11-01') TO ('2026-12-01');
 
--- ─── Create initial monthly partitions ─────────────────────────────
-CREATE TABLE telemetry_data_2026_08 PARTITION OF telemetry_data
-    FOR VALUES FROM ('2026-08-01') TO ('2026-09-01');
-CREATE TABLE telemetry_data_2026_09 PARTITION OF telemetry_data
-    FOR VALUES FROM ('2026-09-01') TO ('2026-10-01');
-CREATE TABLE telemetry_data_2026_10 PARTITION OF telemetry_data
-    FOR VALUES FROM ('2026-10-01') TO ('2026-11-01');
-CREATE TABLE telemetry_data_2026_11 PARTITION OF telemetry_data
-    FOR VALUES FROM ('2026-11-01') TO ('2026-12-01');
-CREATE TABLE telemetry_data_2026_12 PARTITION OF telemetry_data
-    FOR VALUES FROM ('2026-12-01') TO ('2027-01-01');
-
--- ─── Alerts ────────────────────────────────────────────────────────
 CREATE TABLE alerts (
     id                 BIGSERIAL PRIMARY KEY,
+    space_id           BIGINT,
     device_id          VARCHAR(32) REFERENCES devices(device_id),
-    alert_type         VARCHAR(30) NOT NULL,
+    alert_type         VARCHAR(30) NOT NULL,   -- PM25_THRESHOLD | CO2_ALERT | SENSOR_OFFLINE | SENSOR_SATURATED
     severity           VARCHAR(10) NOT NULL,
     message            TEXT,
     triggered_at       TIMESTAMPTZ DEFAULT NOW(),
     resolved_at        TIMESTAMPTZ
 );
+CREATE INDEX idx_alerts_active ON alerts (device_id) WHERE resolved_at IS NULL;
 
-CREATE INDEX idx_alerts_active ON alerts (device_id)
-    WHERE resolved_at IS NULL;
-
--- ─── AI Predictions (V2: Autoencoder evaluator removed) ────────────
-
+-- Quantile forecast (`model_evaluations` table REMOVED in V2 with the Autoencoder)
 CREATE TABLE predictions (
     id                 BIGSERIAL PRIMARY KEY,
-    device_id          VARCHAR(32) REFERENCES devices(device_id),
+    space_id           BIGINT,
     predicted_at       TIMESTAMPTZ DEFAULT NOW(),
-    forecast_data      JSONB NOT NULL, -- Array of {target_time, pm25, conf_upper, conf_lower}
+    forecast_data      JSONB NOT NULL,   -- [{target_time, pm25_q50, pm25_q10, pm25_q90}] × 96
     model_version      VARCHAR(20) NOT NULL
 );
 ```
 
-### 2.3 Auto-Create Monthly Partitions (`V2__partition_management.sql`)
+> **Upgrading an existing V1 database:** add `ALTER TABLE telemetry_data DROP COLUMN aqi_index, DROP COLUMN aqi_level, ADD COLUMN space_id VARCHAR(20), ADD COLUMN min_free_heap INT;` to the V4 migration instead of editing V1.
+
+### 2.3 `V4__spaces_and_actuation.sql` (NEW)
 
 ```sql
--- Function to auto-create next month's partition
+-- ─── Space registry ────────────────────────────────────────────────
+CREATE TABLE spaces (
+    id                   BIGSERIAL PRIMARY KEY,
+    code                 VARCHAR(20) UNIQUE NOT NULL,   -- device-facing id (e.g. 'SP_201'); telemetry.space_id and MQTT set_space carry this
+    name                 VARCHAR(100) NOT NULL,
+    area_m2              REAL,
+    ceiling_m            REAL,
+    volume_m3            REAL NOT NULL,
+    purpose              VARCHAR(30) NOT NULL,      -- bedroom|dorm|classroom|office
+    region               VARCHAR(50) NOT NULL,      -- e.g. hanoi_caugiay
+    ventilation_estimate VARCHAR(20) DEFAULT 'low', -- low|medium|high
+    created_at           TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ─── Node ↔ space mapping ──────────────────────────────────────────
+CREATE TABLE space_devices (
+    space_id   BIGINT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
+    device_id  VARCHAR(32) NOT NULL REFERENCES devices(device_id) ON DELETE CASCADE,
+    role       VARCHAR(20) NOT NULL DEFAULT 'SENSOR',  -- SENSOR|ACTUATOR|COMBINED
+    PRIMARY KEY (space_id, device_id)
+);
+
+-- ─── Cached ML#1 / ML#2 output ─────────────────────────────────────
+CREATE TABLE space_thresholds (
+    space_id             BIGINT PRIMARY KEY REFERENCES spaces(id) ON DELETE CASCADE,
+    base_threshold_pm25  REAL NOT NULL,
+    uncertainty_lower    REAL,
+    uncertainty_upper    REAL,
+    dosage_level         SMALLINT,
+    dosage_duration_min  INT,
+    model_version        VARCHAR(20),
+    computed_at          TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ─── Actuator registry ─────────────────────────────────────────────
+CREATE TABLE actuators (
+    device_id        VARCHAR(32) PRIMARY KEY REFERENCES devices(device_id),
+    space_id         BIGINT REFERENCES spaces(id),
+    current_state    VARCHAR(10) DEFAULT 'OFF',   -- ON|OFF
+    current_level    SMALLINT DEFAULT 0,          -- 0-3
+    mode             VARCHAR(10) DEFAULT 'AUTO',  -- AUTO|MANUAL
+    duty_pct         SMALLINT DEFAULT 0,          -- actual PWM duty (0/35/60/90 % per level)
+    filter_runtime_h REAL DEFAULT 0,              -- cumulative runtime (filter-life tracking)
+    last_command_at  TIMESTAMPTZ,
+    state_since      TIMESTAMPTZ DEFAULT NOW()    -- drives the min ON / min OFF safety timers
+);
+
+-- ─── Decision audit log ────────────────────────────────────────────
+CREATE TABLE control_decisions (
+    id                  BIGSERIAL PRIMARY KEY,
+    space_id            BIGINT REFERENCES spaces(id),
+    decided_at          TIMESTAMPTZ DEFAULT NOW(),
+    action              VARCHAR(20) NOT NULL,     -- ACTIVATE|DEACTIVATE|ALERT|IDLE
+    mode                VARCHAR(10) NOT NULL,     -- AUTO|MANUAL|ALERT
+    trigger_reason      VARCHAR(40),              -- threshold_breach|forecast_breach_q90|manual|hysteresis_off
+    pm25_at_decision    REAL,
+    threshold_used      REAL,
+    dosage_level        SMALLINT,
+    dosage_duration_min INT
+);
+CREATE INDEX idx_decisions_space_time ON control_decisions (space_id, decided_at DESC);
+
+-- ─── Upgrade telemetry_data on a V1 deployment (skip on fresh DB) ──
+-- ALTER TABLE telemetry_data DROP COLUMN IF EXISTS aqi_index;
+-- ALTER TABLE telemetry_data DROP COLUMN IF EXISTS aqi_level;
+-- ALTER TABLE telemetry_data ADD COLUMN IF NOT EXISTS space_id VARCHAR(20);
+-- ALTER TABLE telemetry_data ADD COLUMN IF NOT EXISTS min_free_heap INT;
+```
+
+### 2.4 Partition Management (`V2__partition_management.sql`) — **actually scheduled**
+
+```sql
 CREATE OR REPLACE FUNCTION create_monthly_partition()
 RETURNS void AS $$
 DECLARE
     partition_date DATE;
     partition_name TEXT;
-    start_date DATE;
-    end_date DATE;
+    start_date     DATE;
+    end_date       DATE;
 BEGIN
-    -- Create partition for next month
     partition_date := date_trunc('month', NOW() + INTERVAL '1 month');
     partition_name := 'telemetry_data_' || to_char(partition_date, 'YYYY_MM');
-    start_date := partition_date;
-    end_date := partition_date + INTERVAL '1 month';
 
-    -- Check if partition already exists
+    -- V1 BUG: checked relname without the schema → possible false match
     IF NOT EXISTS (
-        SELECT 1 FROM pg_class WHERE relname = partition_name
+        SELECT 1 FROM pg_class
+        WHERE relname = partition_name
+          AND relnamespace = 'public'::regnamespace
     ) THEN
         EXECUTE format(
             'CREATE TABLE %I PARTITION OF telemetry_data FOR VALUES FROM (%L) TO (%L)',
-            partition_name, start_date, end_date
-        );
+            partition_name,
+            date_trunc('month', NOW() + INTERVAL '1 month'),
+            date_trunc('month', NOW() + INTERVAL '2 month'));
         RAISE NOTICE 'Created partition: %', partition_name;
     END IF;
 END;
 $$ LANGUAGE plpgsql;
 ```
 
-### 2.4 Materialized Views for Aggregation (`V3__materialized_views.sql`)
-
-```sql
--- ─── Hourly Aggregation ───────────────────────────────────────────
-CREATE MATERIALIZED VIEW telemetry_hourly AS
-SELECT
-    date_trunc('hour', recorded_at) AS bucket,
-    device_id,
-    AVG(pm25)::REAL AS avg_pm25, MIN(pm25)::REAL AS min_pm25, MAX(pm25)::REAL AS max_pm25,
-    AVG(co2)::REAL  AS avg_co2,  MIN(co2)::REAL  AS min_co2,  MAX(co2)::REAL  AS max_co2,
-    AVG(temperature)::REAL AS avg_temp,
-    AVG(humidity)::REAL AS avg_hum,
-    AVG(aqi_index)::SMALLINT AS avg_aqi,
-    MAX(aqi_index)::SMALLINT AS max_aqi,
-    COUNT(*) AS sample_count
-FROM telemetry_data
-GROUP BY bucket, device_id;
-
-CREATE UNIQUE INDEX idx_hourly_device_bucket
-    ON telemetry_hourly (device_id, bucket DESC);
-
--- ─── Daily Aggregation ────────────────────────────────────────────
-CREATE MATERIALIZED VIEW telemetry_daily AS
-SELECT
-    date_trunc('day', recorded_at) AS bucket,
-    device_id,
-    AVG(pm25)::REAL AS avg_pm25, MIN(pm25)::REAL AS min_pm25, MAX(pm25)::REAL AS max_pm25,
-    AVG(co2)::REAL  AS avg_co2,  MIN(co2)::REAL  AS min_co2,  MAX(co2)::REAL  AS max_co2,
-    AVG(temperature)::REAL AS avg_temp,
-    AVG(humidity)::REAL AS avg_hum,
-    AVG(aqi_index)::SMALLINT AS avg_aqi,
-    MAX(aqi_index)::SMALLINT AS max_aqi,
-    COUNT(*) AS sample_count
-FROM telemetry_data
-GROUP BY bucket, device_id;
-
-CREATE UNIQUE INDEX idx_daily_device_bucket
-    ON telemetry_daily (device_id, bucket DESC);
-```
-
-Materialized views are refreshed periodically via a Spring `@Scheduled` task:
+**The function must be invoked** — V1 defined it and never called it, so inserts would fail from 2027-01:
 
 ```java
-@Scheduled(cron = "0 */15 * * * *") // Every 15 minutes
-public void refreshHourlyView() {
-    entityManager.createNativeQuery(
-        "REFRESH MATERIALIZED VIEW CONCURRENTLY telemetry_hourly"
-    ).executeUpdate();
-}
+@Service @RequiredArgsConstructor @Slf4j
+public class PartitionManagerService {
 
-@Scheduled(cron = "0 5 * * * *") // Every hour at :05
-public void refreshDailyView() {
-    entityManager.createNativeQuery(
-        "REFRESH MATERIALIZED VIEW CONCURRENTLY telemetry_daily"
-    ).executeUpdate();
-}
-```
+    private final EntityManager em;
 
-### 2.5 Data Retention
+    @PostConstruct                                   // cover the current month at boot
+    @Scheduled(cron = "0 0 3 25 * *")                // 25th of every month, 03:00
+    public void createNextPartition() {
+        em.createNativeQuery("SELECT create_monthly_partition()").getSingleResult();
+    }
 
-Old partitions are dropped via a scheduled Spring task or pg_cron:
+    @Scheduled(cron = "0 */15 * * * *")
+    public void refreshHourlyView() {
+        em.createNativeQuery("REFRESH MATERIALIZED VIEW CONCURRENTLY telemetry_hourly").executeUpdate();
+    }
 
-```java
-@Scheduled(cron = "0 0 2 1 * *") // 1st of every month at 02:00
-public void dropOldPartitions() {
-    // Drop partitions older than 90 days
-    String partitionName = "telemetry_data_" +
-        LocalDate.now().minusDays(90).format(DateTimeFormatter.ofPattern("yyyy_MM"));
-    try {
-        entityManager.createNativeQuery("DROP TABLE IF EXISTS " + partitionName).executeUpdate();
-        log.info("Dropped old partition: {}", partitionName);
-    } catch (Exception e) {
-        log.warn("Partition {} does not exist or already dropped", partitionName);
+    @Scheduled(cron = "0 5 * * * *")
+    public void refreshDailyView() {
+        em.createNativeQuery("REFRESH MATERIALIZED VIEW CONCURRENTLY telemetry_daily").executeUpdate();
+    }
+
+    /** Drop WHOLE expired months. V1 derived a partition name from `now − 90 days`
+     *  and dropped it — that can remove a partition still holding newer data. */
+    @Scheduled(cron = "0 0 2 1 * *")
+    @SuppressWarnings("unchecked")
+    public void dropExpiredPartitions() {
+        List<String> names = em.createNativeQuery("""
+                SELECT c.relname FROM pg_inherits i
+                JOIN pg_class p ON p.oid = i.inhparent
+                JOIN pg_class c ON c.oid = i.inhrelid
+                WHERE p.relname = 'telemetry_data'
+                  AND c.relname ~ '^telemetry_data_\\d{4}_\\d{2}$'
+                  AND c.relname < 'telemetry_data_'
+                      || to_char(date_trunc('month', NOW() - INTERVAL '90 days'), 'YYYY_MM')
+                """).getResultList();
+
+        for (Object n : names) {
+            String name = n.toString();
+            em.createNativeQuery("DROP TABLE IF EXISTS " + name).executeUpdate();
+            log.info("Dropped expired partition: {}", name);
+        }
     }
 }
 ```
+
+### 2.5 Materialized Views (`V3__materialized_views.sql`)
+
+Unchanged from V1 (`telemetry_hourly`, `telemetry_daily` with avg/min/max per metric + `sample_count`), **minus** the `avg_aqi` / `max_aqi` columns (AQI is no longer stored). Unique index `(device_id, bucket DESC)` supports `REFRESH ... CONCURRENTLY`.
 
 ---
 
 ## 3. MQTT Ingestion Pipeline
 
-### 3.1 Integration Pattern
-
-- **Spring Integration MQTT** with `MqttPahoMessageDrivenChannelAdapter`
-- Eclipse Paho v3 client with `automaticReconnect=true`, `recoveryInterval=5000ms`
-- Wildcard subscription: `aqss/devices/+/telemetry`, `aqss/devices/+/status`
-- Error channel for malformed messages
-
-### 3.2 Ingestion Flow
+- **Spring Integration MQTT** with `MqttPahoMessageDrivenChannelAdapter`, `automaticReconnect=true`, `recoveryInterval=5000ms`.
+- Wildcard subscriptions: `aqss/devices/+/telemetry`, `aqss/devices/+/status`, `aqss/devices/+/actuator/state`.
+- Error channel routes malformed JSON to a dead-letter log instead of crashing the flow.
 
 ```
-MQTT Message → MqttPahoAdapter → IntegrationFlow → MqttTelemetryHandler
-                                                            │
-                                        ┌───────────────────┴───────────────────┐
-                                        ▼                                       ▼
-                               BlockingQueue<TelemetryData>          SimpMessagingTemplate
-                               (capacity 10,000)                     .convertAndSend()
-                                        │                                       │
-                                @Scheduled(1000ms)                    /topic/telemetry
-                                        │                            /topic/devices/{id}
-                                        ▼
-                               repository.saveAll(batch)
-                               (Hibernate batch_size=100,
-                                reWriteBatchedInserts=true)
+MQTT msg → MqttPahoAdapter → IntegrationFlow → handler
+   ├─ telemetry      → validate ranges → BlockingQueue(10,000) ──► @Scheduled(1s) saveAll(batch)
+   │                                             └──────────────► STOMP /topic/devices/{id}  (<5 ms)
+   ├─ status         → DeviceStatusService (last_seen_at, ONLINE/OFFLINE, alert SENSOR_OFFLINE)
+   └─ actuator/state → ActuatorService (update actuators row, STOMP /topic/actuators/{id})
 ```
 
-### 3.3 Key Design Points
-
-- **Batch buffer**: `LinkedBlockingQueue` drained every 1s or 500 records via `@Scheduled`
-- **Hibernate batch optimization**: `reWriteBatchedInserts=true` in JDBC URL → 10× faster PG batch writes
-- **WebSocket bridge**: `SimpMessagingTemplate.convertAndSend()` called immediately on MQTT receive (< 5ms)
-- **Graceful shutdown**: `@PreDestroy` flushes remaining buffer items
-
-### 3.4 MQTT Topics
-
-| Topic Pattern | Direction | Purpose |
-| :--- | :---: | :--- |
-| `aqss/devices/{id}/telemetry` | Device → Server | Sensor readings JSON |
-| `aqss/devices/{id}/status` | Device → Server | Heartbeat / online-offline |
-| `aqss/devices/{id}/command` | Server → Device | Remote commands |
+- `reWriteBatchedInserts=true` + `hibernate.jdbc.batch_size=100` + `order_inserts=true`.
+- `@PreDestroy` flushes the queue on graceful shutdown.
 
 ---
 
-## 4. REST API Endpoints
-
-### 4.1 Authentication
-
-| Endpoint | Method | Auth | Description |
-| :--- | :---: | :---: | :--- |
-| `/api/v1/auth/register` | POST | — | Create user account |
-| `/api/v1/auth/token` | POST | — | Login → JWT access + refresh tokens |
-| `/api/v1/auth/refresh` | POST | Refresh | Rotate access token |
-
-### 4.2 Devices
-
-| Endpoint | Method | Auth | Description |
-| :--- | :---: | :---: | :--- |
-| `GET /api/v1/devices` | GET | JWT | List devices with status |
-| `GET /api/v1/devices/{id}` | GET | JWT | Device detail + last reading |
-| `POST /api/v1/devices` | POST | ADMIN | Register device → API key |
-| `PUT /api/v1/devices/{id}` | PUT | ADMIN | Update metadata |
-| `POST /api/v1/devices/{id}/command` | POST | ADMIN | Publish MQTT command |
-
-### 4.3 Telemetry
-
-| Endpoint | Method | Auth | Description |
-| :--- | :---: | :---: | :--- |
-| `GET /api/v1/telemetry/latest` | GET | JWT | Latest reading (`?device_id=`) |
-| `GET /api/v1/telemetry/history` | GET | JWT | Raw range query (`?device_id=&start=&end=`) |
-| `GET /api/v1/telemetry/aggregate` | GET | JWT | `date_trunc()` aggregate (`?interval=5min`) |
-| `GET /api/v1/telemetry/hourly` | GET | JWT | Hourly materialized view |
-| `GET /api/v1/telemetry/daily` | GET | JWT | Daily materialized view |
-
-### 4.4 Forecast & Alerts
-
-| Endpoint | Method | Auth | Description |
-| :--- | :---: | :---: | :--- |
-| `GET /api/v1/forecast/{device_id}` | GET | JWT | Predicted AQI 1h/6h/24h |
-| `POST /api/v1/forecast/run` | POST | ADMIN | Trigger manual forecast |
-| `GET /api/v1/alerts` | GET | JWT | Active alerts |
-| `PUT /api/v1/alerts/{id}/resolve` | PUT | JWT | Mark resolved |
-| `GET /actuator/health` | GET | — | Liveness check |
-
----
-
-## 5. WebSocket (STOMP) Real-Time Streaming
-
-### 5.1 Endpoints
-
-| Endpoint | Transport | Description |
-| :--- | :--- | :--- |
-| `/ws` | Native WebSocket | STOMP connection |
-| `/ws` + SockJS | HTTP fallback | Browser compatibility |
-
-### 5.2 STOMP Topics
-
-| Destination | Direction | Description |
-| :--- | :---: | :--- |
-| `/topic/telemetry` | Server → Client | All devices broadcast |
-| `/topic/devices/{id}` | Server → Client | Single device stream |
-| `/topic/alerts` | Server → Client | Alert notifications |
-| `/topic/device-status` | Server → Client | Online/offline changes |
-
-### 5.3 Auth
-
-- JWT validated on STOMP `CONNECT` frame via `ChannelInterceptor`
-- Token in STOMP header `Authorization: Bearer <jwt>`
-
----
-
-## 6. Authentication & Security
-
-### 6.1 Dual Auth
-
-```
-Request ──► DeviceApiKeyAuthFilter ──► JwtAuthenticationFilter ──► SecurityFilterChain ──► Controller
-
-ESP32 Device:  X-API-Key header  → SHA-256 hash → lookup devices.api_key_hash → ROLE_DEVICE
-Dashboard:     Authorization: Bearer <JWT> → JJWT decode → validate exp, sig → ROLE_USER/ADMIN
-```
-
-### 6.2 Details
-
-- **Passwords**: BCrypt via Spring `PasswordEncoder`
-- **Device keys**: SHA-256 hash in `devices.api_key_hash`
-- **JWT**: JJWT 0.12, HS256, 30-min access / 7-day refresh
-- **RBAC**: `ROLE_ADMIN`, `ROLE_USER`, `ROLE_VIEWER`, `ROLE_DEVICE`
-- **Session**: `SessionCreationPolicy.STATELESS`
-
----
-
-## 7. JPA Entity Design
-
-### 7.1 TelemetryData Entity
+## 4. The Brain — Control Decision Flow
 
 ```java
-@Entity
-@Table(name = "telemetry_data")
+@Scheduled(fixedDelayString = "${aqss.control.cycle-ms:60000}")   // decision cycle: 60 s
+public void evaluateSpaces() {
+    for (Space s : spaceService.findActiveSpaces()) {
+        SpaceThreshold th = thresholdService.getOrCompute(s);   // cached ML#1
+        Forecast fc       = forecastService.latestFor(s);       // cached DL (hourly)
+        double pm25       = telemetryService.latestPm25For(s);  // rolling 5-min median
+
+        // 1. Hard breach
+        if (pm25 >= th.baseThreshold()) {
+            Dosage d = dosageService.compute(s, pm25, th);      // ML#2
+            actuatorService.activate(s, d);                     // publish set_actuator ON level=d.level
+            audit(s, "ACTIVATE", "AUTO", "threshold_breach", pm25, th, d);
+            continue;
+        }
+        // 2. Early warning from the q90 (worst-case) forecast
+        Double hoursToBreach = fc.hoursUntilQ90Breach(th.baseThreshold());
+        if (hoursToBreach != null && hoursToBreach <= 2.0) {
+            actuatorService.warn(s, hoursToBreach);             // publish display_warning
+            audit(s, "ALERT", "ALERT", "forecast_breach_q90", pm25, th, null);
+            continue;
+        }
+        // 3. Hysteresis release at 70% of threshold
+        if (actuatorService.isOn(s) && pm25 < th.baseThreshold() * 0.7) {
+            actuatorService.deactivate(s);
+            audit(s, "DEACTIVATE", "AUTO", "hysteresis_off", pm25, th, null);
+        }
+    }
+}
+```
+
+**Safety constraints enforced by `ActuatorService`:**
+
+| Constraint | Value |
+| :--- | :--- |
+| Minimum ON time | 5 min |
+| Minimum OFF time | 3 min |
+| Maximum continuous ON | 120 min |
+| Hysteresis band | 70 % of threshold |
+| Manual override | Always wins (dashboard **and** physical button) |
+| Fail-safe | Node turns the fan OFF after 10 min without a command |
+
+**CO2 is alert-only** — `CO2_ALERT` never triggers actuation (HEPA cannot remove CO2).
+
+---
+
+## 5. REST API Endpoints
+
+### 5.1 Auth (unchanged)
+`POST /api/v1/auth/register` · `POST /api/v1/auth/token` · `POST /api/v1/auth/refresh`
+
+### 5.2 Spaces & Actuation (NEW)
+
+| Endpoint | Method | Auth | Description |
+| :--- | :---: | :---: | :--- |
+| `GET /api/v1/spaces` | GET | JWT | List spaces with derived threshold |
+| `POST /api/v1/spaces` | POST | ADMIN | Create space (triggers ML#1) |
+| `GET /api/v1/spaces/{id}` | GET | JWT | Space + threshold + dosage + devices |
+| `PUT /api/v1/spaces/{id}` | PUT | ADMIN | Update → invalidates `space_thresholds` cache |
+| `DELETE /api/v1/spaces/{id}` | DELETE | ADMIN | Delete |
+| `POST /api/v1/spaces/{id}/devices` | POST | ADMIN | Assign node (`{device_id, role}`) |
+| `GET /api/v1/spaces/{id}/decisions` | GET | JWT | Decision timeline (audit log) |
+| `POST /api/v1/spaces/{id}/actuator` | POST | JWT | Manual control `{mode, state, level}` |
+| `POST /api/v1/spaces/{id}/threshold` | POST | ADMIN | Force ML#1 recompute |
+| `GET /api/v1/actuators` | GET | JWT | Actuator registry + live state |
+
+Payload shapes: `io_contract.md` §6.
+
+### 5.3 Telemetry / Forecast / Alerts
+
+| Endpoint | Method | Auth | Description |
+| :--- | :---: | :---: | :--- |
+| `GET /api/v1/telemetry/latest` | GET | JWT | Latest reading + derived AQI + `co2_alert` |
+| `GET /api/v1/telemetry/history` | GET | JWT | Raw range query |
+| `GET /api/v1/telemetry/aggregate` | GET | JWT | `date_trunc` aggregate |
+| `GET /api/v1/telemetry/hourly` / `daily` | GET | JWT | Materialized views |
+| `GET /api/v1/forecast/{space_id}` | GET | JWT | 96-point quantile forecast |
+| `POST /api/v1/forecast/run` | POST | ADMIN | Trigger forecast now |
+| `GET /api/v1/alerts` / `PUT /{id}/resolve` | GET/PUT | JWT | Alerts |
+| `GET /actuator/health` | GET | — | Liveness |
+
+---
+
+## 6. WebSocket (STOMP)
+
+| Destination | Description |
+| :--- | :--- |
+| `/topic/devices/{id}` | Live telemetry |
+| `/topic/spaces/{id}/decision` | Control decision stream (NEW) |
+| `/topic/actuators/{id}` | Fan state updates (NEW) |
+| `/topic/alerts` | Alerts |
+| `/topic/device-status` | Online/offline (from LWT) |
+
+JWT validated on the STOMP `CONNECT` frame via `ChannelInterceptor` (`Authorization: Bearer`).
+
+---
+
+## 7. Security (unchanged from V1, plus CORS)
+
+- Dual filter chain: `X-API-Key` (device, SHA-256 hash lookup) and `Bearer <JWT>` (users).
+- BCrypt passwords · JJWT 0.12 HS256 · 30-min access / 7-day refresh · `ROLE_ADMIN/USER/VIEWER/DEVICE` · stateless sessions.
+- **CORS (V1 omission):** allow the Vite dev origin:
+
+```java
+@Bean CorsConfigurationSource corsConfigurationSource() {
+    CorsConfiguration c = new CorsConfiguration();
+    c.setAllowedOrigins(List.of("http://localhost:5173", corsOrigin));
+    c.setAllowedMethods(List.of("GET","POST","PUT","DELETE"));
+    c.setAllowedHeaders(List.of("Authorization","Content-Type"));
+    UrlBasedCorsConfigurationSource src = new UrlBasedCorsConfigurationSource();
+    src.registerCorsConfiguration("/**", c);
+    return src;
+}
+```
+
+---
+
+## 8. JPA Entity Design
+
+```java
+@Entity @Table(name = "telemetry_data")
 public class TelemetryData {
 
-    @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id;
+    @EmbeddedId
+    private TelemetryDataId id;   // (Long id, Instant recordedAt) — composite.
+                                  // REQUIRED: the partitioned table's PK is (id, recorded_at).
+                                  // V1 used @Id on id + IDENTITY → ddl-auto: validate failed.
 
-    @Column(name = "recorded_at", nullable = false)
-    private Instant recordedAt;
-
-    @Column(name = "device_id", length = 32, nullable = false)
+    @Column(name = "device_id", nullable = false, length = 32)
     private String deviceId;
+
+    @Column(name = "space_id", length = 20)
+    private String spaceId;
 
     @Column(nullable = false) private Float pm25;
     @Column(nullable = false) private Float co2;
     @Column(nullable = false) private Float temperature;
     @Column(nullable = false) private Float humidity;
-    @Column(name = "aqi_index", nullable = false) private Short aqiIndex;
-    @Column(name = "aqi_level", length = 40, nullable = false) private String aqiLevel;
-    
-    @Column(name = "wifi_rssi") private Short wifiRssi;
-    @Column(name = "uptime_sec") private Integer uptimeSec;
-    @Column(name = "free_heap") private Integer freeHeap;
+    @Column(name = "wifi_rssi")     private Short wifiRssi;
+    @Column(name = "uptime_sec")    private Integer uptimeSec;
+    @Column(name = "free_heap")     private Integer freeHeap;
+    @Column(name = "min_free_heap") private Integer minFreeHeap;
 }
 ```
 
-### 7.2 Repository with Native Queries
+> Do **not** use `@GeneratedValue(IDENTITY)` on a partitioned table with a composite PK — Hibernate cannot populate the composite key and validation fails at startup.
+
+New entities: `Space`, `SpaceDevice`, `SpaceThreshold`, `Actuator`, `ControlDecision` (mapped 1:1 to the V4 tables).
+
+---
+
+## 9. AQI — NowCast, Display Only (NEW service)
 
 ```java
-@Repository
-public interface TelemetryRepository extends JpaRepository<TelemetryData, Long> {
-
-    // Latest reading (fast via idx_telemetry_device_time_desc)
-    @Query(value = "SELECT * FROM telemetry_data WHERE device_id = :deviceId " +
-                   "ORDER BY recorded_at DESC LIMIT 1", nativeQuery = true)
-    Optional<TelemetryData> findLatestByDeviceId(@Param("deviceId") String deviceId);
-
-    // Time range query
-    List<TelemetryData> findByDeviceIdAndRecordedAtBetweenOrderByRecordedAtAsc(
-        String deviceId, Instant start, Instant end);
-
-    // Aggregation with date_trunc
-    @Query(value = """
-        SELECT date_trunc(:interval, recorded_at) AS bucket,
-               device_id AS deviceId,
-               AVG(pm25)::real AS avgPm25, MAX(pm25)::real AS maxPm25,
-               AVG(co2)::real AS avgCo2,
-               AVG(temperature)::real AS avgTemp,
-               AVG(humidity)::real AS avgHum,
-               AVG(aqi_index)::smallint AS avgAqi,
-               COUNT(*) AS sampleCount
-        FROM telemetry_data
-        WHERE device_id = :deviceId
-          AND recorded_at >= :start AND recorded_at <= :end
-        GROUP BY bucket, device_id
-        ORDER BY bucket ASC
-        """, nativeQuery = true)
-    List<TelemetryAggregateProjection> findAggregates(
-        @Param("deviceId") String deviceId,
-        @Param("interval") String interval,
-        @Param("start") Instant start,
-        @Param("end") Instant end);
+/** AQI is derived, never stored. Computed from raw PM2.5 with the EPA NowCast
+ *  algorithm (weighted average over the last 12 hours). Display only — the
+ *  control loop compares raw PM2.5 against the space threshold. */
+@Service
+public class NowCastService {
+    public int computeAqi(List<TelemetryData> last12h) { /* EPA NowCast weights */ }
+    public String aqiLevel(int aqi) { /* breakpoint table */ }
 }
 ```
 
----
-
-## 8. Key Query Patterns
-
-```sql
--- Latest reading for one device (sub-ms via index)
-SELECT * FROM telemetry_data
-WHERE device_id = 'ESP32S3_AQSS_01'
-ORDER BY recorded_at DESC LIMIT 1;
-
--- Latest reading per ALL devices
-SELECT DISTINCT ON (device_id) *
-FROM telemetry_data
-WHERE recorded_at >= NOW() - INTERVAL '1 hour'
-ORDER BY device_id, recorded_at DESC;
-
--- Raw 24h history for chart
-SELECT recorded_at, pm25, co2, temperature, humidity, aqi_index
-FROM telemetry_data
-WHERE device_id = 'ESP32S3_AQSS_01'
-  AND recorded_at >= NOW() - INTERVAL '24 hours'
-ORDER BY recorded_at ASC;
-
--- Downsampled 5-min intervals for 7-day chart
-SELECT date_trunc('hour', recorded_at) AS bucket,
-       AVG(pm25) AS avg_pm25, AVG(co2) AS avg_co2,
-       AVG(temperature) AS avg_temp, AVG(humidity) AS avg_hum
-FROM telemetry_data
-WHERE device_id = 'ESP32S3_AQSS_01'
-  AND recorded_at >= NOW() - INTERVAL '7 days'
-GROUP BY bucket ORDER BY bucket ASC;
-
--- Cursor-based pagination (no OFFSET)
-SELECT * FROM telemetry_data
-WHERE device_id = 'ESP32S3_AQSS_01'
-  AND recorded_at < :cursor_timestamp
-ORDER BY recorded_at DESC LIMIT 50;
-```
+V1's `AqiCalculatorService` ran on the device against 24h-average breakpoints applied to *instantaneous* readings — methodologically wrong. Removed.
 
 ---
 
-## 9. Project Structure
+## 10. Project Structure
 
 ```
 backend/
 ├── src/main/java/com/aqss/backend/
 │   ├── BackendApplication.java
-│   ├── config/
-│   │   ├── MqttIntegrationConfig.java
-│   │   ├── WebSocketBrokerConfig.java
-│   │   ├── SecurityConfig.java
-│   │   └── JacksonConfig.java
-│   ├── controller/
-│   │   ├── AuthController.java
-│   │   ├── DeviceController.java
-│   │   ├── TelemetryController.java
-│   │   ├── ForecastController.java
-│   │   └── AlertController.java
-│   ├── dto/
-│   │   ├── auth/
-│   │   ├── device/
-│   │   └── telemetry/
-│   ├── entity/
-│   │   ├── Device.java
-│   │   ├── User.java
-│   │   ├── TelemetryData.java
-│   │   ├── Alert.java
-│   │   └── Prediction.java
-│   ├── mapper/
-│   │   ├── DeviceMapper.java
-│   │   ├── TelemetryMapper.java
-│   │   └── UserMapper.java
-│   ├── mqtt/
-│   │   ├── MqttTelemetryHandler.java
-│   │   └── MqttCommandPublisher.java
-│   ├── repository/
-│   │   ├── DeviceRepository.java
-│   │   ├── UserRepository.java
-│   │   ├── TelemetryRepository.java
-│   │   ├── AlertRepository.java
-│   │   └── projection/
-│   │       └── TelemetryAggregateProjection.java
-│   ├── security/
-│   │   ├── filter/
-│   │   │   ├── JwtAuthenticationFilter.java
-│   │   │   └── DeviceApiKeyAuthFilter.java
-│   │   ├── jwt/
-│   │   │   └── JwtService.java
-│   │   └── websocket/
-│   │       └── StompAuthChannelInterceptor.java
-│   └── service/
-│       ├── AuthService.java
-│       ├── DeviceService.java
-│       ├── DeviceStatusService.java
-│       ├── TelemetryIngestionService.java
-│       ├── AqiCalculatorService.java
-│       ├── AlertService.java
-│       └── PartitionManagerService.java  # Auto-create partitions + refresh matviews
+│   ├── config/            MqttIntegrationConfig · WebSocketBrokerConfig · SecurityConfig · CorsConfig
+│   ├── controller/        AuthController · DeviceController · TelemetryController
+│   │                      SpaceController · ActuatorController · ForecastController · AlertController
+│   ├── dto/               auth/ · device/ · telemetry/ · space/
+│   ├── entity/            Device · User · TelemetryData · Space · SpaceDevice
+│   │                      SpaceThreshold · Actuator · ControlDecision · Alert · Prediction
+│   ├── mqtt/              MqttTelemetryHandler · MqttStatusHandler · MqttCommandPublisher
+│   ├── repository/        8 repositories + projection/TelemetryAggregateProjection
+│   ├── security/          filter/JwtAuthenticationFilter · filter/DeviceApiKeyAuthFilter
+│   │                      jwt/JwtService · websocket/StompAuthChannelInterceptor
+│   └── service/           AuthService · DeviceService · DeviceStatusService
+│                          TelemetryIngestionService · NowCastService · AlertService
+│                          SpaceService · ThresholdService · DosageService
+│                          ForecastService · ControlDecisionService · ActuatorService
+│                          PartitionManagerService
 ├── src/main/resources/
 │   ├── application.yml
-│   └── db/migration/
-│       ├── V1__init_schema.sql
-│       ├── V2__partition_management.sql
-│       └── V3__materialized_views.sql
-├── src/test/java/com/aqss/backend/
+│   └── db/migration/      V1__init_schema.sql · V2__partition_management.sql
+│                          V3__materialized_views.sql · V4__spaces_and_actuation.sql
 ├── mosquitto/config/mosquitto.conf
-├── pom.xml
+├── pom.xml                (unchanged from V1 — no new dependency required)
 ├── Dockerfile
 └── docker-compose.yml
 ```
 
 ---
 
-## 10. Configuration (`application.yml`)
+## 11. Configuration (`application.yml`)
 
 ```yaml
 server:
@@ -615,17 +548,13 @@ spring:
     hikari:
       maximum-pool-size: 20
       minimum-idle: 10
-      connection-timeout: 20000
-      max-lifetime: 1200000
-      leak-detection-threshold: 5000
   jpa:
     open-in-view: false
     hibernate:
       ddl-auto: validate
     properties:
       hibernate:
-        dialect: org.hibernate.dialect.PostgreSQLDialect
-        jdbc.batch_size: 100
+        jdbc.batch_size: 100        # dialect auto-detected in Hibernate 6 — removed
         order_inserts: true
   flyway:
     enabled: true
@@ -634,29 +563,51 @@ spring:
 mqtt:
   broker-url: tcp://${MQTT_HOST:localhost}:1883
   client-id: aqss-backend-server
-  username: ${MQTT_USER:}
-  password: ${MQTT_PASS:}
+  username: ${MQTT_USER:aqss_device}   # must match mosquitto.conf — V1 defaulted to empty
+  password: ${MQTT_PASS:aqss_password}
   topics:
     telemetry: "aqss/devices/+/telemetry"
     status: "aqss/devices/+/status"
+    actuator-state: "aqss/devices/+/actuator/state"
 
 security:
   jwt:
-    secret: ${JWT_SECRET}
+    secret: ${JWT_SECRET:dev-only-secret-change-me-0123456789abcdef}   # dev default added
     access-token-expiration-ms: 1800000
     refresh-token-expiration-ms: 604800000
 
+app:
+  cors:
+    origin: ${CORS_ORIGIN:http://localhost:5173}
+
 aqss:
+  ai:
+    base-url: http://${AI_HOST:localhost}:8000
+    timeout-ms: 30000
+  control:
+    cycle-ms: 60000                 # decision cycle
+    forecast-cron: "0 0 * * * *"    # hourly DL refresh
+    hysteresis-ratio: 0.7
+    min-on-minutes: 5
+    min-off-minutes: 3
+    max-on-minutes: 120
   telemetry:
     batch-flush-interval-ms: 1000
 ```
 
+`mosquitto.conf` (auth must match):
+
+```
+listener 1883
+allow_anonymous false
+password_file /mosquitto/config/pwfile
+```
+
 ---
 
-## 11. Docker Compose
+## 12. Docker Compose (Redis removed)
 
 ```yaml
-version: '3.8'
 services:
   postgres:
     image: postgres:16-alpine
@@ -672,9 +623,10 @@ services:
 
   mosquitto:
     image: eclipse-mosquitto:2
-    ports: ["1883:1883", "9001:9001"]
-    volumes: ["./mosquitto/config/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro"]
-
+    ports: ["1883:1883"]
+    volumes:
+      - ./mosquitto/config/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./mosquitto/config/pwfile:/mosquitto/config/pwfile:ro
 
   backend:
     build: .
@@ -682,218 +634,86 @@ services:
       postgres: { condition: service_healthy }
     environment:
       DB_HOST: postgres
-      DB_NAME: aqss_db
-      DB_USER: aqss_user
-      DB_PASS: ${POSTGRES_PASSWORD}
       MQTT_HOST: mosquitto
+      AI_HOST: layer3-ai
       JWT_SECRET: ${JWT_SECRET}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     ports: ["8080:8080"]
+
+  layer3-ai:
+    build: ../layer3_dl
+    ports: ["8000:8000"]
 
 volumes:
   pgdata:
 ```
 
+> **Redis removed** — declared in V1 but referenced by no service. Port 9001 (MQTT websocket) removed as well (unused). If caching is needed later, prefer Spring Cache + Caffeine in-process.
+
 ---
 
-## 12. Maven Dependencies (`pom.xml`)
+## 13. Key Query Patterns
 
-```xml
-<properties>
-    <java.version>21</java.version>
-    <spring-boot.version>3.3.3</spring-boot.version>
-    <jjwt.version>0.12.6</jjwt.version>
-    <mapstruct.version>1.5.5.Final</mapstruct.version>
-</properties>
+```sql
+-- Latest reading per device (uses idx_telemetry_device_time_desc)
+SELECT * FROM telemetry_data
+WHERE device_id = 'AQSS_ESP32S3_01'
+ORDER BY recorded_at DESC LIMIT 1;
 
-<dependencies>
-    <!-- Spring Boot -->
-    <dependency>
-        <groupId>org.springframework.boot</groupId>
-        <artifactId>spring-boot-starter-web</artifactId>
-    </dependency>
-    <dependency>
-        <groupId>org.springframework.boot</groupId>
-        <artifactId>spring-boot-starter-websocket</artifactId>
-    </dependency>
-    <dependency>
-        <groupId>org.springframework.boot</groupId>
-        <artifactId>spring-boot-starter-data-jpa</artifactId>
-    </dependency>
-    <dependency>
-        <groupId>org.springframework.boot</groupId>
-        <artifactId>spring-boot-starter-security</artifactId>
-    </dependency>
-    <dependency>
-        <groupId>org.springframework.boot</groupId>
-        <artifactId>spring-boot-starter-validation</artifactId>
-    </dependency>
-    <dependency>
-        <groupId>org.springframework.boot</groupId>
-        <artifactId>spring-boot-starter-actuator</artifactId>
-    </dependency>
+-- Latest reading per ALL devices
+SELECT DISTINCT ON (device_id) *
+FROM telemetry_data
+WHERE recorded_at >= NOW() - INTERVAL '1 hour'
+ORDER BY device_id, recorded_at DESC;
 
-    <!-- MQTT -->
-    <dependency>
-        <groupId>org.springframework.integration</groupId>
-        <artifactId>spring-integration-mqtt</artifactId>
-    </dependency>
+-- 24h history for a chart
+SELECT recorded_at, pm25, co2, temperature, humidity
+FROM telemetry_data
+WHERE space_id = 'SP_201'
+  AND recorded_at >= NOW() - INTERVAL '24 hours'
+ORDER BY recorded_at ASC;
 
-    <!-- Database -->
-    <dependency>
-        <groupId>org.postgresql</groupId>
-        <artifactId>postgresql</artifactId>
-        <scope>runtime</scope>
-    </dependency>
-    <dependency>
-        <groupId>org.flywaydb</groupId>
-        <artifactId>flyway-core</artifactId>
-    </dependency>
-    <dependency>
-        <groupId>org.flywaydb</groupId>
-        <artifactId>flyway-database-postgresql</artifactId>
-    </dependency>
+-- 15-min median series for the DL forecast request (96 steps)
+SELECT (floor(extract(epoch FROM recorded_at) / 900) * 900) AS bucket,
+       percentile_cont(0.5) WITHIN GROUP (ORDER BY pm25) AS pm25
+FROM telemetry_data
+WHERE space_id = 'SP_201' AND recorded_at >= NOW() - INTERVAL '24 hours'
+GROUP BY bucket ORDER BY bucket ASC;
 
-    <!-- JWT -->
-    <dependency>
-        <groupId>io.jsonwebtoken</groupId>
-        <artifactId>jjwt-api</artifactId>
-        <version>${jjwt.version}</version>
-    </dependency>
-    <dependency>
-        <groupId>io.jsonwebtoken</groupId>
-        <artifactId>jjwt-impl</artifactId>
-        <version>${jjwt.version}</version>
-        <scope>runtime</scope>
-    </dependency>
-    <dependency>
-        <groupId>io.jsonwebtoken</groupId>
-        <artifactId>jjwt-jackson</artifactId>
-        <version>${jjwt.version}</version>
-        <scope>runtime</scope>
-    </dependency>
-    <dependency>
-        <groupId>commons-codec</groupId>
-        <artifactId>commons-codec</artifactId>
-        <version>1.17.1</version>
-    </dependency>
-
-    <!-- MapStruct & Lombok -->
-    <dependency>
-        <groupId>org.projectlombok</groupId>
-        <artifactId>lombok</artifactId>
-        <optional>true</optional>
-    </dependency>
-    <dependency>
-        <groupId>org.mapstruct</groupId>
-        <artifactId>mapstruct</artifactId>
-        <version>${mapstruct.version}</version>
-    </dependency>
-
-    <!-- Test -->
-    <dependency>
-        <groupId>org.springframework.boot</groupId>
-        <artifactId>spring-boot-starter-test</artifactId>
-        <scope>test</scope>
-    </dependency>
-    <dependency>
-        <groupId>org.springframework.security</groupId>
-        <artifactId>spring-security-test</artifactId>
-        <scope>test</scope>
-    </dependency>
-    <dependency>
-        <groupId>org.testcontainers</groupId>
-        <artifactId>postgresql</artifactId>
-        <scope>test</scope>
-    </dependency>
-    <dependency>
-        <groupId>org.testcontainers</groupId>
-        <artifactId>junit-jupiter</artifactId>
-        <scope>test</scope>
-    </dependency>
-</dependencies>
-
-<build>
-    <plugins>
-        <plugin>
-            <groupId>org.apache.maven.plugins</groupId>
-            <artifactId>maven-compiler-plugin</artifactId>
-            <configuration>
-                <annotationProcessorPaths>
-                    <path>
-                        <groupId>org.mapstruct</groupId>
-                        <artifactId>mapstruct-processor</artifactId>
-                        <version>${mapstruct.version}</version>
-                    </path>
-                    <path>
-                        <groupId>org.projectlombok</groupId>
-                        <artifactId>lombok</artifactId>
-                        <version>${lombok.version}</version>
-                    </path>
-                    <path>
-                        <groupId>org.projectlombok</groupId>
-                        <artifactId>lombok-mapstruct-binding</artifactId>
-                        <version>0.2.0</version>
-                    </path>
-                </annotationProcessorPaths>
-            </configuration>
-        </plugin>
-    </plugins>
-</build>
+-- Cursor pagination (no OFFSET)
+SELECT * FROM telemetry_data
+WHERE device_id = 'AQSS_ESP32S3_01' AND recorded_at < :cursor
+ORDER BY recorded_at DESC LIMIT 50;
 ```
 
+> `device_id` examples use the contract pattern `AQSS_ESP32S3_XX` everywhere (V1 mixed `ESP32S3_AQSS_01`).
+
 ---
 
-## 13. Performance Targets
+## 14. Performance Targets
 
 | Metric | Target |
 | :--- | :--- |
-| MQTT → DB latency | < 1s (batch flush) |
+| MQTT → DB latency | < 1 s (batch flush) |
 | MQTT → STOMP WebSocket | < 5 ms |
 | REST API p95 | < 100 ms |
+| Decision cycle worst case | < 60 s |
 | Concurrent MQTT devices | 100+ |
 | Concurrent WebSocket clients | 500+ |
-| DB write throughput | 20 rows/sec (100 devices × 0.2 Hz) |
-| Storage (100 devices, 90 days) | ~5–8 GB uncompressed |
-| Materialized view refresh | 15-min cycle (hourly view) |
 
 ---
 
-## 14. Verification Plan
+## 15. Verification Plan
 
-### Automated Tests
 ```bash
-./mvnw test       # Unit + Integration (Testcontainers PostgreSQL 16)
+./mvnw test     # unit + integration (Testcontainers PostgreSQL 16)
 ```
 
-### Manual Verification
-1. `docker-compose up -d` — all services healthy
-2. Flyway runs V1/V2/V3 — tables + partitions + matviews created
-3. Publish test MQTT → verify DB insert + STOMP broadcast
-4. Swagger UI `http://localhost:8080/swagger-ui.html` — test endpoints
-5. Connect STOMP client → subscribe `/topic/devices/ESP32S3_AQSS_01`
-6. Check partitions: `SELECT * FROM pg_catalog.pg_inherits;`
-7. Check matview freshness: `SELECT * FROM telemetry_hourly LIMIT 10;`
-
----
-
-## 14. V2 — Spaces & Actuation Layer
-
-As part of the V2 architecture update, new entities have been added to support closed-loop indoor control:
-
-### 14.1 Database Migration (`V4__spaces_and_actuation.sql`)
-- `spaces`: Space registry (id, name, volume_m3, purpose, region, created_at).
-- `space_devices`: Many-to-many relationship tracking which sensor/actuator nodes belong to which space.
-- `space_thresholds`: Cached ML#1 output per space.
-- `actuators`: Actuator registry for relay control.
-- `control_decisions`: Audit log for every intervention decision made by the system.
-
-### 14.2 New Services & Controllers
-- **SpaceService** / **SpaceController**: CRUD for spaces, assign/remove devices.
-- **ThresholdService**: Calls ML#1, caches result in `space_thresholds`.
-- **DosageService**: Calls ML#2 with current readings + threshold to prescribe intervention.
-- **ControlDecisionService**: Evaluates readings and DL forecast vs threshold. Decides ALERT / AUTO / IDLE.
-- **ActuatorService** / **ActuatorController**: Publishes `set_actuator` commands via MQTT.
-
-### 14.3 New STOMP Topics
-- `/topic/spaces/{id}/decision`: Real-time control decision stream `{action, mode, trigger, threshold, dosage}`.
-- `/topic/actuators/{id}`: Actuator state updates `{state, level, since, mode}`.
+Manual:
+1. `docker-compose up -d` — all services healthy.
+2. Flyway applies V1→V4 — tables, partitions, matviews, spaces.
+3. `mosquitto_pub` a telemetry JSON → row in DB + STOMP broadcast.
+4. Kill the node → `status` topic emits `OFFLINE` (LWT).
+5. Insert a PM2.5 reading above a space's threshold → a `control_decisions` `ACTIVATE` row is written and the node receives `set_actuator`.
+6. Confirm `PartitionManagerService` created next month's partition.
+7. Confirm CORS: the Vite dev origin can call `/api/v1/...` from a browser.

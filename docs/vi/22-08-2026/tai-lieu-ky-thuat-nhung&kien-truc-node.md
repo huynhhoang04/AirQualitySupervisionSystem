@@ -54,7 +54,7 @@ SCD40 sử dụng nguyên lý quang âm (NDIR Photoacoustic) cho độ chính x�
 
 Yêu cầu lắp đặt kỹ thuật:
 
-* Điểm đấu nối cốt yếu: Chân số 2 (VDDH) phải được nối tắt trực tiếp với VDD ngay trên PCB. Việc để nổi chân này là nguyên nhân phổ biến khiến cảm biến không khởi động.
+* Điểm đấu nối cốt yếu: Nếu dùng chip SMD trần, Chân số 2 (VDDH) phải được nối tắt trực tiếp với VDD. Tuy nhiên, nếu dùng Module 4 chân mua sẵn, nhà sản xuất đã nối mạch ngầm, bạn chỉ cần cắm 3.3V vào chân VCC.
 * Mạch lọc nguồn: Sử dụng cặp tụ decoupling (100nF + 10µF) đặt sát chân nguồn cảm biến để xử lý đỉnh dòng 205 mA. Nguồn cấp phải đạt độ gợn sóng (ripple) < 30 mV p-p.
 
 Lớp phân tích chiến lược: Sau khi gửi lệnh start_periodic_measurement (địa chỉ I2C 0x62), hệ thống phải thực hiện lệnh vTaskDelay ít nhất 5 giây.

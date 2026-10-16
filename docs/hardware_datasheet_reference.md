@@ -196,8 +196,8 @@ $$RH\,[\%] = 100 \times \frac{\text{word}[2]}{2^{16} - 1}$$
 - **Dữ liệu đầu tiên sẵn sàng:** ~5 giây (Periodic), ~30 giây (LP).
 - **Ổn định nhiệt:** Chờ **3–5 phút** trước khi tin tưởng giá trị tuyệt đối.
 - **EEPROM:** `persist_settings` chỉ chịu được **2,000 lần ghi** → không gọi trong vòng lặp.
-- **Dòng peak 175–205 mA** khi phát xung quang — cần tụ lọc 100nF + 10µF sát chân VDD.
-- **VDD và VDDH phải nối chung** trên PCB.
+- **Dòng peak 175–205 mA** khi phát xung quang.
+- LƯU Ý: Nếu dùng cảm biến SMD trần, **VDD và VDDH phải nối chung** và có tụ lọc. Nếu dùng **Module/Breakout board (4 chân)**, nhà sản xuất đã làm sẵn việc này, chỉ cần cấp nguồn 3.3V vào chân **VCC**.
 - **Cách ly nhiệt:** Đặt xa MCU/LDO, cắt rãnh PCB quanh sensor nếu có thể.
 - **Tránh rung/ồn âm thanh** gần sensor (nguyên lý quang âm nhạy cảm cơ học).
 

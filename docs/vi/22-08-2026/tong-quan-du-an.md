@@ -45,7 +45,7 @@ Vi điều khiển ESP32-S3-DevKitC-1 (N16R8): Sử dụng CPU dual-core 240 MHz
 Phân tích cảm biến & Quy tắc phần cứng bắt buộc:
 
 1. Sensirion SCD40 (CO2): Sử dụng công nghệ quang âm (NDIR PASens®).
-  * Yêu cầu lắp đặt: Bắt buộc nối VDDH với VDD; sử dụng cặp tụ lọc (100nF và 10µF) sát chân nguồn để đảm bảo độ ổn định I2C (địa chỉ 0x62).
+  * Yêu cầu lắp đặt: Nếu dùng cảm biến SMD trần, bắt buộc nối VDDH với VDD. Nếu dùng Module mua sẵn thì chỉ cần cấp nguồn VCC; sử dụng cặp tụ lọc (100nF và 10µF) sát chân nguồn để đảm bảo độ ổn định I2C (địa chỉ 0x62).
 2. Sharp GP2Y1023AU0F (Dust):
   * Cảnh báo kỹ thuật: Đây là dòng cảm biến tích hợp MCU nội bộ, xuất tín hiệu Digital PWM. Tuyệt đối không cấp xung cho chân LED vì cảm biến tự điều khiển LED nội bộ.
   * Cơ chế đọc: Sử dụng ngắt ngoài (IRAM_ATTR ISR) kết hợp hàm micros() trên GPIO 18. Nghiêm cấm sử dụng analogRead().
