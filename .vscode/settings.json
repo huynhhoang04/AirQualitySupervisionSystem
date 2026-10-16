@@ -1,0 +1,21 @@
+{
+  // ── AQSS backend — Java 21 ──────────────────────────────────────────────────
+  // backend/pom.xml targets Java 21 (<java.version>21</java.version>).
+  // vscode-java launched with `-DDetectVMInstallationsJob.disabled=true` and no
+  // `java.configuration.runtimes` configured, so the language server could not
+  // resolve JavaSE-21. The build path stayed incomplete and every file showed red
+  // (java.lang, jakarta.*, lombok.* all unresolved). Registering the local JDKs
+  // fixes the import — no code change was needed.
+  "java.configuration.runtimes": [
+    { "name": "JavaSE-17", "path": "/usr/lib/jvm/java-17-openjdk" },
+    { "name": "JavaSE-21", "path": "/usr/lib/jvm/java-21-openjdk", "default": true },
+    { "name": "JavaSE-25", "path": "/usr/lib/jvm/java-25-openjdk" }
+  ],
+  "java.configuration.detectJdksAtStart": true,
+
+  // Import backend/pom.xml automatically. Lombok needs no extra setup:
+  // redhat.java 1.57 already attaches its lombok javaagent.
+  "java.import.maven.enabled": true,
+  "java.configuration.updateBuildConfiguration": "automatic",
+  "maven.executable.preferMavenWrapper": true
+}
