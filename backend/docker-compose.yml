@@ -1,0 +1,91 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: aqss-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-aqss_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aqss_password}
+      POSTGRES_DB: ${POSTGRES_DB:-aqss_db}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-aqss_user} -d ${POSTGRES_DB:-aqss_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: aqss-mosquitto
+    user: root
+    environment:
+      MQTT_USER: ${MQTT_USER:-aqss_device}
+      MQTT_PASS: ${MQTT_PASS:-aqss_password}
+    # Generate the password file from the env credentials, then start the broker.
+    command:
+      - sh
+      - -c
+      - |
+        mkdir -p /mosquitto/auth /mosquitto/data
+        mosquitto_passwd -b -c /mosquitto/auth/pwfile "$$MQTT_USER" "$$MQTT_PASS"
+        chmod 600 /mosquitto/auth/pwfile
+        exec mosquitto -c /mosquitto/config/mosquitto.conf
+    ports:
+      # Host side is configurable (the firmware publishes on this port); the broker still
+      # listens on 1883 inside the network, which is what the backend dials.
+      - "${MQTT_PORT:-1883}:1883"
+    volumes:
+      - ./mosquitto/config/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - mosquitto-auth:/mosquitto/auth
+
+  backend:
+    build: .
+    container_name: aqss-backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mosquitto:
+        condition: service_started
+      layer3-ai:
+        condition: service_healthy
+    # Every knob lives in .env (see .env.example) and is injected as-is; the explicit
+    # `environment` block below only fixes values that MUST differ inside the network, and it
+    # takes precedence over env_file.
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      # Keep the application's credentials identical to the database the postgres service made.
+      DB_NAME: ${POSTGRES_DB:-aqss_db}
+      DB_USER: ${POSTGRES_USER:-aqss_user}
+      DB_PASS: ${POSTGRES_PASSWORD:-aqss_password}
+      MQTT_HOST: mosquitto
+      MQTT_PORT: "1883"
+      AI_HOST: ${AI_HOST:-layer3-ai}
+      SERVER_PORT: ${SERVER_PORT:-8080}
+    ports:
+      - "${SERVER_PORT:-8080}:${SERVER_PORT:-8080}"
+
+  layer3-ai:
+    build: ../dl_analyst
+    container_name: aqss-layer3-ai
+    environment:
+      AQSS_MODEL_DIR: /app/models
+    ports:
+      - "8000:8000"
+    volumes:
+      - ../dl_analyst/models:/app/models:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+
+volumes:
+  pgdata:
+  mosquitto-auth:

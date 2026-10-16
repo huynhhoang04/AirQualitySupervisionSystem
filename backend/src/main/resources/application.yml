@@ -1,0 +1,116 @@
+# AQSS backend — every deploy-time value is an environment variable with a working default,
+# so a deployment never needs to edit this file. See .env.example for the full inventory.
+#
+# Invariants deliberately NOT configurable (they are correctness, not deployment, choices):
+#   spring.jackson.property-naming-strategy: SNAKE_CASE  -> the JSON contract (docs/io_contract.md)
+#   spring.jpa.hibernate.ddl-auto: validate              -> Flyway owns the schema
+server:
+  port: ${SERVER_PORT:8080}
+  shutdown: graceful
+
+spring:
+  application:
+    name: aqss-backend
+  datasource:
+    # DB_URL wins when set (managed Postgres, TLS params, pooling proxy); otherwise it is
+    # assembled from the discrete DB_* parts.
+    url: ${DB_URL:jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:aqss_db}?reWriteBatchedInserts=true}
+    username: ${DB_USER:aqss_user}
+    password: ${DB_PASS:aqss_password}
+    hikari:
+      maximum-pool-size: ${DB_POOL_MAX:20}
+      minimum-idle: ${DB_POOL_MIN:10}
+      connection-timeout: ${DB_POOL_CONNECTION_TIMEOUT_MS:30000}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        jdbc:
+          batch_size: ${DB_BATCH_SIZE:100}
+        order_inserts: true
+        order_updates: true
+  flyway:
+    enabled: ${FLYWAY_ENABLED:true}
+    baseline-on-migrate: ${FLYWAY_BASELINE_ON_MIGRATE:true}
+  jackson:
+    property-naming-strategy: SNAKE_CASE
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: ${MANAGEMENT_ENDPOINTS:health,info}
+
+# ── MQTT (Spring Integration, Paho v3) ──────────────────────────────
+mqtt:
+  # MQTT_ENABLED=false runs the backend without a broker (local dev / tests).
+  enabled: ${MQTT_ENABLED:true}
+  broker-url: ${MQTT_BROKER_URL:tcp://${MQTT_HOST:localhost}:${MQTT_PORT:1883}}
+  # Must be unique per running instance or two backends fight over the same session.
+  client-id: ${MQTT_CLIENT_ID:aqss-backend-server}
+  username: ${MQTT_USER:aqss_device}
+  password: ${MQTT_PASS:aqss_password}
+  qos: ${MQTT_QOS:1}
+  topics:
+    # These are the firmware contract (docs/io_contract.md §8). Only override to namespace a
+    # deployment — both sides must change together.
+    telemetry: ${MQTT_TOPIC_TELEMETRY:aqss/devices/+/telemetry}
+    status: ${MQTT_TOPIC_STATUS:aqss/devices/+/status}
+    actuator-state: ${MQTT_TOPIC_ACTUATOR_STATE:aqss/devices/+/actuator/state}
+
+# ── Security ────────────────────────────────────────────────────────
+security:
+  jwt:
+    # HS256 needs >= 32 bytes. Generate for a real deployment: openssl rand -base64 48
+    secret: ${JWT_SECRET:dev-only-secret-change-me-0123456789abcdef}
+    access-token-expiration-ms: ${JWT_ACCESS_TTL_MS:1800000}      # 30 min
+    refresh-token-expiration-ms: ${JWT_REFRESH_TTL_MS:604800000}  # 7 days
+
+app:
+  cors:
+    # Browser origin(s) of the dashboard. Single origin; use a comma-separated value only after
+    # CorsConfig is widened to a list.
+    origin: ${CORS_ORIGIN:http://localhost:5173}
+
+# ── AQSS domain ─────────────────────────────────────────────────────
+aqss:
+  ai:
+    base-url: ${AI_BASE_URL:http://${AI_HOST:localhost}:${AI_PORT:8000}}
+    timeout-ms: ${AI_TIMEOUT_MS:30000}
+    # Phase 8/9 seam — while false, the rule-based threshold/dosage stand-ins are used.
+    enabled: ${AI_ENABLED:false}
+  control:
+    cycle-ms: ${CONTROL_CYCLE_MS:60000}
+    forecast-cron: ${CONTROL_FORECAST_CRON:0 0 * * * *}
+    hysteresis-ratio: ${CONTROL_HYSTERESIS_RATIO:0.7}
+    min-on-minutes: ${CONTROL_MIN_ON_MINUTES:5}
+    min-off-minutes: ${CONTROL_MIN_OFF_MINUTES:3}
+    max-on-minutes: ${CONTROL_MAX_ON_MINUTES:120}
+    fail-safe-minutes: ${CONTROL_FAILSAFE_MINUTES:10}
+    default-filter-cadr: ${CONTROL_FILTER_CADR:40.0}
+    penetration-factor: ${CONTROL_PENETRATION_FACTOR:0.8}
+    outdoor-pm25-estimate: ${CONTROL_OUTDOOR_PM25:35.0}
+  telemetry:
+    batch-flush-interval-ms: ${TELEMETRY_FLUSH_MS:1000}
+    queue-capacity: ${TELEMETRY_QUEUE_CAPACITY:10000}
+    rolling-window-minutes: ${TELEMETRY_ROLLING_WINDOW_MINUTES:5}
+  partitions:
+    # Operational schedule for the partition lifecycle and materialized views. Read by the
+    # @Scheduled annotations / @Value in PartitionManagerService.
+    create-cron: ${PARTITION_CREATE_CRON:0 0 3 25 * *}
+    drop-cron: ${PARTITION_DROP_CRON:0 0 2 1 * *}
+    hourly-view-cron: ${PARTITION_HOURLY_VIEW_CRON:0 */15 * * * *}
+    daily-view-cron: ${PARTITION_DAILY_VIEW_CRON:0 5 * * * *}
+    retention-days: ${PARTITION_RETENTION_DAYS:90}
+  admin:
+    # Seeded once, only when the users table is empty (AdminSeeder). Change both for a real
+    # deployment, or set ADMIN_EMAIL= to disable seeding entirely.
+    email: ${ADMIN_EMAIL:admin@aqss.local}
+    password: ${ADMIN_PASSWORD:admin12345}
+
+logging:
+  level:
+    com.aqss.backend: ${LOG_LEVEL_AQSS:INFO}
+    org.springframework.integration.mqtt: ${LOG_LEVEL_MQTT:WARN}
