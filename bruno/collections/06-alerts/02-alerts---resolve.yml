@@ -1,0 +1,38 @@
+info:
+  name: 02 - Alerts - Resolve (side-effect)
+  type: http
+  seq: 2
+  tags:
+  - alerts
+http:
+  method: PUT
+  url: "{{baseUrl}}/api/v1/alerts/{{alertId}}/resolve"
+  headers:
+  - name: Authorization
+    value: "Bearer {{accessToken}}"
+  auth: inherit
+runtime:
+  scripts:
+  - type: before-request
+    code: |
+      if (!bru.getVar("accessToken")) throw new Error("Missing 'accessToken'. Run '01 - Auth' / '02 - Auth - Token' first.");
+      if (!bru.getVar("alertId")) throw new Error("Missing 'alertId'. Run '06 - Alerts' / '01 - Alerts - List' first - it captures the first ACTIVE alert. If that list comes back empty there is nothing to resolve yet: the control loop only raises PM25_THRESHOLD alerts once a reading breaches the space threshold.");
+  - type: tests
+    code: |
+      test("HTTP 200 expected", function () {
+        expect(res.status).to.equal(200);
+      });
+      test("alert marked resolved", function () {
+        expect(res.body.status).to.equal("resolved");
+      });
+settings:
+  encodeUrl: true
+  timeout: 30000
+  followRedirects: true
+  maxRedirects: 5
+docs: |-
+  SIDE EFFECT: stamps resolved_at on {{alertId}}. The row is not deleted - the alert history
+  stays queryable. Note that a resolved alert of the same type/device can be raised again by
+  the control loop, so this is not a permanent acknowledgement.
+  Requires {{alertId}}: the list request captures it, and if no alert is active yet there is
+  nothing to resolve - the before-request guard says so instead of sending a bad request.

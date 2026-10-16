@@ -1,0 +1,34 @@
+info:
+  name: 02 - Devices - List
+  type: http
+  seq: 2
+  tags:
+  - devices
+http:
+  method: GET
+  url: "{{baseUrl}}/api/v1/devices"
+  headers:
+  - name: Authorization
+    value: "Bearer {{accessToken}}"
+  auth: inherit
+runtime:
+  scripts:
+  - type: before-request
+    code: |
+      if (!bru.getVar("accessToken")) throw new Error("Missing 'accessToken'. Run '01 - Auth' / '02 - Auth - Token' first.");
+  - type: tests
+    code: |
+      test("HTTP 200 expected", function () {
+        expect(res.status).to.equal(200);
+      });
+      test("device list never exposes the API key hash", function () {
+        expect(res.body).to.be.an("array");
+        if (res.body.length > 0) expect(res.body[0].api_key_hash).to.be.undefined;
+      });
+settings:
+  encodeUrl: true
+  timeout: 30000
+  followRedirects: true
+  maxRedirects: 5
+docs: |-
+  Read-only. Node registry with last_seen_at (updated from the retained status topic / LWT).

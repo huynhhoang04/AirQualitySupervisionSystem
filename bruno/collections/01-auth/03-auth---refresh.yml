@@ -1,0 +1,45 @@
+info:
+  name: 03 - Auth - Refresh
+  type: http
+  seq: 3
+  tags:
+  - auth
+http:
+  method: POST
+  url: "{{baseUrl}}/api/v1/auth/refresh"
+  headers:
+  - name: Content-Type
+    value: application/json
+  auth: inherit
+  body:
+    type: json
+    data: |-
+      {
+        "refresh_token": "{{refreshToken}}"
+      }
+runtime:
+  scripts:
+  - type: before-request
+    code: |
+      const rt = bru.getVar("refreshToken");
+      if (!rt) throw new Error("Missing 'refreshToken'. Run '01 - Auth' / '02 - Auth - Token' first.");
+  - type: after-response
+    code: |
+      if (res.body && res.body.access_token) bru.setVar("accessToken", res.body.access_token);
+      if (res.body && res.body.refresh_token) bru.setVar("refreshToken", res.body.refresh_token);
+  - type: tests
+    code: |
+      test("HTTP 200 expected", function () {
+        expect(res.status).to.equal(200);
+      });
+      test("rotated access token captured", function () {
+        expect(res.body.access_token).to.be.a("string");
+      });
+settings:
+  encodeUrl: true
+  timeout: 30000
+  followRedirects: true
+  maxRedirects: 5
+docs: |-
+  Exchanges the captured refresh token for a new access token. Read-only on the server (no
+  state change). Requires {{refreshToken}} from '02 - Auth - Token'.

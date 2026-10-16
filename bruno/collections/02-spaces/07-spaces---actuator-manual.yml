@@ -1,0 +1,47 @@
+info:
+  name: 07 - Spaces - Actuator manual
+  type: http
+  seq: 7
+  tags:
+  - spaces
+http:
+  method: POST
+  url: "{{baseUrl}}/api/v1/spaces/{{spaceCode}}/actuator"
+  headers:
+  - name: Content-Type
+    value: application/json
+  - name: Authorization
+    value: "Bearer {{accessToken}}"
+  auth: inherit
+  body:
+    type: json
+    data: |-
+      {
+        "mode": "{{actuatorMode}}",
+        "state": "{{actuatorState}}",
+        "level": {{actuatorLevel}}
+      }
+runtime:
+  scripts:
+  - type: before-request
+    code: |
+      if (!bru.getVar("accessToken")) throw new Error("Missing 'accessToken'. Run '01 - Auth' / '02 - Auth - Token' first.");
+  - type: tests
+    code: |
+      test("HTTP 200 expected", function () {
+        expect(res.status).to.equal(200);
+      });
+      test("command acknowledged", function () {
+        expect(res.body.status).to.equal("sent");
+      });
+settings:
+  encodeUrl: true
+  timeout: 30000
+  followRedirects: true
+  maxRedirects: 5
+docs: |-
+  SIDE EFFECT: publishes `set_actuator {state, level}` on aqss/devices/{{deviceId}}/command,
+  updates the actuator row and writes a MANUAL row into control_decisions. MANUAL always wins
+  over the control loop - send mode=AUTO to hand control back.
+  With MQTT_ENABLED=false or no broker the command is only attempted (logged), but the audit
+  row is still written. Send it one at a time, never via Collection Runner.

@@ -1,0 +1,49 @@
+name: local
+variables:
+  # Every value is quoted on purpose: in YAML 1.1 an unquoted ON / OFF / YES / NO / true
+  # parses as a boolean and an unquoted 500 parses as a number, which silently corrupts the
+  # request (e.g. state: True instead of "ON"). Keep the quotes.
+  - name: baseUrl
+    value: "http://localhost:8080"
+    description: AQSS backend base URL. Local = the Spring Boot app on this machine (docker-compose maps the same port).
+  - name: adminEmail
+    value: "admin@aqss.local"
+    description: Admin account seeded by AdminSeeder on an empty database. Change before any real deployment.
+  - name: adminPassword
+    value: ""
+    secret: true
+    description: Password for {{adminEmail}}. The local dev default is set by AdminSeeder. Enter it in the Secret Variables tab; never commit it.
+  - name: registerEmail
+    value: "demo.user@aqss.local"
+    description: Email used by the register request. A second run returns 409 by design - change it or delete the row.
+  - name: registerPassword
+    value: ""
+    secret: true
+    description: Password for the register request (8-72 chars). Enter in the Secret Variables tab; never commit it.
+  - name: spaceCode
+    value: "SP_201"
+    description: Device-facing space code seeded by Flyway V4 (Phòng 201, 15 m3, bedroom).
+  - name: newSpaceCode
+    value: "SP_902"
+    description: Code used when creating a space. Must match SP_<word>; a re-run returns 409.
+  - name: deviceId
+    value: "AQSS_ESP32S3_01"
+    description: Node id seeded by Flyway V4. Telemetry reads return 404 until the node (or a psql insert) has reported.
+  - name: newDeviceId
+    value: "AQSS_ESP32S3_02"
+    description: Device id used when creating a device. Must match AQSS_ESP32S3_<word>.
+  - name: actuatorMode
+    value: "MANUAL"
+    description: Mode sent by the manual actuator request (AUTO | MANUAL). MANUAL always wins over the control loop.
+  - name: actuatorState
+    value: "ON"
+    description: Fan state sent by the manual actuator request (ON | OFF). Quoted deliberately - unquoted ON is a YAML boolean.
+  - name: actuatorLevel
+    value: "2"
+    description: Fan level 0-3. The firmware maps it to PWM duty 0/35/60/90 %.
+  - name: aggregateInterval
+    value: "hour"
+    description: date_trunc bucket for the aggregate request (hour | day | week | month).
+  - name: historyLimit
+    value: "500"
+    description: Maximum rows returned by the history request.

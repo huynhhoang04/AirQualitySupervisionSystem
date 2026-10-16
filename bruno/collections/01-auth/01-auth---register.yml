@@ -1,0 +1,48 @@
+info:
+  name: 01 - Auth - Register
+  type: http
+  seq: 1
+  tags:
+  - auth
+http:
+  method: POST
+  url: "{{baseUrl}}/api/v1/auth/register"
+  headers:
+  - name: Content-Type
+    value: application/json
+  auth: inherit
+  body:
+    type: json
+    data: |-
+      {
+        "email": "{{registerEmail}}",
+        "password": "{{registerPassword}}",
+        "full_name": "Bruno Demo User"
+      }
+runtime:
+  scripts:
+  - type: before-request
+    code: |
+      let pw = bru.getEnvVar("registerPassword");
+      if (!pw) { try { pw = bru.getSecretVar("registerPassword"); } catch (e) {} }
+      if (!pw) throw new Error("Missing variable 'registerPassword'. Set it in the selected Bruno environment (Secret Variables tab) before sending.");
+  - type: tests
+    code: |
+      test("Register accepted or already taken", function () {
+        expect([201, 409]).to.include(res.status);
+      });
+      if (res.status === 201) {
+        test("created user echoes email and role", function () {
+          expect(res.body.email).to.equal(bru.getEnvVar("registerEmail"));
+          expect(res.body.role).to.be.a("string");
+        });
+      }
+settings:
+  encodeUrl: true
+  timeout: 30000
+  followRedirects: true
+  maxRedirects: 5
+docs: |-
+  SIDE EFFECT: creates a user row (ROLE_USER). Not idempotent - a re-run returns 409 because
+  the email is unique; change {{registerEmail}} or delete the row to replay.
+  Public route: no Authorization header.

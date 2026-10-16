@@ -1,0 +1,43 @@
+info:
+  name: 02 - Forecast - Run (side-effect)
+  type: http
+  seq: 2
+  tags:
+  - forecast
+http:
+  method: POST
+  url: "{{baseUrl}}/api/v1/forecast/run"
+  headers:
+  - name: Content-Type
+    value: application/json
+  - name: Authorization
+    value: "Bearer {{accessToken}}"
+  auth: inherit
+  body:
+    type: json
+    data: |-
+      {
+        "space_id": "{{spaceCode}}"
+      }
+runtime:
+  scripts:
+  - type: before-request
+    code: |
+      if (!bru.getVar("accessToken")) throw new Error("Missing 'accessToken'. Run '01 - Auth' / '02 - Auth - Token' first.");
+  - type: tests
+    code: |
+      test("HTTP 200 expected", function () {
+        expect(res.status).to.equal(200);
+      });
+      test("run acknowledged", function () {
+        expect(res.body.status).to.be.oneOf(["triggered", "ai_disabled"]);
+      });
+settings:
+  encodeUrl: true
+  timeout: 30000
+  followRedirects: true
+  maxRedirects: 5
+docs: |-
+  SIDE EFFECT: requests a DL forecast run for the space. With aqss.ai.enabled=false it
+  answers {"status":"ai_disabled"} and does nothing; once Phase 8 lands it resamples 24 h
+  of telemetry to 96 points, calls POST /api/v1/forecast and stores the result. ADMIN only.

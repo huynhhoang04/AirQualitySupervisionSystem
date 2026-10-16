@@ -1,0 +1,35 @@
+info:
+  name: 08 - Spaces - Decisions
+  type: http
+  seq: 8
+  tags:
+  - spaces
+http:
+  method: GET
+  url: "{{baseUrl}}/api/v1/spaces/{{spaceCode}}/decisions?limit=50"
+  headers:
+  - name: Authorization
+    value: "Bearer {{accessToken}}"
+  auth: inherit
+runtime:
+  scripts:
+  - type: before-request
+    code: |
+      if (!bru.getVar("accessToken")) throw new Error("Missing 'accessToken'. Run '01 - Auth' / '02 - Auth - Token' first.");
+  - type: tests
+    code: |
+      test("HTTP 200 expected", function () {
+        expect(res.status).to.equal(200);
+      });
+      test("decision timeline is a list", function () {
+        expect(res.body).to.be.an("array");
+      });
+settings:
+  encodeUrl: true
+  timeout: 30000
+  followRedirects: true
+  maxRedirects: 5
+docs: |-
+  Read-only. Audit trail of the control loop: ACTIVATE/DEACTIVATE/ALERT/IDLE rows with the
+  trigger (threshold_breach, forecast_breach_q90, hysteresis_off, max_on_exceeded, manual),
+  the threshold used and the dosage prescribed.

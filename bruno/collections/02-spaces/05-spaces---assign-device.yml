@@ -1,0 +1,44 @@
+info:
+  name: 05 - Spaces - Assign device
+  type: http
+  seq: 5
+  tags:
+  - spaces
+http:
+  method: POST
+  url: "{{baseUrl}}/api/v1/spaces/{{spaceCode}}/devices"
+  headers:
+  - name: Content-Type
+    value: application/json
+  - name: Authorization
+    value: "Bearer {{accessToken}}"
+  auth: inherit
+  body:
+    type: json
+    data: |-
+      {
+        "device_id": "{{deviceId}}",
+        "role": "COMBINED"
+      }
+runtime:
+  scripts:
+  - type: before-request
+    code: |
+      if (!bru.getVar("accessToken")) throw new Error("Missing 'accessToken'. Run '01 - Auth' / '02 - Auth - Token' first.");
+  - type: tests
+    code: |
+      test("HTTP 200 expected", function () {
+        expect(res.status).to.equal(200);
+      });
+      test("assignment acknowledged", function () {
+        expect(res.body.status).to.equal("assigned");
+      });
+settings:
+  encodeUrl: true
+  timeout: 30000
+  followRedirects: true
+  maxRedirects: 5
+docs: |-
+  SIDE EFFECT: writes the space_devices mapping, creates/updates the actuator registry row,
+  and publishes a `set_space` MQTT command to the node (persisted to NVS by the firmware).
+  ADMIN only. Re-running the same assignment is safe (the mapping is upserted).

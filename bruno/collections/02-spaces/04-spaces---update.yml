@@ -1,0 +1,49 @@
+info:
+  name: 04 - Spaces - Update
+  type: http
+  seq: 4
+  tags:
+  - spaces
+http:
+  method: PUT
+  url: "{{baseUrl}}/api/v1/spaces/{{spaceCode}}"
+  headers:
+  - name: Content-Type
+    value: application/json
+  - name: Authorization
+    value: "Bearer {{accessToken}}"
+  auth: inherit
+  body:
+    type: json
+    data: |-
+      {
+        "name": "Phòng 201",
+        "area_m2": 5.0,
+        "ceiling_m": 3.0,
+        "volume_m3": 15.0,
+        "purpose": "bedroom",
+        "region": "hanoi_caugiay",
+        "ventilation_estimate": "low"
+      }
+runtime:
+  scripts:
+  - type: before-request
+    code: |
+      if (!bru.getVar("accessToken")) throw new Error("Missing 'accessToken'. Run '01 - Auth' / '02 - Auth - Token' first.");
+  - type: tests
+    code: |
+      test("HTTP 200 expected", function () {
+        expect(res.status).to.equal(200);
+      });
+      test("threshold recomputed from the new profile", function () {
+        expect(res.body.threshold.model_version).to.be.a("string");
+      });
+settings:
+  encodeUrl: true
+  timeout: 30000
+  followRedirects: true
+  maxRedirects: 5
+docs: |-
+  SIDE EFFECT: updates the space and invalidates + recomputes the cached ML#1 threshold.
+  ADMIN only. The body above restores the seeded Phòng 201 profile - edit it to test a
+  different threshold (small sealed bedroom vs large ventilated room).

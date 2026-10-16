@@ -1,0 +1,11 @@
+# Local secrets and environment overrides - never commit these
+.env*
+*.local.yml
+*.local.bru
+
+# Dependencies
+node_modules
+
+# OS files
+.DS_Store
+Thumbs.db

@@ -1,0 +1,25 @@
+name: local
+variables:
+  - name: baseUrl
+    value: http://127.0.0.1:8080
+    description: API base URL. Local = loopback; remote values come from the deploy docs.
+  - name: demoUser
+    value: ""
+    description: Demo account login (provided by the operator).
+  - name: demoPassword
+    value: ""
+    secret: true
+    description: Demo account password. Enter in the Secret Variables tab; never commit.
+  - name: hmacSecret
+    value: ""
+    secret: true
+    description: HMAC request-signing key. Rotate if it was ever exposed.
+  - name: widgetId
+    value: ""
+    description: ID of the resource to read (from Create or List).
+  - name: idempotencyKey
+    value: ""
+    description: Fresh UUID per logical write; keep unchanged when retrying the same operation.
+  - name: amountMinor
+    value: "1"
+    description: Integer amount in the smallest currency unit (never a decimal).

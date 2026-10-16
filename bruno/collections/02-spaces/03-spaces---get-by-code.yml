@@ -1,0 +1,39 @@
+info:
+  name: 03 - Spaces - Get by code
+  type: http
+  seq: 3
+  tags:
+  - spaces
+http:
+  method: GET
+  url: "{{baseUrl}}/api/v1/spaces/{{spaceCode}}"
+  headers:
+  - name: Authorization
+    value: "Bearer {{accessToken}}"
+  auth: inherit
+runtime:
+  scripts:
+  - type: before-request
+    code: |
+      if (!bru.getVar("accessToken")) throw new Error("Missing 'accessToken'. Run '01 - Auth' / '02 - Auth - Token' first.");
+  - type: after-response
+    code: |
+      if (res.body && res.body.id) bru.setVar("spaceId", res.body.id);
+  - type: tests
+    code: |
+      test("HTTP 200 expected", function () {
+        expect(res.status).to.equal(200);
+      });
+      test("space detail carries devices, threshold and dosage", function () {
+        expect(res.body.code).to.equal(bru.getEnvVar("spaceCode"));
+        expect(res.body.threshold.base_threshold_pm25).to.be.a("number");
+        expect(res.body.devices).to.be.an("array");
+      });
+settings:
+  encodeUrl: true
+  timeout: 30000
+  followRedirects: true
+  maxRedirects: 5
+docs: |-
+  Read-only. The path accepts either the numeric id or the device-facing code
+  ({{spaceCode}} = SP_201 by default). Caches the threshold if it is missing.

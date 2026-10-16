@@ -1,0 +1,49 @@
+info:
+  name: 02 - Auth - Token
+  type: http
+  seq: 2
+  tags:
+  - auth
+http:
+  method: POST
+  url: "{{baseUrl}}/api/v1/auth/token"
+  headers:
+  - name: Content-Type
+    value: application/json
+  auth: inherit
+  body:
+    type: json
+    data: |-
+      {
+        "email": "{{adminEmail}}",
+        "password": "{{adminPassword}}"
+      }
+runtime:
+  scripts:
+  - type: before-request
+    code: |
+      let pw = bru.getEnvVar("adminPassword");
+      if (!pw) { try { pw = bru.getSecretVar("adminPassword"); } catch (e) {} }
+      if (!pw) throw new Error("Missing variable 'adminPassword'. Set it in the selected Bruno environment (Secret Variables tab) before sending.");
+  - type: after-response
+    code: |
+      if (res.body && res.body.access_token) bru.setVar("accessToken", res.body.access_token);
+      if (res.body && res.body.refresh_token) bru.setVar("refreshToken", res.body.refresh_token);
+  - type: tests
+    code: |
+      test("HTTP 200 expected", function () {
+        expect(res.status).to.equal(200);
+      });
+      test("access token captured for later requests", function () {
+        expect(res.body.access_token).to.be.a("string");
+        expect(res.body.token_type).to.equal("Bearer");
+      });
+settings:
+  encodeUrl: true
+  timeout: 30000
+  followRedirects: true
+  maxRedirects: 5
+docs: |-
+  Auth route (BCrypt + HS256 JWT, 30-min access / 7-day refresh). Tokens are stored in Bruno
+  runtime variables only - never written back to an environment file. Run this first, then
+  every protected request sends Authorization: Bearer {{accessToken}}.

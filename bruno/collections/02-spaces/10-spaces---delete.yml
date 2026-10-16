@@ -1,0 +1,33 @@
+info:
+  name: 10 - Spaces - Delete (destructive)
+  type: http
+  seq: 10
+  tags:
+  - spaces
+http:
+  method: DELETE
+  url: "{{baseUrl}}/api/v1/spaces/{{newSpaceCode}}"
+  headers:
+  - name: Authorization
+    value: "Bearer {{accessToken}}"
+  auth: inherit
+runtime:
+  scripts:
+  - type: before-request
+    code: |
+      if (!bru.getVar("accessToken")) throw new Error("Missing 'accessToken'. Run '01 - Auth' / '02 - Auth - Token' first.");
+  - type: tests
+    code: |
+      test("Deleted or not found", function () {
+        expect([204, 404]).to.include(res.status);
+      });
+settings:
+  encodeUrl: true
+  timeout: 30000
+  followRedirects: true
+  maxRedirects: 5
+docs: |-
+  DESTRUCTIVE: deletes the space named by {{newSpaceCode}} and cascades its space_devices and
+  space_thresholds rows (ON DELETE CASCADE). It deliberately targets the throwaway
+  {{newSpaceCode}} - not {{spaceCode}} - so the seeded demo space survives.
+  ADMIN only. A second run returns 404. Never run via Collection Runner.

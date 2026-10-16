@@ -1,0 +1,40 @@
+info:
+  name: 01 - Telemetry - Latest
+  type: http
+  seq: 1
+  tags:
+  - telemetry
+http:
+  method: GET
+  url: "{{baseUrl}}/api/v1/telemetry/latest?device_id={{deviceId}}"
+  headers:
+  - name: Authorization
+    value: "Bearer {{accessToken}}"
+  auth: inherit
+runtime:
+  scripts:
+  - type: before-request
+    code: |
+      if (!bru.getVar("accessToken")) throw new Error("Missing 'accessToken'. Run '01 - Auth' / '02 - Auth - Token' first.");
+  - type: tests
+    code: |
+      test("Reading returned, or nothing reported yet", function () {
+        expect([200, 404]).to.include(res.status);
+      });
+      if (res.status === 200) {
+        test("derived AQI and CO2 advisory are present", function () {
+          expect(res.body.aqi_index).to.be.a("number");
+          expect(res.body.aqi_level).to.be.a("string");
+          expect(res.body.co2_alert).to.be.a("boolean");
+        });
+      }
+settings:
+  encodeUrl: true
+  timeout: 30000
+  followRedirects: true
+  maxRedirects: 5
+docs: |-
+  Read-only. Newest reading plus the display-only EPA NowCast AQI and the advisory
+  co2_alert (true above 1000 ppm; CO2 never actuates). 404 simply means the node has not
+  reported yet - the device only publishes over MQTT every 5 s, so start the backend with
+  MQTT_ENABLED=true and a broker, or insert a row via psql (see the workspace README).

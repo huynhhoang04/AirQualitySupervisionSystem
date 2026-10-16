@@ -1,0 +1,14 @@
+opencollection: 1.0.0
+info:
+  name: "My Project API"
+  type: workspace
+
+collections:
+  - name: "01 - Public REST"
+    path: "collections/01-public-rest"
+  - name: "02 - gRPC"
+    path: "collections/02-grpc"
+
+specs:
+
+docs: "README.md"

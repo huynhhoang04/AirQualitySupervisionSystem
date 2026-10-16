@@ -1,0 +1,37 @@
+info:
+  name: 06 - Spaces - Recompute threshold
+  type: http
+  seq: 6
+  tags:
+  - spaces
+http:
+  method: POST
+  url: "{{baseUrl}}/api/v1/spaces/{{spaceCode}}/threshold"
+  headers:
+  - name: Authorization
+    value: "Bearer {{accessToken}}"
+  auth: inherit
+runtime:
+  scripts:
+  - type: before-request
+    code: |
+      if (!bru.getVar("accessToken")) throw new Error("Missing 'accessToken'. Run '01 - Auth' / '02 - Auth - Token' first.");
+  - type: tests
+    code: |
+      test("HTTP 200 expected", function () {
+        expect(res.status).to.equal(200);
+      });
+      test("threshold band is ordered", function () {
+        expect(res.body.base_threshold_pm25).to.be.a("number");
+        expect(res.body.uncertainty_lower).to.be.at.most(res.body.base_threshold_pm25);
+        expect(res.body.uncertainty_upper).to.be.at.least(res.body.base_threshold_pm25);
+      });
+settings:
+  encodeUrl: true
+  timeout: 30000
+  followRedirects: true
+  maxRedirects: 5
+docs: |-
+  SIDE EFFECT: forces an ML#1 recompute and rewrites the cached row in space_thresholds.
+  ADMIN only. model_version is 'rule-v2.0' while aqss.ai.enabled=false; it becomes the AI
+  model version once Layer 3 is wired in (Phase 9).

@@ -1,0 +1,91 @@
+info:
+  name: 02 - Widgets - Create
+  type: http
+  seq: 2
+  tags:
+  - public-rest
+http:
+  method: POST
+  url: "{{baseUrl}}/api/v1/widgets"
+  headers:
+  - name: Content-Type
+    value: application/json
+  - name: Authorization
+    value: "Bearer {{accessToken}}"
+  - name: X-Idempotency-Key
+    value: "{{idempotencyKey}}"
+  auth: inherit
+  body:
+    type: json
+    data: |-
+      {
+        "amount": {{amountMinor}},
+        "currency": "VND"
+      }
+runtime:
+  scripts:
+  - type: before-request
+    code: |
+      const CryptoJS = require("crypto-js");
+      const decodeUrl = (s) => { try { return decodeURIComponent(s); } catch (e) { return s; } };
+
+      function required(name, hint) {
+        let v = bru.getEnvVar(name);
+        if (!v) { try { v = bru.getSecretVar(name); } catch (e) {} }
+        if (!v) throw new Error("Missing variable '" + name + "'. " + hint);
+        return v;
+      }
+
+      required("idempotencyKey",
+        "Set a fresh UUID in the environment before each new operation; keep the same value when retrying.");
+
+      const secret = required("hmacSecret",
+        "Set it in the selected Bruno environment (Secret Variables tab) before sending.");
+
+      const httpMethod = req.getMethod().toUpperCase();
+      let raw = "";
+      if (["POST", "PUT", "PATCH"].includes(httpMethod)) {
+        const rawBody = req.getBody({ raw: true });
+        raw = rawBody == null ? "" : (typeof rawBody === "string" ? rawBody : JSON.stringify(rawBody));
+        raw = bru.interpolate(raw);
+      }
+
+      const timestamp = String(Math.floor(Date.now() / 1000));
+      const path = bru.interpolate(decodeUrl(req.getPath()));
+      const rawQuery = bru.interpolate(decodeUrl(req.getQueryString() || ""));
+      const canonicalQuery = rawQuery
+        ? rawQuery.split("&").sort((a, b) => {
+            const left = a.split("=", 1)[0];
+            const right = b.split("=", 1)[0];
+            return left < right ? -1 : left > right ? 1 : 0;
+          }).join("&")
+        : "";
+
+      const canonical = [
+        httpMethod, path, canonicalQuery, timestamp,
+        CryptoJS.SHA256(raw).toString(CryptoJS.enc.Hex),
+      ].join("\n");
+
+      req.setHeader("X-Timestamp", timestamp);
+      req.setHeader("X-Signature", CryptoJS.HmacSHA256(canonical, secret).toString(CryptoJS.enc.Hex));
+  - type: after-response
+    code: |
+      if (res.body && res.body.id) bru.setVar("widgetId", res.body.id);
+  - type: tests
+    code: |
+      test("HTTP 201 expected", function () {
+        expect(res.status).to.equal(201);
+      });
+      test("created resource returns an id", function () {
+        expect(res.body && res.body.id).to.be.a("string");
+      });
+settings:
+  encodeUrl: true
+  timeout: 30000
+  followRedirects: true
+  maxRedirects: 5
+docs: |-
+  SIDE EFFECT: creates state. Send manually - never via Collection Runner.
+  Idempotency: set a fresh {{idempotencyKey}} (UUID) per logical operation; keep the same key
+  AND the same payload when retrying; never reuse a key for a different payload. The created
+  ID is captured as {{widgetId}} for follow-up requests.

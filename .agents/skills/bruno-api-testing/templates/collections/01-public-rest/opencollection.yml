@@ -1,0 +1,20 @@
+opencollection: 1.0.0
+info:
+  name: My Project API - Public REST
+config:
+  proxy:
+    inherit: true
+    config:
+      protocol: http
+      hostname: ''
+      port: ''
+      auth:
+        username: ''
+        password: ''
+      bypassProxy: ''
+bundled: false
+extensions:
+  bruno:
+    ignore:
+    - .git
+    - node_modules

@@ -1,0 +1,35 @@
+info:
+  name: 03 - Telemetry - Aggregate
+  type: http
+  seq: 3
+  tags:
+  - telemetry
+http:
+  method: GET
+  url: "{{baseUrl}}/api/v1/telemetry/aggregate?space_id={{spaceCode}}&interval={{aggregateInterval}}"
+  headers:
+  - name: Authorization
+    value: "Bearer {{accessToken}}"
+  auth: inherit
+runtime:
+  scripts:
+  - type: before-request
+    code: |
+      if (!bru.getVar("accessToken")) throw new Error("Missing 'accessToken'. Run '01 - Auth' / '02 - Auth - Token' first.");
+  - type: tests
+    code: |
+      test("HTTP 200 expected", function () {
+        expect(res.status).to.equal(200);
+      });
+      test("aggregate rows carry a bucket (or the list is empty)", function () {
+        expect(res.body).to.be.an("array");
+        if (res.body.length > 0) expect(res.body[0].bucket).to.be.a("string");
+      });
+settings:
+  encodeUrl: true
+  timeout: 30000
+  followRedirects: true
+  maxRedirects: 5
+docs: |-
+  Read-only. date_trunc rollup per {{aggregateInterval}} (hour | day | week | month). An
+  unsupported interval returns 400 - try changing the variable to 'fortnight' to see it.

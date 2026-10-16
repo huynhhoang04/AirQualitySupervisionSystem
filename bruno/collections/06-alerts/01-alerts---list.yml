@@ -1,0 +1,44 @@
+info:
+  name: 01 - Alerts - List
+  type: http
+  seq: 1
+  tags:
+  - alerts
+http:
+  method: GET
+  url: "{{baseUrl}}/api/v1/alerts?active=true"
+  headers:
+  - name: Authorization
+    value: "Bearer {{accessToken}}"
+  auth: inherit
+runtime:
+  scripts:
+  - type: before-request
+    code: |
+      if (!bru.getVar("accessToken")) throw new Error("Missing 'accessToken'. Run '01 - Auth' / '02 - Auth - Token' first.");
+  - type: after-response
+    code: |
+      if (Array.isArray(res.body) && res.body.length > 0 && res.body[0].id) {
+        bru.setVar("alertId", res.body[0].id);
+      }
+  - type: tests
+    code: |
+      test("HTTP 200 expected", function () {
+        expect(res.status).to.equal(200);
+      });
+      test("active alerts carry a type and severity", function () {
+        expect(res.body).to.be.an("array");
+        if (res.body.length > 0) {
+          expect(res.body[0].alert_type).to.be.oneOf(["PM25_THRESHOLD", "CO2_ALERT", "SENSOR_OFFLINE", "SENSOR_SATURATED"]);
+          expect(res.body[0].resolved_at).to.equal(null);
+        }
+      });
+settings:
+  encodeUrl: true
+  timeout: 30000
+  followRedirects: true
+  maxRedirects: 5
+docs: |-
+  Read-only. Unresolved alerts, newest first; the first id is captured as {{alertId}} for
+  the resolve request. CO2_ALERT and PM25_THRESHOLD are advisory/audit rows - only PM2.5 ever
+  reaches the actuation path.

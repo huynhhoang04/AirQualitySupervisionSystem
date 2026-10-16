@@ -1,0 +1,39 @@
+info:
+  name: 01 - Actuators - List
+  type: http
+  seq: 1
+  tags:
+  - devices
+http:
+  method: GET
+  url: "{{baseUrl}}/api/v1/actuators"
+  headers:
+  - name: Authorization
+    value: "Bearer {{accessToken}}"
+  auth: inherit
+runtime:
+  scripts:
+  - type: before-request
+    code: |
+      if (!bru.getVar("accessToken")) throw new Error("Missing 'accessToken'. Run '01 - Auth' / '02 - Auth - Token' first.");
+  - type: tests
+    code: |
+      test("HTTP 200 expected", function () {
+        expect(res.status).to.equal(200);
+      });
+      test("actuator registry exposes live state", function () {
+        expect(res.body).to.be.an("array");
+        if (res.body.length > 0) {
+          expect(res.body[0].state).to.be.oneOf(["ON", "OFF"]);
+          expect(res.body[0].mode).to.be.oneOf(["AUTO", "MANUAL"]);
+        }
+      });
+settings:
+  encodeUrl: true
+  timeout: 30000
+  followRedirects: true
+  maxRedirects: 5
+docs: |-
+  Read-only. Fan registry: state, level, duty_pct, mode, filter_runtime_h and the timestamp
+  of the last change. This is the quickest way to confirm the control loop moved the fan
+  after an ACTIVATE/DEACTIVATE decision.

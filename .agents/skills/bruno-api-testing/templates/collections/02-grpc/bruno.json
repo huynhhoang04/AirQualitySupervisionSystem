@@ -1,0 +1,9 @@
+{
+  "version": "1",
+  "name": "My Project - gRPC",
+  "type": "collection",
+  "ignore": [
+    ".git",
+    "node_modules"
+  ]
+}

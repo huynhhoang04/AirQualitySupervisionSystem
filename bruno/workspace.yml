@@ -1,0 +1,22 @@
+opencollection: 1.0.0
+info:
+  name: "AQSS API"
+  type: workspace
+
+collections:
+  - name: "01 - Auth"
+    path: "collections/01-auth"
+  - name: "02 - Spaces"
+    path: "collections/02-spaces"
+  - name: "03 - Telemetry"
+    path: "collections/03-telemetry"
+  - name: "04 - Devices and Actuators"
+    path: "collections/04-devices-actuators"
+  - name: "05 - Forecast"
+    path: "collections/05-forecast"
+  - name: "06 - Alerts"
+    path: "collections/06-alerts"
+
+specs:
+
+docs: "README.md"

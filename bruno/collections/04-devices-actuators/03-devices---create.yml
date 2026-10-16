@@ -1,0 +1,51 @@
+info:
+  name: 03 - Devices - Create
+  type: http
+  seq: 3
+  tags:
+  - devices
+http:
+  method: POST
+  url: "{{baseUrl}}/api/v1/devices"
+  headers:
+  - name: Content-Type
+    value: application/json
+  - name: Authorization
+    value: "Bearer {{accessToken}}"
+  auth: inherit
+  body:
+    type: json
+    data: |-
+      {
+        "device_id": "{{newDeviceId}}",
+        "name": "Bruno Test Node",
+        "location_name": "Lab bench",
+        "firmware_version": "2.0.0"
+      }
+runtime:
+  scripts:
+  - type: before-request
+    code: |
+      if (!bru.getVar("accessToken")) throw new Error("Missing 'accessToken'. Run '01 - Auth' / '02 - Auth - Token' first.");
+  - type: after-response
+    code: |
+      if (res.body && res.body.api_key) bru.setVar("newDeviceApiKey", res.body.api_key);
+  - type: tests
+    code: |
+      test("Created or already exists", function () {
+        expect([201, 409]).to.include(res.status);
+      });
+      if (res.status === 201) {
+        test("raw API key returned exactly once", function () {
+          expect(res.body.api_key).to.be.a("string");
+        });
+      }
+settings:
+  encodeUrl: true
+  timeout: 30000
+  followRedirects: true
+  maxRedirects: 5
+docs: |-
+  SIDE EFFECT: creates a node row and returns its raw X-API-Key ONCE; only the SHA-256 hash
+  is stored. The key is captured into the runtime variable {{newDeviceApiKey}} - it is never
+  written to an environment file. ADMIN only. A re-run with the same id returns 409.

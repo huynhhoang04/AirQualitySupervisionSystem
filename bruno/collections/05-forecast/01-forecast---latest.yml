@@ -1,0 +1,35 @@
+info:
+  name: 01 - Forecast - Latest
+  type: http
+  seq: 1
+  tags:
+  - forecast
+http:
+  method: GET
+  url: "{{baseUrl}}/api/v1/forecast/{{spaceCode}}"
+  headers:
+  - name: Authorization
+    value: "Bearer {{accessToken}}"
+  auth: inherit
+runtime:
+  scripts:
+  - type: before-request
+    code: |
+      if (!bru.getVar("accessToken")) throw new Error("Missing 'accessToken'. Run '01 - Auth' / '02 - Auth - Token' first.");
+  - type: tests
+    code: |
+      test("HTTP 200 expected", function () {
+        expect(res.status).to.equal(200);
+      });
+      test("forecast sequence is a list (empty until Phase 8)", function () {
+        expect(res.body.forecast_sequence).to.be.an("array");
+      });
+settings:
+  encodeUrl: true
+  timeout: 30000
+  followRedirects: true
+  maxRedirects: 5
+docs: |-
+  Read-only. Returns 200 with an empty forecast_sequence and model_version 'unavailable'
+  while the Layer 3 DL service is not wired in - that is the expected state, not an error.
+  Once Phase 8 stores predictions the sequence holds 96 quantile points (24 h @ 15 min).

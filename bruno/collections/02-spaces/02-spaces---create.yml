@@ -1,0 +1,57 @@
+info:
+  name: 02 - Spaces - Create
+  type: http
+  seq: 2
+  tags:
+  - spaces
+http:
+  method: POST
+  url: "{{baseUrl}}/api/v1/spaces"
+  headers:
+  - name: Content-Type
+    value: application/json
+  - name: Authorization
+    value: "Bearer {{accessToken}}"
+  auth: inherit
+  body:
+    type: json
+    data: |-
+      {
+        "code": "{{newSpaceCode}}",
+        "name": "Bruno Test Room",
+        "area_m2": 20.0,
+        "ceiling_m": 3.0,
+        "volume_m3": 60.0,
+        "purpose": "office",
+        "region": "hanoi_caugiay",
+        "ventilation_estimate": "medium"
+      }
+runtime:
+  scripts:
+  - type: before-request
+    code: |
+      if (!bru.getVar("accessToken")) throw new Error("Missing 'accessToken'. Run '01 - Auth' / '02 - Auth - Token' first.");
+  - type: after-response
+    code: |
+      if (res.body && res.body.id) bru.setVar("createdSpaceId", res.body.id);
+  - type: tests
+    code: |
+      test("Created or already exists", function () {
+        expect([201, 409]).to.include(res.status);
+      });
+      if (res.status === 201) {
+        test("ML#1 threshold computed on create", function () {
+          expect(res.body.threshold.base_threshold_pm25).to.be.a("number");
+          expect(res.body.code).to.equal(bru.getEnvVar("newSpaceCode"));
+        });
+      }
+settings:
+  encodeUrl: true
+  timeout: 30000
+  followRedirects: true
+  maxRedirects: 5
+docs: |-
+  SIDE EFFECT: creates a space and immediately computes + caches its ML#1 threshold
+  (rule-based while aqss.ai.enabled=false). ADMIN only (403 for ROLE_USER/VIEWER).
+  Not idempotent - a re-run with the same {{newSpaceCode}} returns 409.
+  No idempotency-key mechanism exists on this API: treat every write as fire-once.

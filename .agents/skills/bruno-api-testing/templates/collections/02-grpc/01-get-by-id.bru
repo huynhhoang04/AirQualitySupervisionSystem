@@ -1,0 +1,23 @@
+meta {
+  name: GetWidget
+  type: grpc
+  seq: 1
+}
+
+grpc {
+  url: {{grpcHost}}
+  method: /widget.v1.WidgetService/GetWidget
+  body: grpc
+  protoPath: proto/widget.proto
+  auth: inherit
+  methodType: unary
+}
+
+body:grpc {
+  name: message 1
+  content: '''
+    {
+      "id": "{{widgetId}}"
+    }
+  '''
+}
