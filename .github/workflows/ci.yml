@@ -1,0 +1,93 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend · Java 21 · Maven
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      # Unit tests plus the Testcontainers integration test (GitHub runners provide Docker, so
+      # the PostgreSQL 16 container starts and Flyway V1→V4 is applied for real).
+      - name: Verify
+        run: ./mvnw -B -ntp verify
+
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-surefire-reports
+          path: backend/target/surefire-reports
+          if-no-files-found: ignore
+
+  layer3:
+    name: Layer 3 · Python 3.11 · pytest
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: dl_analyst
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: dl_analyst/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run tests
+        run: python -m pytest -q
+
+  bruno-workspace:
+    name: Bruno workspace · conventions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install validator dependency
+        run: pip install --quiet pyyaml
+
+      - name: Validate the workspace
+        run: python3 bruno/tools/validate_workspace.py
+
+  compose:
+    name: docker-compose config
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Catches a broken service reference or a path that does not exist (e.g. pointing the AI
+      # service at a directory that was renamed) without paying for a full image build.
+      - name: Validate compose file
+        working-directory: backend
+        run: docker compose config -q
