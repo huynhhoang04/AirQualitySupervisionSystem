@@ -72,6 +72,7 @@ Firmware pin đúng root này (`MQTT_ROOT_CA` trong `embedded/include/config.h`,
 | :--- | :--- | :--- |
 | host `…-pooler.c-2.ap-southeast-1…` | host `…c-2.ap-southeast-1…` (bỏ `-pooler`) | Pooler của Neon chạy PgBouncer transaction-mode: Flyway/JPA dùng prepared statement & session state sẽ lỗi. Nếu buộc dùng pooler thì phải thêm `?prepareThreshold=0` |
 | `&channel_binding=require` | bỏ hẳn | Tên tham số của Neon (libpq); pgjdbc dùng `channelBinding`, và SCRAM vẫn chạy khi bỏ |
+| `DB_URL` chứa `user=` / `password=` | **không** để credential trong URL | pgjdbc ưu tiên tham số trong URL hơn `DB_USER`/`DB_PASS` → sửa `DB_PASS` không có tác dụng, log báo `password authentication failed` (đã kiểm chứng: `?user=no_such_role` thắng `DB_USER`) |
 
 Chuỗi lấy từ Neon ở dạng `postgresql://user:pass@host/db?...` → phải đổi thành
 `jdbc:postgresql://user:pass@host/db?sslmode=require` (thêm `jdbc:`), hoặc tách
