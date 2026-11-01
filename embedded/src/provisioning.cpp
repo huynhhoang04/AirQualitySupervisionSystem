@@ -89,7 +89,7 @@ static void handleSave() {
     ESP.restart();
 }
 
-void provisioningRun() {
+void provisioningRun(bool retryStation) {
     s_apSsid = String(AP_SSID_PREFIX) + String((uint32_t)(ESP.getEfuseMac() & 0xFFFF), HEX);
 
     // AP + STA at once: the setup network stays available while the node keeps retrying the
@@ -118,6 +118,8 @@ void provisioningRun() {
     publishState(true, s_apSsid.c_str(), ip);
     AQSS_LOG("provisioning: join '%s' (pass %s) then open http://%s", s_apSsid.c_str(), AP_PASSWORD,
              ip.toString().c_str());
+    AQSS_LOG("provisioning: stays open until saved (network %s)",
+             retryStation ? "is retried in the background" : "must be entered");
 
     // Serve the form and keep trying the configured network; the AP closes the moment it joins.
     uint32_t lastAttemptMs = 0;
@@ -126,14 +128,14 @@ void provisioningRun() {
         s_server.handleClient();
         s_dns.processNextRequest();
 
-        if ((uint32_t)(millis() - lastAttemptMs) > STA_RETRY_MS) {
+        if (retryStation && (uint32_t)(millis() - lastAttemptMs) > STA_RETRY_MS) {
             lastAttemptMs = millis();
             net = netConfig();
             if (net.wifi_ssid[0] != '\0' && !WiFi.isConnected()) {
                 WiFi.begin(net.wifi_ssid, net.wifi_pass);
             }
         }
-        if (WiFi.isConnected() && WiFi.localIP() != IPAddress(0, 0, 0, 0)) {
+        if (retryStation && WiFi.isConnected() && WiFi.localIP() != IPAddress(0, 0, 0, 0)) {
             AQSS_LOG("provisioning: station joined %s, closing the AP",
                      WiFi.localIP().toString().c_str());
             break;

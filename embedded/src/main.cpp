@@ -74,7 +74,7 @@ void setup() {
     xTaskCreatePinnedToCore(Task_UpdateOLED, "oled", 4096, nullptr, 1, nullptr, 1);
     xTaskCreatePinnedToCore(Task_MQTT_Network, "mqtt", 8192, nullptr, 2, nullptr, 0);
 
-    AQSS_LOG("boot complete");
+    AQSS_LOG("boot complete - serial commands: setup | forget | reboot");
 }
 
 void loop() {

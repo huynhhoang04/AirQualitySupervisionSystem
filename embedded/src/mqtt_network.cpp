@@ -280,6 +280,34 @@ static void onMqttMessage(int messageSize) {
     }
 }
 
+// Serial console: `setup` opens the portal, `forget` clears the credentials.
+static void pollSerialCommands() {
+    static char line[32];
+    static size_t length = 0;
+    while (Serial.available()) {
+        const char c = (char)Serial.read();
+        if (c == '\r' || c == '\n') {
+            line[length] = '\0';
+            if (strcmp(line, "setup") == 0) {
+                AQSS_LOG("serial: opening the setup portal");
+                provisioningRun(false);
+            } else if (strcmp(line, "forget") == 0) {
+                AQSS_LOG("serial: credentials cleared, rebooting");
+                netClear();
+                vTaskDelay(pdMS_TO_TICKS(300));
+                ESP.restart();
+            } else if (strcmp(line, "reboot") == 0) {
+                ESP.restart();
+            } else if (length > 0) {
+                AQSS_LOG("serial: unknown command '%s' (setup | forget | reboot)", line);
+            }
+            length = 0;
+        } else if (length < sizeof(line) - 1) {
+            line[length++] = c;
+        }
+    }
+}
+
 static void wifiBegin() {
     WiFi.mode(WIFI_STA);
     WiFi.setHostname(AQSS_DEVICE_ID);
@@ -336,9 +364,9 @@ void Task_MQTT_Network(void* pvParam) {
 
     s_netCfg = netConfig();
     if (!netConfigured() || g_forceProvisioning) {
-        AQSS_LOG("no credentials (%s) -> setup portal",
-                 g_forceProvisioning ? "button held" : "first boot");
-        provisioningRun();   // never returns; reboots after saving
+        AQSS_LOG("%s -> setup portal",
+                 g_forceProvisioning ? "button held" : "no credentials");
+        provisioningRun(false);   // manual setup: AP stays until saved
     }
 
 #if MQTT_USE_TLS
@@ -357,7 +385,7 @@ void Task_MQTT_Network(void* pvParam) {
     }
     if (!WiFi.isConnected()) {
         AQSS_LOG("wifi: no link to '%s' -> setup portal", s_netCfg.wifi_ssid);
-        provisioningRun();          // returns once the station connects
+        provisioningRun(true);      // returns once the station connects
         s_netCfg = netConfig();
     }
     AQSS_LOG("wifi: connected as %s", WiFi.localIP().toString().c_str());
@@ -371,12 +399,13 @@ void Task_MQTT_Network(void* pvParam) {
 
     for (;;) {
         aqssWdtFeed();
+        pollSerialCommands();
         const uint32_t now = millis();
 
         if (!WiFi.isConnected()) {
             if ((uint32_t)(now - wifiDownSinceMs) > WIFI_LOST_SETUP_MS) {
                 AQSS_LOG("wifi: down for %lus -> setup portal", WIFI_LOST_SETUP_MS / 1000);
-                provisioningRun();   // back to setup until the station joins again
+                provisioningRun(true);   // back to setup until the station joins again
                 s_netCfg = netConfig();
                 continue;
             }
