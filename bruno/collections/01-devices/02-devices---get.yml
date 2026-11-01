@@ -1,0 +1,27 @@
+info:
+  name: 02 - Devices - Get
+  type: http
+  seq: 2
+  tags:
+  - devices
+http:
+  method: GET
+  url: "{{baseUrl}}/api/v1/devices/{{deviceId}}"
+  headers:
+  - name: Content-Type
+    value: application/json
+  auth: inherit
+runtime:
+  scripts:
+  - type: tests
+    code: |
+      test("HTTP 200 expected", function () {
+        expect(res.status).to.equal(200);
+      });
+settings:
+  encodeUrl: true
+  timeout: 30000
+  followRedirects: true
+  maxRedirects: 5
+docs: |-
+  One device. 404 when the id has never published.

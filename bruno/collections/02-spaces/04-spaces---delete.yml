@@ -1,0 +1,27 @@
+info:
+  name: 04 - Spaces - Delete
+  type: http
+  seq: 4
+  tags:
+  - spaces
+http:
+  method: DELETE
+  url: "{{baseUrl}}/api/v1/spaces/{{spaceCode}}"
+  headers:
+  - name: Content-Type
+    value: application/json
+  auth: inherit
+runtime:
+  scripts:
+  - type: tests
+    code: |
+      test("HTTP 204 expected", function () {
+        expect(res.status).to.equal(204);
+      });
+settings:
+  encodeUrl: true
+  timeout: 30000
+  followRedirects: true
+  maxRedirects: 5
+docs: |-
+  Deleting a space leaves its devices in place with space_code = null.

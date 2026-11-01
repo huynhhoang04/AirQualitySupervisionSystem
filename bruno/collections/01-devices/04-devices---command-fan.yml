@@ -1,0 +1,38 @@
+info:
+  name: 04 - Devices - Command (fan)
+  type: http
+  seq: 4
+  tags:
+  - devices
+http:
+  method: POST
+  url: "{{baseUrl}}/api/v1/devices/{{deviceId}}/command"
+  headers:
+  - name: Content-Type
+    value: application/json
+  auth: inherit
+  body:
+    type: json
+    data: |-
+      {
+        "command": "set_actuator",
+        "params": { "state": "ON", "level": 2 }
+      }
+runtime:
+  scripts:
+  - type: tests
+    code: |
+      test("HTTP 200 expected", function () {
+        expect(res.status).to.equal(200);
+      });
+      test("fan switched to MANUAL", function () {
+        expect(res.body.fan_mode).to.equal("MANUAL");
+        expect(res.body.fan_state).to.equal("ON");
+      });
+settings:
+  encodeUrl: true
+  timeout: 30000
+  followRedirects: true
+  maxRedirects: 5
+docs: |-
+  Any firmware command (io_contract §5) can be sent through this one endpoint.

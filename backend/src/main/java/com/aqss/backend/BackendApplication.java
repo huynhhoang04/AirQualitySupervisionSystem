@@ -2,21 +2,16 @@ package com.aqss.backend;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
-import org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration;
 import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
 import org.springframework.scheduling.annotation.EnableScheduling;
 
 /**
  * AQSS V2 — Layer 2 (the brain).
  *
- * <p>Closed-loop indoor air-quality control: MQTT telemetry ingestion, per-space threshold
- * inference, dosage prescription and anticipatory actuation of a PWM filter fan. The node only
- * measures, displays and actuates — every control decision is made here.
- *
- * <p>{@link UserDetailsServiceAutoConfiguration} is excluded: authentication is JWT/JPA-backed
- * ({@code AuthService}), so the default in-memory user is neither wanted nor used.
+ * <p>Collect telemetry over MQTT, serve it to the dashboard, drive the filter fan, and call
+ * Layer 3 (threshold / dosage / forecast). No auth, no partitioned telemetry.
  */
-@SpringBootApplication(exclude = UserDetailsServiceAutoConfiguration.class)
+@SpringBootApplication
 @EnableScheduling
 @ConfigurationPropertiesScan
 public class BackendApplication {

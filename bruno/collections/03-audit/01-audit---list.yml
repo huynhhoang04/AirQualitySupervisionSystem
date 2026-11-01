@@ -1,0 +1,27 @@
+info:
+  name: 01 - Audit - List
+  type: http
+  seq: 1
+  tags:
+  - audit
+http:
+  method: GET
+  url: "{{baseUrl}}/api/v1/audit?limit=50"
+  headers:
+  - name: Content-Type
+    value: application/json
+  auth: inherit
+runtime:
+  scripts:
+  - type: tests
+    code: |
+      test("HTTP 200 expected", function () {
+        expect(res.status).to.equal(200);
+      });
+settings:
+  encodeUrl: true
+  timeout: 30000
+  followRedirects: true
+  maxRedirects: 5
+docs: |-
+  One log for every action: USER commands, BACKEND decisions, DEVICE status, AI updates.

@@ -1,0 +1,39 @@
+info:
+  name: 03 - Devices - Configure
+  type: http
+  seq: 3
+  tags:
+  - devices
+http:
+  method: PUT
+  url: "{{baseUrl}}/api/v1/devices/{{deviceId}}"
+  headers:
+  - name: Content-Type
+    value: application/json
+  auth: inherit
+  body:
+    type: json
+    data: |-
+      {
+        "name": "Node phòng 201",
+        "space_code": "{{spaceCode}}",
+        "telemetry_interval_ms": 5000,
+        "dust_baseline_us": 1400
+      }
+runtime:
+  scripts:
+  - type: tests
+    code: |
+      test("HTTP 200 expected", function () {
+        expect(res.status).to.equal(200);
+      });
+      test("config echoed", function () {
+        expect(res.body.space_code).to.equal(bru.getEnvVar("spaceCode"));
+      });
+settings:
+  encodeUrl: true
+  timeout: 30000
+  followRedirects: true
+  maxRedirects: 5
+docs: |-
+  SIDE EFFECT: also publishes set_space / set_interval / recalibrate_dust to the node.

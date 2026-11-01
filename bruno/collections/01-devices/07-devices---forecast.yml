@@ -1,0 +1,30 @@
+info:
+  name: 07 - Devices - Forecast (refresh)
+  type: http
+  seq: 7
+  tags:
+  - forecast
+http:
+  method: POST
+  url: "{{baseUrl}}/api/v1/devices/{{deviceId}}/forecast"
+  headers:
+  - name: Content-Type
+    value: application/json
+  auth: inherit
+runtime:
+  scripts:
+  - type: tests
+    code: |
+      test("HTTP 200 expected", function () {
+        expect(res.status).to.equal(200);
+      });
+      test("returns a JSON array", function () {
+        expect(JSON.parse(res.body || "[]")).to.be.an("array");
+      });
+settings:
+  encodeUrl: true
+  timeout: 30000
+  followRedirects: true
+  maxRedirects: 5
+docs: |-
+  Resamples the last 24 h to 96 fifteen-minute medians, asks Layer 3, stores and returns the points. With AI_ENABLED=false it returns the stored forecast ([] when empty).

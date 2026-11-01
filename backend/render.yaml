@@ -1,0 +1,57 @@
+# Render Blueprint — AQSS Layer 2 backend (Docker) + Neon Postgres + an external MQTT broker.
+#
+# Create it from the Render dashboard:  New + -> Blueprint -> pick this repo ->
+# Blueprint Path: backend/render.yaml
+#
+# Anything marked `sync: false` has no default and is filled in from the dashboard after the
+# first deploy (Neon connection string, HiveMQ credentials, dashboard origin).
+services:
+  - type: web
+    name: aqss-backend
+    runtime: docker
+    plan: free
+    region: singapore
+    rootDir: backend
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /actuator/health
+    # CD lives in .github/workflows/deploy.yml: Render deploys only after CI is green.
+    autoDeploy: false
+    envVars:
+      # ── Neon Postgres ───────────────────────────────────────────────────
+      # jdbc:postgresql://<host>/<db>?sslmode=require
+      - key: DB_URL
+        sync: false
+      - key: DB_USER
+        sync: false
+      - key: DB_PASS
+        sync: false
+      # Neon free tier has a small connection budget — keep the pool small.
+      - key: DB_POOL_MAX
+        value: "5"
+      - key: DB_POOL_MIN
+        value: "2"
+
+      # ── MQTT broker (HiveMQ Cloud / EMQX Cloud / any TLS broker) ────────
+      # ssl://<cluster-host>:8883   (Render cannot host an MQTT broker itself)
+      - key: MQTT_BROKER_URL
+        sync: false
+      - key: MQTT_USER
+        sync: false
+      - key: MQTT_PASS
+        sync: false
+      - key: MQTT_QOS
+        value: "1"
+
+      # ── Layer 3 (FastAPI) ───────────────────────────────────────────────
+      - key: AI_BASE_URL
+        sync: false
+      - key: AI_ENABLED
+        value: "false"
+
+      # ── Application ─────────────────────────────────────────────────────
+      # Browser origin of the dashboard (Vite dev server or the deployed frontend).
+      - key: CORS_ORIGIN
+        sync: false
+      # Render injects PORT; the app honours it (see application.yml `server.port`).
+      - key: LOG_LEVEL_AQSS
+        value: INFO

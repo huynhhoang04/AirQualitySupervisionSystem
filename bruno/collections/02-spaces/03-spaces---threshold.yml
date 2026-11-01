@@ -1,0 +1,27 @@
+info:
+  name: 03 - Spaces - Recompute threshold
+  type: http
+  seq: 3
+  tags:
+  - spaces
+http:
+  method: POST
+  url: "{{baseUrl}}/api/v1/spaces/{{spaceCode}}/threshold"
+  headers:
+  - name: Content-Type
+    value: application/json
+  auth: inherit
+runtime:
+  scripts:
+  - type: tests
+    code: |
+      test("HTTP 200 expected", function () {
+        expect(res.status).to.equal(200);
+      });
+settings:
+  encodeUrl: true
+  timeout: 30000
+  followRedirects: true
+  maxRedirects: 5
+docs: |-
+  Asks Layer 3 (ML#1) for a threshold. No-op while AI_ENABLED=false — the manual value stays.

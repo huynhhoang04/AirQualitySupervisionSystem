@@ -1,0 +1,41 @@
+info:
+  name: 02 - Spaces - Upsert
+  type: http
+  seq: 2
+  tags:
+  - spaces
+http:
+  method: PUT
+  url: "{{baseUrl}}/api/v1/spaces/{{spaceCode}}"
+  headers:
+  - name: Content-Type
+    value: application/json
+  auth: inherit
+  body:
+    type: json
+    data: |-
+      {
+        "name": "Phòng 201",
+        "volume_m3": 15.0,
+        "purpose": "bedroom",
+        "region": "hanoi_caugiay",
+        "ventilation_estimate": "low",
+        "threshold_pm25": 35.0
+      }
+runtime:
+  scripts:
+  - type: tests
+    code: |
+      test("HTTP 200 expected", function () {
+        expect(res.status).to.equal(200);
+      });
+      test("upsert is idempotent", function () {
+        expect(res.body.code).to.equal(bru.getEnvVar("spaceCode"));
+      });
+settings:
+  encodeUrl: true
+  timeout: 30000
+  followRedirects: true
+  maxRedirects: 5
+docs: |-
+  Upsert: creates the space or replaces its profile and threshold.

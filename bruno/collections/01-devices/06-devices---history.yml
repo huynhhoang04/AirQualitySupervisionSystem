@@ -1,0 +1,27 @@
+info:
+  name: 06 - Devices - History
+  type: http
+  seq: 6
+  tags:
+  - telemetry
+http:
+  method: GET
+  url: "{{baseUrl}}/api/v1/devices/{{deviceId}}/telemetry"
+  headers:
+  - name: Content-Type
+    value: application/json
+  auth: inherit
+runtime:
+  scripts:
+  - type: tests
+    code: |
+      test("HTTP 200 expected", function () {
+        expect(res.status).to.equal(200);
+      });
+settings:
+  encodeUrl: true
+  timeout: 30000
+  followRedirects: true
+  maxRedirects: 5
+docs: |-
+  Chart data, last 24 h by default. Add ?from=...&to=... (ISO-8601) to narrow it.
