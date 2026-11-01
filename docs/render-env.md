@@ -7,9 +7,9 @@ Giá trị dưới đây điền vào **Render → Settings → Environment** (h
 
 | Biến | Giá trị | Nguồn |
 | :--- | :--- | :--- |
-| `DB_URL` | `jdbc:postgresql://<host-neon>/<db>?sslmode=require` | Neon → Dashboard → Connection string (endpoint **direct**, không `-pooler`) |
-| `DB_USER` | `neondb_owner` (hoặc user Neon tạo) | Neon |
-| `DB_PASS` | *(mật khẩu Neon)* | Neon |
+| `DB_URL` | `jdbc:postgresql://ep-still-silence-aohpl0yw.c-2.ap-southeast-1.aws.neon.tech/neondb?sslmode=require` | Neon → Connection string, **tắt "Connection pooling"** |
+| `DB_USER` | `neondb_owner` | Neon |
+| `DB_PASS` | *(mật khẩu Neon — chỉ dán trên Render, không ghi vào repo)* | Neon |
 | `DB_POOL_MAX` | `5` | cố định — Neon free có hạn mức connection |
 | `DB_POOL_MIN` | `2` | cố định |
 | `MQTT_BROKER_URL` | `ssl://vc1f2107.ala.asia-southeast1.emqxsl.com:8883` | EMQX Cloud Serverless (chỉ mở 8883/8443 TLS) |
@@ -28,8 +28,8 @@ Giá trị cố định trong `application.yml`, không cần đặt:
 ## 2. Dán nhanh vào Render
 
 ```text
-DB_URL=jdbc:postgresql://<host-neon>/<db>?sslmode=require
-DB_USER=<neon-user>
+DB_URL=jdbc:postgresql://ep-still-silence-aohpl0yw.c-2.ap-southeast-1.aws.neon.tech/neondb?sslmode=require
+DB_USER=neondb_owner
 DB_PASS=<neon-password>
 DB_POOL_MAX=5
 DB_POOL_MIN=2
@@ -66,7 +66,18 @@ Firmware pin đúng root này (`MQTT_ROOT_CA` trong `embedded/include/config.h`,
 `embedded/include/tls_certs.h`). Nếu đổi sang broker khác dùng Let's Encrypt thì đổi thành
 `kCaIsrgX1` và build lại.
 
-## 5. Bảo mật
+## 5. Neon — hai lỗi cấu hình hay gặp
+
+| Sai | Đúng | Vì sao |
+| :--- | :--- | :--- |
+| host `…-pooler.c-2.ap-southeast-1…` | host `…c-2.ap-southeast-1…` (bỏ `-pooler`) | Pooler của Neon chạy PgBouncer transaction-mode: Flyway/JPA dùng prepared statement & session state sẽ lỗi. Nếu buộc dùng pooler thì phải thêm `?prepareThreshold=0` |
+| `&channel_binding=require` | bỏ hẳn | Tên tham số của Neon (libpq); pgjdbc dùng `channelBinding`, và SCRAM vẫn chạy khi bỏ |
+
+Chuỗi lấy từ Neon ở dạng `postgresql://user:pass@host/db?...` → phải đổi thành
+`jdbc:postgresql://user:pass@host/db?sslmode=require` (thêm `jdbc:`), hoặc tách
+`DB_URL` / `DB_USER` / `DB_PASS` như bảng trên.
+
+## 6. Bảo mật
 
 - Mật khẩu Neon/EMQX chỉ nằm trong Render env + NVS của node; **không** đưa vào git.
 - Node chỉ lưu **mật khẩu** broker; host/port/username là hằng số trong `embedded/include/config.h`.
