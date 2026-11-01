@@ -1,0 +1,29 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  @apply bg-ink text-slate-200 antialiased;
+  margin: 0;
+  font-family: Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+@layer components {
+  .card {
+    @apply rounded-xl border border-line bg-panel;
+  }
+
+  .label {
+    @apply text-[11px] uppercase tracking-[0.14em] text-slate-500;
+  }
+
+  .value {
+    @apply text-2xl font-semibold tabular-nums text-slate-100;
+  }
+}

@@ -1,6 +1,8 @@
 package com.aqss.backend.api;
 
 import com.aqss.backend.model.Device;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.aqss.backend.model.Telemetry;
 import com.aqss.backend.service.DeviceService;
 import com.aqss.backend.service.TelemetryService;
@@ -27,6 +29,7 @@ public class DeviceController {
 
     private final DeviceService devices;
     private final TelemetryService telemetry;
+    private final ObjectMapper objectMapper;
 
     @GetMapping
     public List<Device> list() {
@@ -68,15 +71,23 @@ public class DeviceController {
         return telemetry.history(deviceId, from, to);
     }
 
-    /** The cached 96-point forecast from Layer 3 (empty list until one is produced). */
+    /** The cached 96-point forecast from Layer 3 (empty array until one is produced). */
     @GetMapping("/{deviceId}/forecast")
-    public String forecast(@PathVariable String deviceId) {
-        return telemetry.storedForecast(deviceId);
+    public JsonNode forecast(@PathVariable String deviceId) {
+        return readTree(telemetry.storedForecast(deviceId));
     }
 
     /** Ask Layer 3 for a fresh forecast and store it. */
     @PostMapping("/{deviceId}/forecast")
-    public String refreshForecast(@PathVariable String deviceId) {
-        return telemetry.refreshForecast(deviceId);
+    public JsonNode refreshForecast(@PathVariable String deviceId) {
+        return readTree(telemetry.refreshForecast(deviceId));
+    }
+
+    private JsonNode readTree(String json) {
+        try {
+            return objectMapper.readTree(json);
+        } catch (Exception e) {
+            return objectMapper.createArrayNode();
+        }
     }
 }

@@ -146,7 +146,30 @@ cd embedded
 
 ---
 
-## 9. Kiểm tra sau deploy
+## 9. Dashboard (frontend, React + Vite)
+
+Chạy local:
+
+```bash
+cd frontend && npm install
+echo 'VITE_API_URL=http://localhost:8080' > .env.local
+npm run dev        # http://localhost:5173
+```
+
+Deploy lên Render dạng **Static Site**:
+
+1. New + → **Static Site** → chọn repo, **Root Directory**: `frontend`.
+2. Build command: `npm ci && npm run build` · Publish directory: `dist`.
+3. Environment: `VITE_API_URL=https://aqss-backend.onrender.com`.
+4. Lấy URL dashboard (vd `https://aqss-dashboard.onrender.com`) rồi quay lại service backend:
+   **Environment → `CORS_ORIGIN`** = đúng URL đó → redeploy backend.
+
+`CORS_ORIGIN` chỉ nhận **một** origin. Nếu cần chạy song song local + production thì đổi qua lại,
+hoặc mở rộng `WebConfig` sang danh sách (một dòng `setAllowedOrigins`).
+
+Ghi chú: khối dự báo hiển thị `unavailable` cho tới khi Layer 3 được deploy và `AI_ENABLED=true`.
+
+## 10. Kiểm tra sau deploy
 
 ```bash
 APP=https://<service>.onrender.com
@@ -172,7 +195,7 @@ Tiêu chí hoàn thành:
 - [ ] `POST …/command` → quạt đổi tốc độ, OLED đổi `FAN`.
 - [ ] `GET /api/v1/audit` có `DEVICE/STATUS` và `USER/ACTIVATE`.
 
-## 10. Sự cố thường gặp
+## 11. Sự cố thường gặp
 
 | Triệu chứng | Nguyên nhân | Xử lý |
 | :--- | :--- | :--- |
