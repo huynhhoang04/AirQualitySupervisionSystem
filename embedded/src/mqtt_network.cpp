@@ -296,10 +296,29 @@ static void pollSerialCommands() {
                 netClear();
                 vTaskDelay(pdMS_TO_TICKS(300));
                 ESP.restart();
+            } else if (strcmp(line, "net") == 0) {
+                NetConfig net = netConfig();
+                AQSS_LOG("serial: ssid='%s' wifi_pass_len=%u", net.wifi_ssid, (unsigned)strlen(net.wifi_pass));
+                AQSS_LOG("serial: broker='%s:%u' user='%s' pass_len=%u", net.mqtt_host, net.mqtt_port,
+                         net.mqtt_user, (unsigned)strlen(net.mqtt_pass));
+            } else if (strncmp(line, "cred ", 5) == 0) {
+                // cred <user> <password>  (keeps host/port, then reboots)
+                char* user = line + 5;
+                char* pass = strchr(user, ' ');
+                if (pass != nullptr) {
+                    *pass++ = '\0';
+                    NetConfig net = netConfig();
+                    netSet(net.wifi_ssid, net.wifi_pass, net.mqtt_host, net.mqtt_port, user, pass);
+                    AQSS_LOG("serial: broker credentials updated for '%s', rebooting", user);
+                    vTaskDelay(pdMS_TO_TICKS(300));
+                    ESP.restart();
+                } else {
+                    AQSS_LOG("serial: usage: cred <user> <password>");
+                }
             } else if (strcmp(line, "reboot") == 0) {
                 ESP.restart();
             } else if (length > 0) {
-                AQSS_LOG("serial: unknown command '%s' (setup | forget | reboot)", line);
+                AQSS_LOG("serial: unknown command '%s' (setup | forget | net | cred | reboot)", line);
             }
             length = 0;
         } else if (length < sizeof(line) - 1) {

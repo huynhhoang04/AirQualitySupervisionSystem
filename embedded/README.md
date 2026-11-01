@@ -28,6 +28,20 @@ Muốn đổi mạng sau này: giữ nút khi cấp nguồn, hoặc nối lại 
 
 > Có thể pre-seed cho phòng lab bằng `include/secrets.h` (copy từ `secrets.example.h`, đã gitignore).
 
+### Lệnh qua serial 115200
+
+Cắm USB rồi gõ trong serial monitor (không cần tháo nguồn):
+
+| Lệnh | Việc |
+| :--- | :--- |
+| `setup` | mở lại portal cấu hình (AP giữ nguyên tới khi lưu) |
+| `forget` | xoá WiFi + broker trong NVS rồi reboot |
+| `net` | in ra ssid / broker / user / độ dài mật khẩu đang lưu |
+| `cred <user> <pass>` | đổi nhanh user/pass broker (giữ host/port) rồi reboot |
+| `reboot` | khởi động lại |
+
+Nút cứng: giữ nút GPIO 6 (nút override trên breadboard, **không** phải BOOT/RST) → bấm RST → giữ 3 s.
+
 > `pio device monitor` cần TTY. Chạy trong CI/không có TTY thì đọc trực tiếp `/dev/ttyACM0` (115200 8N1).
 
 ## Layout
