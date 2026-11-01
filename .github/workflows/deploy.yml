@@ -1,0 +1,47 @@
+name: Deploy
+
+# Deploys only when CI on main is green: Render's own auto-deploy is disabled in render.yaml so a
+# red build can never reach production.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  render:
+    name: Render · deploy hook
+    runs-on: ubuntu-latest
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+    steps:
+      - name: Trigger the Render deploy
+        env:
+          HOOK: ${{ secrets.RENDER_DEPLOY_HOOK }}
+        run: |
+          if [ -z "$HOOK" ]; then
+            echo "::error::RENDER_DEPLOY_HOOK is not set (Render -> Settings -> Deploy Hook)"
+            exit 1
+          fi
+          curl -fsS -X POST "$HOOK"
+          echo "Deploy triggered."
+
+      # Set the repo variable APP_URL once Render assigns the URL (defaults to the blueprint name).
+      - name: Wait and check health
+        env:
+          APP_URL: ${{ vars.APP_URL || 'https://aqss-backend.onrender.com' }}
+        run: |
+          for i in $(seq 1 18); do
+            sleep 10
+            status=$(curl -s -o /dev/null -w '%{http_code}' -m 10 "$APP_URL/actuator/health" || true)
+            echo "attempt $i -> HTTP $status"
+            [ "$status" = "200" ] && exit 0
+          done
+          echo "::error::health check did not return 200 in 3 minutes"
+          exit 1

@@ -9,19 +9,19 @@ An end-to-end IoT project that measures indoor air quality, forecasts it, and **
 | Layer | Component | Tech Stack | Description |
 | :---: | :--- | :--- | :--- |
 | **1** | Embedded IoT | ESP32-S3, C++17, FreeRTOS | **Single integrated node**: SCD40 + GP2Y1023 sensing, OLED early-warning display, Intel 4-wire PWM fan control, MQTT telemetry. |
-| **2** | Backend Services | Java 21, Spring Boot 3.3, PostgreSQL 16 | **The brain**: Space management, control decisions, actuation, MQTT ingestion, REST API, JWT auth, RBAC, batch writes, STOMP WebSocket. |
-| **3** | AI | Python 3.11, PyTorch 2.2, FastAPI | ML#1 Threshold (GPR), ML#2 Dosage (XGBoost), Seq2Seq LSTM forecasting (24h, quantile). |
+| **2** | Backend Services | Java 21, Spring Boot 3.3, PostgreSQL (Neon) | **The brain**: telemetry ingestion over MQTT, REST for the dashboard, fan commands, control loop, Layer-3 calls. No auth. |
+| **3** | AI | Python 3.11, PyTorch, FastAPI | ML#1 Threshold, ML#2 Dosage, quantile forecast. **Separate service — not in this repo**; the contract is `docs/io_contract.md` §8. |
 | **4** | Frontend Dashboard | React 18, Vite, TailwindCSS, Zustand | Real-time dark-mode dashboard, Space selector, threshold band, forecast charts, actuator control, decision timeline. |
 
 ## Key Features
 
-- **Real-Time Monitoring:** live telemetry via MQTT, pushed to the frontend with <5 ms latency over STOMP.
+- **Real-Time Monitoring:** telemetry over MQTT at 5 s, served to the dashboard over REST.
 - **Space-Aware Thresholds:** ML#1 infers per-room activation thresholds from space parameters (volume, purpose, region) using physics-informed surrogate training.
 - **Dosage Control:** ML#2 prescribes the fan level and run duration for the room and the current pollution level.
-- **Anticipatory Actuation:** the DL forecast (q90 quantile) warns up to 2 hours before a breach; the loop then actuates automatically with hysteresis, min on/off times and a full decision audit trail.
+- **Anticipatory Actuation:** the closed loop compares PM2.5 with the space threshold every 60 s and drives the fan with hysteresis and a minimum ON time; every action lands in one audit table.
 - **Manual Override:** from the dashboard and from the physical button — always wins over AUTO.
 - **CO2 Advisory:** CO2 is **alert-only** (HEPA media cannot remove CO2; ventilation is the only remedy).
-- **High Performance:** PostgreSQL native range partitioning, materialized views, batch inserts.
+- **Small by design:** 23 Java files; five tables; one MQTT connection; one audit trail.
 - **Responsive UI:** dark-mode-first React + Recharts dashboard.
 
 ## Hardware (as built)
@@ -46,7 +46,8 @@ An end-to-end IoT project that measures indoor air quality, forecasts it, and **
 | **I/O Contract** | `docs/io_contract.md` | Single source of truth for all data contracts |
 | Layer 1 Plan (Embedded) | `docs/embedded-layer.md` | Integrated-node firmware |
 | Layer 2 Plan (Backend) | `docs/backend-layer.md` | Brain: ingestion, decisions, actuation |
-| Layer 3 Plan (AI) | `docs/dl.md` | ML#1 / ML#2 / DL forecast |
+| Layer 3 Plan (AI, separate service) | `docs/dl.md` | ML#1 / ML#2 / DL forecast contract |
+| **Deploy runbook** | **`docs/deploy.md`** | Render + Neon + HiveMQ, CI/CD, firmware provisioning |
 | Layer 4 Plan (Frontend) | `docs/fontend-layer.md` | Space-centric dashboard |
 | Hardware Datasheet Reference | `docs/hardware_datasheet_reference.md` | Consolidated datasheet specs |
 | UI Mockups | `docs/ui_mockups/` | Dashboard and Space Control designs |

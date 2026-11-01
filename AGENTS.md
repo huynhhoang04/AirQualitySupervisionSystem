@@ -9,8 +9,8 @@ You are working on the **Air Quality Supervision System**, an end-to-end IoT pro
 | Layer | Directory | Stack | Description |
 | :---: | :--- | :--- | :--- |
 | 1 | `embedded/` | ESP32-S3, C++17, FreeRTOS, PlatformIO, Arduino Core | **Single integrated node**: sensor acquisition, OLED early-warning display, Intel 4-wire PWM fan control, MQTT telemetry |
-| 2 | `backend/` | Java 21, Spring Boot 3.3, Maven, PostgreSQL 16, Mosquitto, STOMP WebSocket | **The brain**: Space management, control decisions, actuation, MQTT ingestion, REST API, JWT auth, RBAC |
-| 3 | `layer3_dl/` | Python 3.11, PyTorch 2.2, FastAPI, Scikit-Learn, XGBoost | ML#1 Threshold (GPR), ML#2 Dosage (XGBoost), Seq2Seq LSTM forecasting (24h, quantile) |
+| 2 | `backend/` | Java 21, Spring Boot 3.3, Maven, PostgreSQL (Neon), MQTT client (Paho) | **The brain**: telemetry ingestion, REST for the dashboard, fan commands, Layer-3 calls. **No auth** |
+| 3 | *(separate service, not in this repo)* | Python 3.11, FastAPI | ML#1 Threshold, ML#2 Dosage, quantile forecast. Contract: `docs/io_contract.md` §8; the backend calls it from `AiClient` |
 | 4 | `frontend/` | React 18, TypeScript, Vite, TailwindCSS, Zustand, TanStack Query, Recharts | Space-centric dashboard, threshold band, forecast quantiles, actuator control, decision timeline |
 
 ## Hardware
@@ -56,7 +56,7 @@ You are working on the **Air Quality Supervision System**, an end-to-end IoT pro
 
 Firmware must **null-check** `doc["command"]` before `strcmp` — malformed payloads must not crash the node.
 
-## Decision Rules (backend `ControlDecisionService`, 60 s cycle)
+## Decision Rules (backend `ControlLoop`, 60 s cycle)
 
 1. `pm25 ≥ space_threshold` → ML#2 dosage → publish `set_actuator ON` → audit `ACTIVATE/AUTO/threshold_breach`.
 2. `q90 forecast breach within 2 h` → push `display_warning` to the OLED → audit `ALERT`.
@@ -66,27 +66,21 @@ Firmware must **null-check** `doc["command"]` before `strcmp` — malformed payl
 
 ## REST API (Layer 2 ↔ 4)
 
-All protected endpoints require `Authorization: Bearer <JWT>`; device endpoints use `X-API-Key`.
+No authentication. JSON is snake_case. Full table: `docs/io_contract.md` §7.
 
 | Endpoint | Method | Purpose |
 | :--- | :---: | :--- |
-| `/api/v1/auth/token` | POST | Login → JWT |
-| `/api/v1/spaces` | GET/POST | List / create spaces |
-| `/api/v1/spaces/{id}` | GET/PUT/DELETE | Space + threshold + dosage + devices |
-| `/api/v1/spaces/{id}/decisions` | GET | Decision timeline (audit) |
-| `/api/v1/spaces/{id}/actuator` | POST | Manual AUTO/MANUAL control |
-| `/api/v1/spaces/{id}/threshold` | POST | Force ML#1 recompute |
-| `/api/v1/actuators` | GET | Actuator registry + live state |
-| `/api/v1/telemetry/latest` | GET | Latest reading + derived AQI + `co2_alert` |
-| `/api/v1/telemetry/history` / `aggregate` | GET | Range / `date_trunc` queries |
-| `/api/v1/forecast/{space_id}` | GET | 96-point quantile forecast |
-| `/api/v1/alerts` | GET/PUT | Alerts / resolve |
-
-## WebSocket Contract (Layer 2 → 4)
-
-STOMP 1.2 at `/ws` (SockJS fallback), JWT in the `CONNECT` header:
-
-`/topic/devices/{id}` · `/topic/spaces/{id}/decision` · `/topic/actuators/{id}` · `/topic/alerts` · `/topic/device-status`
+| `/api/v1/devices` | GET | List devices + live fan state |
+| `/api/v1/devices/{id}` | GET/PUT/DELETE | Read / configure (name, space, interval, dust baseline) / forget |
+| `/api/v1/devices/{id}/command` | POST | Any firmware command (`set_actuator`, `reboot`, `set_interval`, ...) |
+| `/api/v1/devices/{id}/latest` | GET | Newest reading |
+| `/api/v1/devices/{id}/telemetry` | GET | Chart data (`?from&to`, default 24 h) |
+| `/api/v1/devices/{id}/forecast` | GET/POST | Stored 96-point forecast / ask Layer 3 for a fresh one |
+| `/api/v1/spaces` | GET | Spaces + thresholds |
+| `/api/v1/spaces/{code}` | GET/PUT/DELETE | Space CRUD (upsert on PUT) |
+| `/api/v1/spaces/{code}/threshold` | POST | Recompute the threshold with ML#1 |
+| `/api/v1/audit` | GET | One audit trail (`?device_id&limit`) |
+| `/actuator/health` | GET | Liveness |
 
 ## AI API Contract (Layer 2 → 3)
 
@@ -111,8 +105,6 @@ Defined in `.claude/agents/` (file names are authoritative, typos included):
 | `java-springboot-pro` | 2 | Java 21 conventions, Maven, JPA, Spring Security |
 | `prosgresql-pro` | 2 | Schema, partitioning, matviews, query optimisation |
 | `websocket-pro` | 2 | STOMP config, MQTT→STOMP bridging |
-| `dl-engineer` | 3 | Model architecture, physics-informed labelling, training pipelines |
-| `py-pytourch-pro` | 3 | PyTorch quality, quantile loss, tensor operations |
 | `frontend-developer` | 4 | React components, data integration, control views |
 | `react-typescripts-pro` | 4 | TypeScript strict, hooks, TanStack Query, Zustand |
 | `ui-designer` | 4 | Design system, AQI palette, dark mode, accessibility |
@@ -126,7 +118,8 @@ Defined in `.claude/agents/` (file names are authoritative, typos included):
 | **I/O Contract** | **`docs/io_contract.md`** | **Single source of truth for all data contracts** |
 | Layer 1 Plan | `docs/embedded-layer.md` | Integrated-node firmware |
 | Layer 2 Plan | `docs/backend-layer.md` | Brain: ingestion, decisions, actuation |
-| Layer 3 Plan | `docs/dl.md` | ML#1 / ML#2 / DL forecast |
+| Layer 3 Plan | `docs/dl.md` | ML#1 / ML#2 / DL forecast (service lives elsewhere) |
+| **Deploy runbook** | **`docs/deploy.md`** | Render + Neon + HiveMQ, CI/CD, firmware provisioning |
 | Layer 4 Plan | `docs/fontend-layer.md` | Space-centric dashboard |
 | Hardware Reference | `docs/hardware_datasheet_reference.md` | Consolidated datasheet specs |
 | UI Mockups | `docs/ui_mockups/` | Dashboard + Space Control designs |
@@ -137,9 +130,9 @@ Defined in `.claude/agents/` (file names are authoritative, typos included):
 
 - FreeRTOS tasks pinned to cores: Wi-Fi/MQTT on **Core 0**, sensors/OLED/fan on **Core 1**; shared state behind a mutex.
 - Telemetry JSON every 5 s to `aqss/devices/{id}/telemetry`; buffer ≥ 512 B.
-- Backend: **Maven**, **Java 21** (not Kotlin), Spring Boot 3.3, `ddl-auto: validate`, Flyway migrations (V1–V4).
-- PostgreSQL 16 native monthly range partitioning + materialized views. Partition creation **is scheduled** (`PartitionManagerService`); retention drops whole expired months. Not TimescaleDB.
-- Batch writes via `LinkedBlockingQueue` flushed every 1 s with `reWriteBatchedInserts=true`.
+- Backend: **Maven**, **Java 21** (not Kotlin), Spring Boot 3.3, `ddl-auto: validate`, Flyway **V1 only** (schema in `docs/io_contract.md` §6).
+- Plain tables + indexes (no partitioning, no materialized views): a few rows per minute does not need either.
+- One MQTT connection (Paho) in `MqttLink`; inbound payloads become Spring events. No Spring Integration, no STOMP.
 - AI inference on **CPU-only PyTorch** (torch pinned to the CPU index) via FastAPI on port 8000.
 - Frontend: **Vite** (not Next.js), React Router v6, TailwindCSS (`tailwind.config.ts`, ESM).
 - All cross-layer contracts live in `docs/io_contract.md`.

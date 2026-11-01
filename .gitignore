@@ -1,0 +1,19 @@
+# Build output
+.pio/
+target/
+__pycache__/
+.pytest_cache/
+*.log
+
+# Local environment and deployment secrets
+.env
+embedded/include/secrets.h
+
+# Editors
+.idea/
+.vscode/
+*.iml
+
+# Local scratch (OCR data, broker experiments)
+eng.traineddata
+broker_min.yaml
