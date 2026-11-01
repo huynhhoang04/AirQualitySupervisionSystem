@@ -1,0 +1,7 @@
+.pio/
+.vscode/
+*.bin
+*.elf
+
+# Deployment credentials (copy secrets.example.h -> secrets.h)
+include/secrets.h

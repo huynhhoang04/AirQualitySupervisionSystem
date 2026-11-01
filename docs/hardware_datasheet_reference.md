@@ -251,9 +251,16 @@ $$RH\,[\%] = 100 \times \frac{\text{word}[2]}{2^{16} - 1}$$
 | **Chu kỳ (Period)** | T = 10.0 ms ± 0.2 ms (Tần số 100 Hz) |
 | **Pulse Width tối đa** | 7.0 ms (Duty 70%) khi ADC nội bộ = 1023 |
 | **Pulse Width tối thiểu** | 6.8 µs khi ADC nội bộ = 1 |
-| **Baseline (không khí sạch)** | W₀ ≈ 1200 – 1400 µs |
+| **Baseline (không khí sạch)** | **W₀ = 1400 µs** (danh định, xem dẫn giải bên dưới) |
 | **Sensitivity** | **K = 1400 µs / (0.1 mg/m³) = 14.0 µs/(µg/m³)** |
 | **Power-on** | Output giữ HIGH liên tục trong **1.0 giây** đầu tiên |
+
+> **Dẫn giải W₀ = 1400 µs (từ mục 3-4-1, trang 9 datasheet):** `Vo` là PWM của
+> `(A/D amplified − A/D initial + A/D của 1 V)`. Với thang 5 V / 10-bit (1023 mức) và xung max 7 ms:
+> `W = 7000 µs × A/D / 1023` ⇒ A/D của 1 V (= 204.6 mức) ứng với **1400 µs**. Do đó khi không có bụi
+> (`A/D amplified = A/D initial`) đầu ra luôn là 1400 µs, và mỗi +100 µg/m³ cộng thêm 1400 µs.
+> Bộ vi xử lý trong cảm biến tự ghi nhớ `A/D initial` **tại thời điểm cấp nguồn**, nên nếu khởi động trong
+> không khí bẩn thì mọi giá trị sau đó là *tương đối* so với mức đó (hiệu chuẩn lại bằng `recalibrate_dust`).
 
 ### Công thức chuyển đổi:
 

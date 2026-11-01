@@ -1,7 +1,7 @@
 # Detailed Plan — Layer 1: Embedded System Layer
 
 > **Version:** 3.0 — **Single Integrated Node** (sensing + display + fan actuation on one ESP32-S3)
-> **Reference:** [hardware_datasheet_reference.md](./hardware_datasheet_reference.md) · [aqss-concept-v2.md](./aqss-concept-v2.md) · [io_contract.md](./io_contract.md)
+> **Reference:** [hardware_datasheet_reference.md](./hardware_datasheet_reference.md) · [embedded-hardware-setup-guide.md](./embedded-hardware-setup-guide.md) · [aqss-concept-v2.md](./aqss-concept-v2.md) · [io_contract.md](./io_contract.md)
 >
 > **Change from the earlier V2 draft:** the separate Actuator Node + relay is **removed**. One ESP32-S3 does everything, and the filter fan is an **Intel 4-wire PWM fan** driven through its PWM control pin (the 12 V rail stays constant) — not a relay.
 
@@ -126,7 +126,8 @@
 | `SensirionI2CScd4x` | Latest | Official Sensirion driver for SCD40 (I2C) |
 | `U8g2` | Latest | OLED SSD1306 128×64 driver (full framebuffer, UTF-8) |
 | `WiFi` | Built-in | 2.4 GHz Wi-Fi connectivity |
-| `PubSubClient` | Latest | Lightweight MQTT client |
+| `PubSubClient` | Latest | ~~Lightweight MQTT client~~ **replaced:** publish-only QoS 0, cannot meet the §1/§3 QoS 1 + LWT contract |
+| `ArduinoMqttClient` | ≥ 0.1.8 | MQTT client with **QoS 1 publish**, `beginWill()` (LWT) and QoS 1 subscribe — used instead of PubSubClient |
 | `ArduinoJson` | v7.x | Serialize/Deserialize JSON payloads |
 | `Preferences` | Built-in | NVS storage (space_id, fan baseline W₀, config) |
 | LEDC | Built-in | Hardware PWM for the fan |
@@ -256,10 +257,17 @@ SemaphoreHandle_t g_dataMutex;
 
 ### 4.1 Conversion
 
+```text
+Dust (µg/m³) = (W − W₀) / 14.0
 ```
-Dust (µg/m³) = (W − W₀) / 14.0          W = pulse width (µs), W₀ = clean-air baseline
-PWM period 10 ms (100 Hz) · pulse range 6.8 µs – 7000 µs · detection 0–500 µg/m³ (saturates ~750)
-```
+
+- `W` = **LOW** pulse width (µs) — `Vo` idles HIGH and is pulsed LOW on a 10 ms period.
+- `W₀` = pulse width at 0 µg/m³ = **1400 µs**, derived from the datasheet (p.9): `Vo` is PWM of
+  `(A/D amplified − A/D initial + A/D of 1 V)`. On the 5 V / 10-bit scale 1 V = `7000 µs × 204.6/1023 ≈ 1400 µs`,
+  so the built-in offset puts 0 µg/m³ at exactly 1400 µs (not 1200/1350 — that over-reads by ~14 µg/m³).
+- Sensitivity `K = 1400 µs per 100 µg/m³ = 14 µs/(µg/m³)`; A/D saturation at 7 ms ⇒ linear top ≈ 400 µg/m³.
+- Pulse range 6.8 µs – 7000 µs · detection 0–500 µg/m³ · amplifier knee flagged from ~6900 µs (`SATURATED`).
+- Sensor error: `Vo` stuck HIGH (A/D < 1/10 of the initial value) ⇒ no pulse for > 3 s ⇒ `dust_fault`.
 
 ### 4.2 Reading Code
 
@@ -269,22 +277,35 @@ PWM period 10 ms (100 Hz) · pulse range 6.8 µs – 7000 µs · detection 0–5
 #define DUST_PWM_PIN          18
 #define DUST_SENSITIVITY      14.0f   // µs per µg/m³
 #define DUST_SAMPLE_WINDOW_MS 1000
-#define DUST_PULSE_MIN_US     7       // datasheet min ≈ 6.8 µs  (V1 used 6 — too permissive)
-#define DUST_PULSE_MAX_US     7000    // datasheet max = 7.0 ms  (V1 used 7500 — accepted invalid pulses)
+#define DUST_PULSE_MIN_US     7       // datasheet min ≈ 6.8 µs (per AGENTS.md Rule #2: 6.8 µs – 7000 µs)
+#define DUST_PULSE_MAX_US     7000    // datasheet max = 7.0 ms
 #define PM25_SATURATION       750.0f  // physical saturation limit
 
 Preferences nvs;                        // NVS — the ESP32-S3 has NO EEPROM
 volatile uint32_t _dustPulseStart = 0;
 volatile uint32_t _dustPulseWidth = 0;
-volatile bool     _dustNewPulse   = false;
+volatile bool     _dustWaitingRise = false;
+volatile bool     _dustNewPulse    = false;
 
+// Verified on hardware & GP2Y1023AU0F Specs.pdf p.9: Vo idles HIGH (~4.8V) and pulses LOW (~0.2V) for duration W
+// on a 10 ms (10,000 µs) period. Lock falling edge once per >8500 µs period to reject breadboard edge ringing.
 void IRAM_ATTR dustPWM_ISR() {
     uint32_t now = micros();
-    if (digitalRead(DUST_PWM_PIN) == HIGH) {
-        _dustPulseStart = now;
-    } else if (_dustPulseStart > 0) {
-        _dustPulseWidth = now - _dustPulseStart;
-        _dustNewPulse = true;
+    uint32_t level = (REG_READ(GPIO_IN_REG) >> DUST_PWM_PIN) & 0x1U;
+    if (level == 0) {
+        if (now - _dustPulseStart > 8500) {
+            _dustPulseStart = now;
+            _dustWaitingRise = true;
+        }
+    } else if (_dustWaitingRise) {
+        uint32_t dt = now - _dustPulseStart;
+        if (dt >= DUST_PULSE_MIN_US && dt <= DUST_PULSE_MAX_US) {
+            _dustPulseWidth = dt;
+            _dustNewPulse = true;
+            _dustWaitingRise = false;
+        } else if (dt > DUST_PULSE_MAX_US) {
+            _dustWaitingRise = false;
+        }
     }
 }
 
@@ -292,9 +313,9 @@ void Task_ReadDustPWM(void* pvParam) {
     pinMode(DUST_PWM_PIN, INPUT);
     vTaskDelay(pdMS_TO_TICKS(1500));      // GP2Y1023 holds HIGH for 1 s at boot
 
-    // Baseline W₀ from NVS (set via `recalibrate_dust` in clean air)
+    // Baseline W₀ from NVS; 1400 µs is the datasheet 0 µg/m³ pulse width (see §4.1)
     nvs.begin("aqss", false);
-    float baselineW0 = nvs.getFloat("w0", 1350.0f);
+    float baselineW0 = nvs.getFloat("w0", 1400.0f);
     nvs.end();
 
     attachInterrupt(digitalPinToInterrupt(DUST_PWM_PIN), dustPWM_ISR, CHANGE);
@@ -485,11 +506,12 @@ volatile uint32_t lastCommandMs = 0;
 void fanApplyLevel(uint8_t level, bool on) {
     uint8_t duty = (on && level > 0) ? max((int)levelToDuty[level], (int)FAN_MIN_DUTY) : 0;
 
-    if (on && duty > 0) {
-        ledcWrite(FAN_PWM_CH, 255);          // kickstart pulse
+    if (duty > 0 && !fanWasRunning) {        // kickstart ONLY on the OFF → ON transition
+        ledcWrite(FAN_PWM_PIN, 255);         // Arduino ESP32 v3.x API takes the pin
         vTaskDelay(pdMS_TO_TICKS(FAN_KICKSTART_MS));
     }
-    ledcWrite(FAN_PWM_CH, duty);
+    ledcWrite(FAN_PWM_PIN, duty);
+    fanWasRunning = duty > 0;
 
     if (xSemaphoreTake(g_dataMutex, pdMS_TO_TICKS(10))) {
         g_sensorData.fan_level = level;
@@ -501,9 +523,8 @@ void fanApplyLevel(uint8_t level, bool on) {
 }
 
 void Task_FanControl(void* pvParam) {
-    ledcSetup(FAN_PWM_CH, FAN_PWM_FREQ, FAN_PWM_RES);
-    ledcAttachPin(FAN_PWM_PIN, FAN_PWM_CH);
-    ledcWrite(FAN_PWM_CH, 0);                // ensure OFF at boot
+    ledcAttach(FAN_PWM_PIN, FAN_PWM_FREQ, FAN_PWM_RES); // Arduino ESP32 v3.x API
+    ledcWrite(FAN_PWM_PIN, 0);               // ensure OFF at boot
 
     pinMode(6, INPUT_PULLUP);                // manual override button
     bool lastBtn = HIGH;
@@ -535,6 +556,13 @@ void Task_FanControl(void* pvParam) {
 ---
 
 ## 🌐 8. Network & MQTT (Wi-Fi + NTP + MQTT + Actuation)
+
+> **Provisioning (firmware v2.1):** credentials are **not compiled in**. On first boot (or with the button
+> held for 3 s) the node raises its own SoftAP `AQSS-xxxx` / `aqss1234`, serves a captive portal on
+> `http://192.168.4.1` asking for the Wi-Fi SSID/password and the broker host/port/user/password, stores
+> them in NVS and reboots into station mode. If the station cannot join within 25 s the portal reopens for
+> 5 minutes and the node retries — a router that is briefly down never strands the node in setup mode.
+> The snippet below therefore reads `WIFI_SSID` / `MQTT_SERVER` from `NetConfig` instead of `#define`s.
 
 ```cpp
 #include <WiFi.h>
@@ -809,3 +837,34 @@ embedded/
 ```
 
 > Removed from V1: `aqi_calculator.h/.cpp` — AQI is a backend-side NowCast metric (display only).
+
+---
+
+## 🧾 13. Implementation Notes — firmware v2.0.0 (`embedded/`)
+
+The firmware in [`embedded/`](../embedded/README.md) is the executable form of this plan. Where the plan and the
+datasheet/hardware disagreed, the firmware follows the datasheet:
+
+| # | Topic | Plan above | Firmware v2.0.0 | Why |
+| :---: | :--- | :--- | :--- | :--- |
+| 1 | PM2.5 baseline | W₀ default 1350 (V1: 1200) | **1400 µs** | Datasheet p.9: PWM encodes `(A/D amplified − A/D initial + A/D of 1 V)`; 1 V = 1400 µs, so 0 µg/m³ ≡ 1400 µs |
+| 2 | Fan kickstart | on every `fanApplyLevel()` call (once per second) | only on the OFF → ON transition | the plan's 1 s loop re-issued a 250 ms 100 % pulse every second |
+| 3 | MQTT client | PubSubClient | **ArduinoMqttClient** | PubSubClient can only publish QoS 0 and has no LWT API |
+| 4 | Dust failure | not covered | `dust_fault` after 3 s without a valid pulse | datasheet: `Vo` stuck HIGH = built-in failure signature |
+| 5 | Saturation | clamp at 750 | flag from ~6900 µs, value capped at 500 (contract max) | A/D saturates at 7 ms ⇒ ~400 µg/m³ is the linear top |
+| 6 | I²C scan | probe everything | **skips `0x62`** | a 0-byte probe resets the SCD40 5 s periodic counter |
+| 7 | Telemetry time | publish always | skip until NTP time > 1.7e9 | an epoch-0 record would be written to the wrong partition |
+| 8 | Warning lifetime | none | 30 min TTL on the OLED | a stale backend warning would stay on screen forever |
+
+Module map (every task shares `SensorData_t` / `FanCommand_t` behind `g_dataMutex`; snapshots via `dataSnapshot()`):
+
+```text
+embedded/
+├── platformio.ini          # espressif32@8.0.0, Arduino core 3.x, QIO flash + OPI PSRAM, 16 MB
+├── include/                # config, sensor_data, config_store, system_utils, per-task headers
+└── src/                    # main, sensor_data, config_store, dust, scd40, fan, oled, mqtt
+```
+
+Hardware verification (2026-10-30): I²C sees `0x3C`, SCD40 streams 5 s data (CO₂/T/RH), fan PWM starts at 0 %,
+WDT + Wi-Fi/MQTT state machine run. The dust channel reported `edges=0, pin LOW`; with the 1kΩ/2.2kΩ divider a
+high-Z `Vo` is pulled to 0 V, so that reading points at dust-sensor power (5 V rail / `Vcc`) rather than firmware.
