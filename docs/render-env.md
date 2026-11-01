@@ -69,5 +69,6 @@ Firmware pin đúng root này (`MQTT_ROOT_CA` trong `embedded/include/config.h`,
 ## 5. Bảo mật
 
 - Mật khẩu Neon/EMQX chỉ nằm trong Render env + NVS của node; **không** đưa vào git.
+- Node chỉ lưu **mật khẩu** broker; host/port/username là hằng số trong `embedded/include/config.h`.
 - REST hiện không auth: ai biết URL Render đều gửi lệnh được. Nếu cần chặn, thêm header `X-Device-Key`
   (so với `devices.device_id` trong DB) — chưa làm.

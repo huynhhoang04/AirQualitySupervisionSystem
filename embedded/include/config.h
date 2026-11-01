@@ -90,8 +90,10 @@
 #define TIME_VALID_EPOCH 1700000000UL
 
 // ─── MQTT ─────────────────────────────────────────────────────────────────────
+// The broker is a build-time target: one deployment, one account. Only the password is entered
+// on the node (setup portal), so nobody has to type a 40-character host on a phone keyboard.
 #ifndef MQTT_SERVER
-#define MQTT_SERVER ""
+#define MQTT_SERVER "vc1f2107.ala.asia-southeast1.emqxsl.com"
 #endif
 // 1 = MQTT over TLS. The cloud deployment (EMQX Serverless) only exposes 8883.
 #ifndef MQTT_USE_TLS
@@ -109,7 +111,7 @@
 #endif
 #endif
 #ifndef MQTT_USER
-#define MQTT_USER ""
+#define MQTT_USER "aqss-admin"
 #endif
 #ifndef MQTT_PASSWORD
 #define MQTT_PASSWORD ""

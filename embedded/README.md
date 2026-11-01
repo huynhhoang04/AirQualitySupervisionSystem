@@ -17,7 +17,9 @@ Firmware **không** chứa sẵn WiFi/broker. Lần đầu cấp nguồn (hoặc
 
 1. Node phát access point riêng: `AQSS-xxxx` / mật khẩu `aqss1234` (OLED hiện đúng thông tin này).
 2. Điện thoại/laptop nối vào AP đó, mở `http://192.168.4.1` (captive portal tự bật).
-3. Nhập **SSID + mật khẩu WiFi** và **host/port/user/pass broker**, bấm *Save*.
+3. Nhập **SSID + mật khẩu WiFi** và **mật khẩu broker**, bấm *Save*.
+   Host, port và username broker **gắn cứng lúc build** (`MQTT_SERVER` / `MQTT_PORT` / `MQTT_USER`
+   trong `include/config.h`) — form chỉ hỏi mật khẩu, tránh gõ sai host dài trên điện thoại.
 4. Node reboot, nối WiFi như một client rồi nối broker. Cấu hình lưu trong NVS.
 
 **Quy tắc:** không có WiFi = chế độ setup. Node thử join 15 s, thất bại thì mở AP + portal 2 phút,
@@ -37,7 +39,7 @@ Cắm USB rồi gõ trong serial monitor (không cần tháo nguồn):
 | `setup` | mở lại portal cấu hình (AP giữ nguyên tới khi lưu) |
 | `forget` | xoá WiFi + broker trong NVS rồi reboot |
 | `net` | in ra ssid / broker / user / độ dài mật khẩu đang lưu |
-| `cred <user> <pass>` | đổi nhanh user/pass broker (giữ host/port) rồi reboot |
+| `cred <password>` | đổi mật khẩu broker (giữ host/port/user) rồi reboot |
 | `reboot` | khởi động lại |
 
 Nút cứng: giữ nút GPIO 6 (nút override trên breadboard, **không** phải BOOT/RST) → bấm RST → giữ 3 s.
@@ -87,8 +89,7 @@ không có xung > 3 s ⇒ `dust_fault` (Vo kẹt HIGH = chế độ lỗi theo d
 | Key | Kiểu | Ý nghĩa |
 | :--- | :--- | :--- |
 | `wifi_ssid` / `wifi_pass` | string | WiFi do portal lưu |
-| `mqtt_host` / `mqtt_port` | string / uint | Broker do portal lưu |
-| `mqtt_user` / `mqtt_pass` | string | Credentials broker |
+| `mqtt_pass` | string | Mật khẩu broker (host/port/user là hằng số build-time) |
 | `space_id` | string | Space đang gán (mặc định `SP_201`) |
 | `w0` | float | Baseline xung không bụi (µs), mặc định 1400 |
 | `interval` | uint | Chu kỳ telemetry (ms), 1000–60000 |

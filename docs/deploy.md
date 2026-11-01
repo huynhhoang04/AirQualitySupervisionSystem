@@ -122,10 +122,12 @@ jdbc:postgresql://ep-xxx.ap-southeast-1.aws.neon.tech/aqss_db?sslmode=require
 
 ## 8. Firmware (node)
 
-1. Bật TLS trong `embedded/include/config.h`:
+1. Kiểm tra target broker trong `embedded/include/config.h` (hằng số build-time):
 
 ```c
-#define MQTT_USE_TLS 1        // 1 = cổng 8883 + ISRG Root X1; mặc định 0 cho broker LAN
+#define MQTT_SERVER "vc1f2107.ala.asia-southeast1.emqxsl.com"
+#define MQTT_USER   "aqss-admin"
+#define MQTT_USE_TLS 1        // 1 = cổng 8883, root CA chọn qua MQTT_ROOT_CA
 ```
 
 2. Nạp:
@@ -138,7 +140,7 @@ cd embedded
 3. Lần đầu cấp nguồn, node phát `AQSS-xxxx` / `aqss1234` (OLED hiện `AQSS SETUP`):
    - điện thoại nối AP đó → mở `http://192.168.4.1`
    - **SSID + mật khẩu WiFi**
-   - **host** `xxxxxxxx.s1.eu.hivemq.cloud`, **port 8883**, **user/pass** HiveMQ
+   - **mật khẩu broker** (host/port/user đã gắn cứng trong `embedded/include/config.h`)
    - *Save and reboot*
 4. Đổi mạng/broker sau này: giữ nút khi cấp nguồn 3 s để mở lại portal.
 

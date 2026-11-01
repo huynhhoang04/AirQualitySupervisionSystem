@@ -37,9 +37,6 @@ void configBegin() {
     // Network credentials: NVS first, compile-time defaults (include/secrets.h) as a fallback.
     strlcpy(s_net.wifi_ssid, s_prefs.getString("wifi_ssid", WIFI_SSID).c_str(), sizeof(s_net.wifi_ssid));
     strlcpy(s_net.wifi_pass, s_prefs.getString("wifi_pass", WIFI_PASSWORD).c_str(), sizeof(s_net.wifi_pass));
-    strlcpy(s_net.mqtt_host, s_prefs.getString("mqtt_host", MQTT_SERVER).c_str(), sizeof(s_net.mqtt_host));
-    s_net.mqtt_port = s_prefs.getUShort("mqtt_port", MQTT_PORT);
-    strlcpy(s_net.mqtt_user, s_prefs.getString("mqtt_user", MQTT_USER).c_str(), sizeof(s_net.mqtt_user));
     strlcpy(s_net.mqtt_pass, s_prefs.getString("mqtt_pass", MQTT_PASSWORD).c_str(), sizeof(s_net.mqtt_pass));
 
     s_prefs.end();
@@ -128,28 +125,21 @@ NetConfig netConfig() {
 
 bool netConfigured() {
     cfgLock();
-    const bool ok = s_net.wifi_ssid[0] != '\0' && s_net.mqtt_host[0] != '\0';
+    const bool ok = s_net.wifi_ssid[0] != '\0';
     cfgUnlock();
     return ok;
 }
 
-void netSet(const char* ssid, const char* wifiPass, const char* host, uint16_t port,
-            const char* user, const char* mqttPass) {
+void netSet(const char* ssid, const char* wifiPass, const char* mqttPass) {
     cfgLock();
     strlcpy(s_net.wifi_ssid, ssid ? ssid : "", sizeof(s_net.wifi_ssid));
     strlcpy(s_net.wifi_pass, wifiPass ? wifiPass : "", sizeof(s_net.wifi_pass));
-    strlcpy(s_net.mqtt_host, host ? host : "", sizeof(s_net.mqtt_host));
-    s_net.mqtt_port = port == 0 ? MQTT_PORT : port;
-    strlcpy(s_net.mqtt_user, user ? user : "", sizeof(s_net.mqtt_user));
     strlcpy(s_net.mqtt_pass, mqttPass ? mqttPass : "", sizeof(s_net.mqtt_pass));
     cfgUnlock();
 
     s_prefs.begin(kNamespace, false);
     s_prefs.putString("wifi_ssid", s_net.wifi_ssid);
     s_prefs.putString("wifi_pass", s_net.wifi_pass);
-    s_prefs.putString("mqtt_host", s_net.mqtt_host);
-    s_prefs.putUShort("mqtt_port", s_net.mqtt_port);
-    s_prefs.putString("mqtt_user", s_net.mqtt_user);
     s_prefs.putString("mqtt_pass", s_net.mqtt_pass);
     s_prefs.end();
 }
@@ -162,9 +152,6 @@ void netClear() {
     s_prefs.begin(kNamespace, false);
     s_prefs.remove("wifi_ssid");
     s_prefs.remove("wifi_pass");
-    s_prefs.remove("mqtt_host");
-    s_prefs.remove("mqtt_port");
-    s_prefs.remove("mqtt_user");
     s_prefs.remove("mqtt_pass");
     s_prefs.end();
 }

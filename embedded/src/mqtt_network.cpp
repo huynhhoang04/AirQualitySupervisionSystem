@@ -299,21 +299,20 @@ static void pollSerialCommands() {
             } else if (strcmp(line, "net") == 0) {
                 NetConfig net = netConfig();
                 AQSS_LOG("serial: ssid='%s' wifi_pass_len=%u", net.wifi_ssid, (unsigned)strlen(net.wifi_pass));
-                AQSS_LOG("serial: broker='%s:%u' user='%s' pass_len=%u", net.mqtt_host, net.mqtt_port,
-                         net.mqtt_user, (unsigned)strlen(net.mqtt_pass));
+                AQSS_LOG("serial: broker='%s:%d' user='%s' pass_len=%u", MQTT_SERVER, MQTT_PORT,
+                         MQTT_USER, (unsigned)strlen(net.mqtt_pass));
             } else if (strncmp(line, "cred ", 5) == 0) {
-                // cred <user> <password>  (keeps host/port, then reboots)
-                char* user = line + 5;
-                char* pass = strchr(user, ' ');
-                if (pass != nullptr) {
-                    *pass++ = '\0';
+                // cred <password>  (the host/port/user are fixed in config.h)
+                const char* pass = line + 5;
+                if (*pass != '\0') {
                     NetConfig net = netConfig();
-                    netSet(net.wifi_ssid, net.wifi_pass, net.mqtt_host, net.mqtt_port, user, pass);
-                    AQSS_LOG("serial: broker credentials updated for '%s', rebooting", user);
+                    netSet(net.wifi_ssid, net.wifi_pass, pass);
+                    AQSS_LOG("serial: broker password updated (%u chars), rebooting",
+                             (unsigned)strlen(pass));
                     vTaskDelay(pdMS_TO_TICKS(300));
                     ESP.restart();
                 } else {
-                    AQSS_LOG("serial: usage: cred <user> <password>");
+                    AQSS_LOG("serial: usage: cred <password>");
                 }
             } else if (strcmp(line, "reboot") == 0) {
                 ESP.restart();
@@ -347,7 +346,7 @@ static bool mqttConnect() {
              (unsigned long)(ESP.getEfuseMac() & 0xFFFFFFFFUL));
 
     s_mqtt.setId(clientId);
-    s_mqtt.setUsernamePassword(s_netCfg.mqtt_user, s_netCfg.mqtt_pass);
+    s_mqtt.setUsernamePassword(MQTT_USER, s_netCfg.mqtt_pass);
     s_mqtt.setKeepAliveInterval(MQTT_KEEPALIVE_S * 1000UL);
     s_mqtt.setConnectionTimeout(MQTT_SOCKET_TIMEOUT_S * 1000UL);
     s_mqtt.setTxPayloadSize(MQTT_BUFFER_SIZE);
@@ -364,9 +363,8 @@ static bool mqttConnect() {
     }
 
     // MqttClient::connect() returns 1 on success (0 on failure); the reason is in connectError().
-    if (s_mqtt.connect(s_netCfg.mqtt_host, s_netCfg.mqtt_port) != 1) {
-        AQSS_LOG("mqtt: connect to %s:%d failed (%d)", s_netCfg.mqtt_host, s_netCfg.mqtt_port,
-                 s_mqtt.connectError());
+    if (s_mqtt.connect(MQTT_SERVER, MQTT_PORT) != 1) {
+        AQSS_LOG("mqtt: connect to %s:%d failed (%d)", MQTT_SERVER, MQTT_PORT, s_mqtt.connectError());
         return false;
     }
 
@@ -374,7 +372,7 @@ static bool mqttConnect() {
         AQSS_LOG("mqtt: subscribe to %s failed", kTopicCommand);
     }
     publishStatus("ONLINE");
-    AQSS_LOG("mqtt: connected to %s:%d", s_netCfg.mqtt_host, s_netCfg.mqtt_port);
+    AQSS_LOG("mqtt: connected to %s:%d", MQTT_SERVER, MQTT_PORT);
     return true;
 }
 
@@ -390,9 +388,9 @@ void Task_MQTT_Network(void* pvParam) {
 
 #if MQTT_USE_TLS
     s_net.setCACert(MQTT_ROOT_CA);    // pinned root — rejects a MITM'd broker
-    AQSS_LOG("mqtt: TLS enabled, target mqtts://%s:%u", s_netCfg.mqtt_host, s_netCfg.mqtt_port);
+    AQSS_LOG("mqtt: TLS enabled, target mqtts://%s:%d", MQTT_SERVER, MQTT_PORT);
 #else
-    AQSS_LOG("mqtt: plaintext, target tcp://%s:%u", s_netCfg.mqtt_host, s_netCfg.mqtt_port);
+    AQSS_LOG("mqtt: plaintext, target tcp://%s:%d", MQTT_SERVER, MQTT_PORT);
 #endif
 
     // No link -> setup mode until the station joins (softAP stays up the whole time).

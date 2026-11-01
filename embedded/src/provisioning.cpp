@@ -53,13 +53,13 @@ static String pageHtml(bool saved) {
               "<label>Password</label><input name=wpass type=password value=\"");
     body += net.wifi_pass;
     body += F("\"><h2>MQTT broker</h2>"
-              "<label>Host (hostname or IP)</label><input name=host required value=\"");
-    body += net.mqtt_host;
-    body += F("\"><label>Port</label><input name=port type=number value=\"");
-    body += String(net.mqtt_port);
-    body += F("\"><label>Username</label><input name=muser value=\"");
-    body += net.mqtt_user;
-    body += F("\"><label>Password</label><input name=mpass type=password value=\"");
+              "<p style=\"font-size:12px;color:#94a3b8\">Fixed in this build: ");
+    body += MQTT_SERVER;
+    body += F(":");
+    body += String(MQTT_PORT);
+    body += F(" as ");
+    body += MQTT_USER;
+    body += F("</p><label>Broker password</label><input name=mpass type=password value=\"");
     body += net.mqtt_pass;
     body += F("\"><button>Save and reboot</button></form></main>");
     return body;
@@ -71,19 +71,16 @@ static void handleRoot() {
 
 static void handleSave() {
     String ssid = s_server.arg("ssid");
-    String host = s_server.arg("host");
+    String mpass = s_server.arg("mpass");
     ssid.trim();
-    host.trim();
-    if (ssid.isEmpty() || host.isEmpty()) {
+    if (ssid.isEmpty()) {
         s_server.send(400, "text/html", pageHtml(false));
         return;
     }
-    long port = s_server.arg("port").toInt();
-    netSet(ssid.c_str(), s_server.arg("wpass").c_str(), host.c_str(),
-           port > 0 && port < 65536 ? (uint16_t)port : MQTT_PORT,
-           s_server.arg("muser").c_str(), s_server.arg("mpass").c_str());
+    netSet(ssid.c_str(), s_server.arg("wpass").c_str(), mpass.c_str());
 
-    AQSS_LOG("provisioning: saved ssid='%s' broker=%s:%ld", ssid.c_str(), host.c_str(), port);
+    AQSS_LOG("provisioning: saved ssid='%s' broker_password_len=%u (target %s:%d)",
+             ssid.c_str(), (unsigned)mpass.length(), MQTT_SERVER, MQTT_PORT);
     s_server.send(200, "text/html", pageHtml(true));
     vTaskDelay(pdMS_TO_TICKS(1200));
     ESP.restart();

@@ -10,13 +10,11 @@ typedef struct {
     uint32_t filter_runtime_s;
 } RuntimeConfig;
 
-// Wi-Fi + broker credentials, provisioned on the node (SoftAP portal) and stored in NVS.
+// What the operator enters on the node: Wi-Fi credentials + the broker password.
+// The broker host/port/user are compile-time constants in config.h.
 typedef struct {
     char wifi_ssid[33];
     char wifi_pass[65];
-    char mqtt_host[64];
-    uint16_t mqtt_port;
-    char mqtt_user[33];
     char mqtt_pass[65];
 } NetConfig;
 
@@ -32,6 +30,5 @@ void configSetTelemetryInterval(uint32_t interval_ms);
 void configSetFilterRuntime(uint32_t seconds);
 void configPersistFilterRuntime();
 
-void netSet(const char* ssid, const char* wifiPass, const char* host, uint16_t port,
-            const char* user, const char* mqttPass);
+void netSet(const char* ssid, const char* wifiPass, const char* mqttPass);
 void netClear();
