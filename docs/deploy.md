@@ -27,7 +27,7 @@ Không mở port nào: node và backend đều **dial ra** broker.
 | Vấn đề | Chọn | Lý do |
 | :--- | :--- | :--- |
 | Broker | **EMQX Cloud Serverless** (`ssl://…emqxsl.com:8883`) | Render không mở TCP nên không thể host MQTT. Free quota 1 triệu session-minute/tháng; HiveMQ đã bỏ gói free (chỉ còn Starter $249) |
-| Backend | **Render** + `backend/render.yaml` (Docker, plan free) | Dockerfile đa tầng đã có, healthcheck `/actuator/health` |
+| Backend | **Render** + `render.yaml` ở root repo (Docker, plan free) | Render tự quét file này khi tạo Blueprint; Dockerfile nằm trong `backend/` |
 | Database | **Neon free**, endpoint **direct** (không `-pooler`) | Flyway + JPA ổn định; Hikari pool đặt 5 cho vừa hạn mức |
 | CD | Render `autoDeploy: false` + GitHub Actions gọi **deploy hook** sau khi CI xanh | Không bao giờ deploy một commit đỏ |
 | Layer 3 | **Không nằm trong repo**; giữ contract `io_contract.md` §8 | `AiClient` vẫn gọi 3 endpoint khi service có mặt |
@@ -92,7 +92,7 @@ jdbc:postgresql://ep-xxx.ap-southeast-1.aws.neon.tech/aqss_db?sslmode=require
 
 ## 7. Render + GitHub
 
-1. Render → **New + → Blueprint** → chọn repo → **Blueprint Path: `backend/render.yaml`**.
+1. Render → **New + → Blueprint** → chọn repo. Render tự đọc `render.yaml` ở root (không cần nhập path).
 2. Điền các biến `sync: false`:
 
 | Biến | Giá trị |

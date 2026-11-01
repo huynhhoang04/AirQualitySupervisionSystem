@@ -22,18 +22,21 @@ jobs:
       github.event.workflow_run.conclusion == 'success'
     steps:
       - name: Trigger the Render deploy
+        id: trigger
         env:
           HOOK: ${{ secrets.RENDER_DEPLOY_HOOK }}
         run: |
           if [ -z "$HOOK" ]; then
-            echo "::error::RENDER_DEPLOY_HOOK is not set (Render -> Settings -> Deploy Hook)"
-            exit 1
+            echo "::notice title=Render::RENDER_DEPLOY_HOOK is not set yet (Render -> Settings -> Deploy Hook). Skipping."
+            echo "skipped=true" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
           curl -fsS -X POST "$HOOK"
           echo "Deploy triggered."
 
       # Set the repo variable APP_URL once Render assigns the URL (defaults to the blueprint name).
       - name: Wait and check health
+        if: steps.trigger.outputs.skipped != 'true'
         env:
           APP_URL: ${{ vars.APP_URL || 'https://aqss-backend.onrender.com' }}
         run: |

@@ -1,7 +1,7 @@
 # Render — biến môi trường
 
 Giá trị dưới đây điền vào **Render → Settings → Environment** (hoặc lúc tạo Blueprint với
-`backend/render.yaml`). **Không commit mật khẩu vào repo** — file này chỉ ghi tên biến và nơi lấy giá trị.
+`render.yaml` ở root repo). **Không commit mật khẩu vào repo** — file này chỉ ghi tên biến và nơi lấy giá trị.
 
 ## 1. Bảng biến
 
