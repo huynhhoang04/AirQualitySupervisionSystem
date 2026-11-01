@@ -93,9 +93,13 @@
 #ifndef MQTT_SERVER
 #define MQTT_SERVER ""
 #endif
-// 1 = MQTT over TLS (internet brokers: HiveMQ Cloud, EMQX Cloud, mosquitto + Let's Encrypt).
+// 1 = MQTT over TLS. The cloud deployment (EMQX Serverless) only exposes 8883.
 #ifndef MQTT_USE_TLS
-#define MQTT_USE_TLS 0
+#define MQTT_USE_TLS 1
+#endif
+// Root CA used for TLS: kCaDigiCertG2 = EMQX Cloud, kCaIsrgX1 = Let's Encrypt brokers.
+#ifndef MQTT_ROOT_CA
+#define MQTT_ROOT_CA kCaDigiCertG2
 #endif
 #ifndef MQTT_PORT
 #if MQTT_USE_TLS

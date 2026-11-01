@@ -342,7 +342,7 @@ void Task_MQTT_Network(void* pvParam) {
     }
 
 #if MQTT_USE_TLS
-    s_net.setCACert(kTlsRootCaPem);   // ISRG Root X1 — rejects a MITM'd broker
+    s_net.setCACert(MQTT_ROOT_CA);    // pinned root — rejects a MITM'd broker
     AQSS_LOG("mqtt: TLS enabled, target mqtts://%s:%u", s_netCfg.mqtt_host, s_netCfg.mqtt_port);
 #else
     AQSS_LOG("mqtt: plaintext, target tcp://%s:%u", s_netCfg.mqtt_host, s_netCfg.mqtt_port);

@@ -26,7 +26,7 @@ Không mở port nào: node và backend đều **dial ra** broker.
 
 | Vấn đề | Chọn | Lý do |
 | :--- | :--- | :--- |
-| Broker | **HiveMQ Cloud free** (`ssl://…:8883`) | Render không mở TCP nên không thể host MQTT; free tier có TLS + auth |
+| Broker | **EMQX Cloud Serverless** (`ssl://…emqxsl.com:8883`) | Render không mở TCP nên không thể host MQTT. Free quota 1 triệu session-minute/tháng; HiveMQ đã bỏ gói free (chỉ còn Starter $249) |
 | Backend | **Render** + `backend/render.yaml` (Docker, plan free) | Dockerfile đa tầng đã có, healthcheck `/actuator/health` |
 | Database | **Neon free**, endpoint **direct** (không `-pooler`) | Flyway + JPA ổn định; Hikari pool đặt 5 cho vừa hạn mức |
 | CD | Render `autoDeploy: false` + GitHub Actions gọi **deploy hook** sau khi CI xanh | Không bao giờ deploy một commit đỏ |
@@ -39,7 +39,7 @@ Không mở port nào: node và backend đều **dial ra** broker.
 | :--- | :--- | :--- |
 | Backend | 125 file / 4.5 kLOC, auth JWT, STOMP, partition, MapStruct | **23 file / 1.3 kLOC**: 6 component, 5 bảng, 1 migration |
 | Router/DB | Postgres 16 + partition tháng + materialized view | Neon, bảng thường + index |
-| MQTT | Spring Integration + `tcp://` | 1 Paho client + `ssl://…:8883` |
+| MQTT | Spring Integration + `tcp://` | 1 Paho client + `ssl://…emqxsl.com:8883` (DigiCert G2 pinned trên node) |
 | Auth | JWT/RBAC/device API key | Không auth (xem rủi ro §3) |
 | Layer 3 | `dl_analyst/` (68 MB) trong repo | Xoá; chỉ còn contract |
 | Firmware | WiFi/broker hardcode trong `config.h` | SoftAP portal ghi vào NVS, TLS 8883 |
@@ -52,7 +52,7 @@ Không mở port nào: node và backend đều **dial ra** broker.
 | :--- | :--- | :--- |
 | **Render free ngủ sau 15 phút** | Vòng điều khiển 60 s không chạy → không ra lệnh quạt; node tự fail-safe OFF sau 10 phút | Giữ dashboard mở khi demo, hoặc pinger 5 phút gọi `/actuator/health`, hoặc nâng plan |
 | Neon free suspend | Request đầu chậm ~1 s | Chấp nhận (pool 5) |
-| HiveMQ free: 100 connection / 10 GB-tháng | Telemetry 5 s ≈ 3.5 MB/ngày → thoải mái | Không cần làm gì |
+| EMQX Serverless free: 1 triệu session-minute + 1 GB/tháng | 2 kết nối 24/7 ≈ 86k phút, telemetry ≈ 3.5 MB/ngày | Thoải mái; hết quota thì deployment tự suspend, không phát sinh tiền |
 | REST mở, không auth | Ai biết URL Render đều bật/tắt quạt được | Tuỳ chọn: thêm header `X-Device-Key` so với DB (không cần JWT) |
 | Đổi WiFi nhưng quên broker host | `mqtt: connect … failed (-2)` | Giữ nút 3 s khi cấp nguồn để mở lại portal |
 | Render build chậm ở lần deploy đầu | 5–8 phút (Maven tải dependency trong Docker) | Bình thường |
@@ -81,13 +81,14 @@ jdbc:postgresql://ep-xxx.ap-southeast-1.aws.neon.tech/aqss_db?sslmode=require
 4. Dùng endpoint **direct** (không có `-pooler`) — Flyway chạy ổn định hơn.
 5. Không tạo bảng tay: `V1__init.sql` tạo schema và seed `SP_201` + device `AQSS_ESP32S3_01`.
 
-## 6. HiveMQ Cloud (broker)
+## 6. EMQX Cloud Serverless (broker)
 
-1. Tạo **Free Serverless Cluster**, region gần.
-2. **Access Management** → tạo credential (user/pass), ghi lại.
-3. Host: `xxxxxxxx.s1.eu.hivemq.cloud`, cổng **8883** (TLS).
-4. Backend dùng `MQTT_BROKER_URL=ssl://xxxxxxxx.s1.eu.hivemq.cloud:8883`.
-5. Firmware nhập cùng host/user/pass qua portal (mục 8).
+1. https://cloud.emqx.com/console → **EMQX Broker → + New** → **Serverless** (Spend limit 0 = free quota only).
+2. Region **Asia-Pacific**, tên `aqss-broker` → **Deploy**, chờ **Running**.
+3. **Overview** → Connection Address: `vc1f2107.ala.asia-southeast1.emqxsl.com`, cổng **8883** (TLS). *(EMQX Serverless không mở 1883.)*
+4. **Access Control → Authentication** → Username/Password (built-in database) → user `aqss-admin`.
+5. Backend: `MQTT_BROKER_URL=ssl://vc1f2107.ala.asia-southeast1.emqxsl.com:8883`.
+6. Firmware: cùng host/port 8883/user/pass qua portal (mục 8). CA đã pin **DigiCert Global Root G2**.
 
 ## 7. Render + GitHub
 
@@ -98,7 +99,7 @@ jdbc:postgresql://ep-xxx.ap-southeast-1.aws.neon.tech/aqss_db?sslmode=require
 | :--- | :--- |
 | `DB_URL` | JDBC URL ở mục 5 |
 | `DB_USER` / `DB_PASS` | user/pass Neon |
-| `MQTT_BROKER_URL` | `ssl://<host>:8883` |
+| `MQTT_BROKER_URL` | `ssl://vc1f2107.ala.asia-southeast1.emqxsl.com:8883` |
 | `MQTT_USER` / `MQTT_PASS` | credential HiveMQ |
 | `AI_BASE_URL` | bỏ trống hoặc URL Layer 3 |
 | `CORS_ORIGIN` | origin dashboard (tạm `http://localhost:5173`) |
@@ -175,7 +176,7 @@ Tiêu chí hoàn thành:
 | :--- | :--- | :--- |
 | Backend `502` ngay sau deploy | Render free đang ngủ/vừa restart | đợi ~40 s rồi gọi lại health |
 | Log Render `MQTT unavailable` | sai URL/credential | `MQTT_BROKER_URL` phải là `ssl://…:8883` |
-| Node `mqtt: connect … failed (-2)` | sai host/port, chưa bật TLS, hoặc mạng chặn 8883 | provision lại; bật `MQTT_USE_TLS 1`, port 8883 |
-| Node `mqtt: connect … failed (-4)` | sai user/pass HiveMQ | sửa trong portal |
+| Node `mqtt: connect … failed (-2)` | sai host/port, chưa bật TLS, hoặc mạng chặn 8883 | provision lại; `MQTT_USE_TLS 1` (mặc định đã bật), port 8883 |
+| Node `mqtt: connect … failed (-4)` | sai user/pass EMQX | sửa trong portal |
 | Flyway `checksum mismatch` | DB còn schema cũ | xoá schema trên Neon rồi deploy lại |
 | Control loop không chạy | Render free ngủ | mở dashboard hoặc pinger 5 phút |
