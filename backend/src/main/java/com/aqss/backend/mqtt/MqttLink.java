@@ -37,7 +37,11 @@ public class MqttLink implements MqttCallbackExtended {
 
     @PostConstruct
     void start() {
-        connect();
+        // Never block bean creation on the broker: Render's health check would time out while a
+        // slow or unreachable broker is being dialled.
+        Thread thread = new Thread(this::connect, "mqtt-init");
+        thread.setDaemon(true);
+        thread.start();
     }
 
     private synchronized void connect() {
