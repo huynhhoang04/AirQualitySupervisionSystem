@@ -2,7 +2,10 @@ package com.aqss.backend;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.context.event.ApplicationEnvironmentPreparedEvent;
 import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
+import org.springframework.context.ApplicationListener;
+import org.springframework.core.env.Environment;
 import org.springframework.scheduling.annotation.EnableScheduling;
 
 /**
@@ -17,37 +20,59 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 public class BackendApplication {
 
     public static void main(String[] args) {
-        printDatasourceDiagnostics();
-        SpringApplication.run(BackendApplication.class, args);
+        SpringApplication application = new SpringApplication(BackendApplication.class);
+        application.addListeners(
+                (ApplicationListener<ApplicationEnvironmentPreparedEvent>) BackendApplication::printDatasourceDiagnostics);
+        application.run(args);
     }
 
     /**
-     * Prints the datasource target and the shape of the credentials before Spring starts — a
-     * failing Flyway migration aborts the context, so nothing that runs as a bean would be logged.
+     * Prints what the datasource will really use, before the context is created. A failing Flyway
+     * migration aborts startup, so a bean (ApplicationRunner) would never get to log anything.
      *
-     * <p>pgjdbc gives parameters in the JDBC URL precedence over the connection properties, so a
-     * DB_URL copied from a Neon snippet (it embeds {@code user=} / {@code password=}) silently
-     * overrides DB_USER/DB_PASS. That is the usual cause of "password authentication failed".
+     * <p>Two values matter and they are not always the same: the raw environment variable, and the
+     * resolved {@code spring.datasource.password} (placeholder defaults, env groups, or a URL that
+     * embeds credentials can all change it).
      */
-    private static void printDatasourceDiagnostics() {
-        String url = System.getenv("DB_URL");
-        if (url == null || url.isBlank()) {
-            url = "jdbc:postgresql://" + env("DB_HOST", "localhost") + ":" + env("DB_PORT", "5432")
-                    + "/" + env("DB_NAME", "aqss_db");
-        }
-        String user = env("DB_USER", "aqss_user");
-        String password = System.getenv("DB_PASS");
+    private static void printDatasourceDiagnostics(ApplicationEnvironmentPreparedEvent event) {
+        Environment environment = event.getEnvironment();
 
-        String masked = url.replaceAll("(?i)(password=)[^&]*", "$1***");
-        System.out.println("[DATASOURCE] url=" + masked);
-        System.out.println("[DATASOURCE] user=" + user + " password=" + describe(password));
-        if (url.toLowerCase().contains("user=") || url.toLowerCase().contains("password=")) {
-            System.out.println("[DATASOURCE] WARNING: DB_URL carries user=/password= — pgjdbc uses them "
-                    + "and ignores DB_USER/DB_PASS. Remove them (keep only ?sslmode=require).");
+        String envUrl = System.getenv("DB_URL");
+        String envUser = System.getenv("DB_USER");
+        String envPassword = System.getenv("DB_PASS");
+
+        String url = environment.getProperty("spring.datasource.url", "");
+        String user = environment.getProperty("spring.datasource.username", "");
+        String password = environment.getProperty("spring.datasource.password", "");
+
+        System.out.println("[DATASOURCE] env   url=" + mask(envUrl) + " user=" + envUser
+                + " password=" + describe(envPassword));
+        System.out.println("[DATASOURCE] final url=" + mask(url) + " user='" + user + "'"
+                + " password=" + describe(password));
+
+        if (envPassword != null && !envPassword.equals(password)) {
+            System.out.println("[DATASOURCE] WARNING: the resolved password differs from DB_PASS — "
+                    + "something overrides spring.datasource.password.");
         }
-        if (password == null || password.isEmpty()) {
-            System.out.println("[DATASOURCE] WARNING: DB_PASS is not set — the built-in default is used.");
+        boolean urlCarriesCredentials =
+                url.toLowerCase().contains("user=") || url.toLowerCase().contains("password=");
+        if (urlCarriesCredentials) {
+            System.out.println("[DATASOURCE] WARNING: DB_URL carries user=/password= — pgjdbc uses "
+                    + "those and ignores DB_USER/DB_PASS.");
         }
+        if (password.isEmpty()) {
+            System.out.println("[DATASOURCE] WARNING: the effective password is EMPTY.");
+        }
+        if ("true".equalsIgnoreCase(System.getenv("AQSS_DEBUG_CREDENTIALS"))) {
+            // Temporary switch: prints the exact string handed to the driver so it can be compared
+            // character by character with the database UI. Turn it off after diagnosing.
+            System.out.println("[DATASOURCE] DEBUG password='" + password + "' length="
+                    + password.length());
+        }
+    }
+
+    private static String mask(String url) {
+        return url == null ? "<unset>" : url.replaceAll("(?i)(password=)[^&]*", "$1***");
     }
 
     /** Length plus a few characters, enough to spot a truncated paste or a trailing newline. */
@@ -63,10 +88,5 @@ public class BackendApplication {
         return value.length() + " chars (" + head + "…" + tail + ")"
                 + (value.endsWith("\n") || value.endsWith("\r") ? " [TRAILING NEWLINE!]" : "")
                 + (value.startsWith(" ") || value.endsWith(" ") ? " [SPACE!]" : "");
-    }
-
-    private static String env(String key, String fallback) {
-        String value = System.getenv(key);
-        return value == null || value.isBlank() ? fallback : value;
     }
 }
