@@ -17,3 +17,6 @@ embedded/include/secrets.h
 # Local scratch (OCR data, broker experiments)
 eng.traineddata
 broker_min.yaml
+
+# Agent tooling state
+.commandcode/
