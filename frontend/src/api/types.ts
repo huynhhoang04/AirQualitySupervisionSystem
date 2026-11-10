@@ -93,16 +93,22 @@ export interface PairRequest {
   occupancy_hours?: number;
 }
 
-/** The room plus the reasoning behind its suggested threshold. */
+/**
+ * The reason behind a suggested threshold.
+ *
+ * Flyway-Maven's Jackson is configured with SNAKE_CASE platform-wide, so the wire names are
+ * snake_case like every other response. Spelling them camelCase here produced `undefined`, and
+ * `undefined.toFixed()` throws inside render — which unmounts the whole tree and shows a blank page.
+ */
 export interface ComputedThreshold {
-  thresholdPm25: number;
-  dailyDoseTarget: number;
-  ventilationFactor: number;
-  volumeFactor: number;
-  co2Factor: number;
-  occupancyHours: number;
-  volumeM3: number | null;
-  co2Ppm: number | null;
+  threshold_pm25: number;
+  daily_dose_target: number;
+  ventilation_factor: number;
+  volume_factor: number;
+  co2_factor: number;
+  occupancy_hours: number;
+  volume_m3: number | null;
+  co2_ppm: number | null;
 }
 
 export interface ThresholdPreview {

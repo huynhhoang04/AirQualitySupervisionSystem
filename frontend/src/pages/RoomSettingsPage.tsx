@@ -76,7 +76,7 @@ function ThresholdSection({ space }: { space?: Space }) {
   const preview = useThresholdPreview(space?.code, mode === "auto");
 
   const effective = mode === "auto"
-    ? (preview.data?.computed.thresholdPm25 ?? current)
+    ? (preview.data?.computed.threshold_pm25 ?? current)
     : (draft ?? selected.threshold);
   const behaviour = fanBehaviour({ ...(space as Space), threshold_pm25: effective });
   const changed = Math.abs(effective - current) > 0.01;
@@ -143,48 +143,46 @@ function ThresholdSection({ space }: { space?: Space }) {
             <div className="mt-3 rounded-xl border border-line/70 px-3 py-4 text-sm text-muted">
               Đang tính…
             </div>
-          ) : preview.data ? (
+          ) : preview.data && preview.data.space.volume_m3 != null ? (
             <div className="mt-3 rounded-xl border border-line/70 divide-y divide-line/50">
               <div className="flex items-baseline justify-between px-3 py-2.5">
                 <span className="text-sm text-slate-200">Ngưỡng đề xuất</span>
                 <span className="font-mono text-lg text-white">
-                  {preview.data.computed.thresholdPm25.toFixed(1)}
+                  {num(preview.data.computed.threshold_pm25, 1)}
                   <span className="ml-1 font-sans text-[11px] text-muted">µg/m³</span>
                 </span>
               </div>
               <Factor
                 label="Mục tiêu liều/ngày"
-                value={`${preview.data.computed.dailyDoseTarget.toFixed(1)} µg/m³`}
-                note={`WHO 24h = 15, chia cho ${preview.data.computed.occupancyHours} giờ có người`}
+                value={`${num(preview.data.computed.daily_dose_target, 1)} µg/m³`}
+                note={`WHO 24h = 15, chia cho ${preview.data.computed.occupancy_hours} giờ có người`}
               />
               <Factor
                 label="Hệ số thể tích"
-                value={`× ${preview.data.computed.volumeFactor.toFixed(2)}`}
+                value={`× ${num(preview.data.computed.volume_factor, 2)}`}
                 note={
-                  preview.data.computed.volumeM3 == null
+                  preview.data.computed.volume_m3 == null
                     ? "chưa nhập thể tích"
-                    : `${preview.data.computed.volumeM3} m³ so với chuẩn 20 m³`
+                    : `${preview.data.computed.volume_m3} m³ so với chuẩn 20 m³`
                 }
               />
               <Factor
                 label="Hệ số thông gió"
-                value={`× ${preview.data.computed.ventilationFactor.toFixed(2)}`}
+                value={`× ${num(preview.data.computed.ventilation_factor, 2)}`}
                 note={space?.ventilation_estimate === "low" ? "phòng kín" : space?.ventilation_estimate === "high" ? "thoáng" : "trung bình"}
               />
               <Factor
                 label="Hệ số CO₂"
-                value={`× ${preview.data.computed.co2Factor.toFixed(2)}`}
+                value={`× ${num(preview.data.computed.co2_factor, 2)}`}
                 note={
-                  preview.data.computed.co2Ppm == null
+                  preview.data.computed.co2_ppm == null
                     ? "chưa có số đo CO₂"
-                    : `${Math.round(preview.data.computed.co2Ppm)} ppm hiện tại`
+                    : `${Math.round(preview.data.computed.co2_ppm)} ppm hiện tại`
                 }
               />
             </div>
           ) : (
-            <p className="mt-3 rounded-xl border border-bad/30 bg-bad/10 px-3 py-2 text-[12px] text-bad">
-              Không tính được. Kiểm tra lại hồ sơ phòng.
-            </p>
+            <RawPanel space={space} />
           )}
         </>
       )}
@@ -233,6 +231,23 @@ function Factor({ label, value, note }: { label: string; value: string; note: st
         <div className="text-[11px] leading-snug text-muted">{note}</div>
       </div>
       <span className="shrink-0 font-mono text-sm text-slate-200">{value}</span>
+    </div>
+  );
+}
+
+/** Formats a number that may be missing, so one absent field cannot take the page down. */
+function num(value: number | null | undefined, digits: number): string {
+  return typeof value === "number" && Number.isFinite(value) ? value.toFixed(digits) : "—";
+}
+
+function RawPanel({ space }: { space?: Space }) {
+  return (
+    <div className="mt-3 rounded-xl border border-line/70 px-3 py-2.5 text-[11px] leading-relaxed text-muted">
+      Phòng này chưa đủ thông số để tính tự động. Cập nhật thể tích, công năng và thông gió trước.
+      <div className="mt-1.5 font-mono text-[10px]">
+        thể tích: {space?.volume_m3 ?? "—"} · công năng: {space?.purpose ?? "—"} · thông gió:{" "}
+        {space?.ventilation_estimate ?? "—"}
+      </div>
     </div>
   );
 }
