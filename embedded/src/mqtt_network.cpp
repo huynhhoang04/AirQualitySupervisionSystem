@@ -294,6 +294,14 @@ static void handleCommand(const char* payload, size_t length) {
         configSetTelemetryInterval(interval);
         AQSS_LOG("cmd: set_interval %lums", (unsigned long)configSnapshot().telemetry_interval_ms);
 
+    } else if (strcmp(command, "reset_filter") == 0) {
+        configSetFilterRuntime(0);
+        configPersistFilterRuntime();
+        dataLock();
+        g_sensorData.filter_runtime_s = 0;
+        dataUnlock();
+        AQSS_LOG("cmd: reset_filter — fan hours counter cleared");
+
     } else if (strcmp(command, "force_ntp_sync") == 0) {
         s_forceNtpSync = true;
         AQSS_LOG("cmd: force_ntp_sync");

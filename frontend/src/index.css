@@ -14,8 +14,6 @@ body {
   font-feature-settings: "tnum" 1;
 }
 
-/* A visible, high-contrast focus ring on every interactive element: the dashboard is keyboard
-   reachable, and removing the ring is the most common accessibility regression. */
 :focus-visible {
   @apply outline-none ring-2 ring-info ring-offset-2 ring-offset-canvas;
 }
@@ -25,27 +23,41 @@ body {
   *::before,
   *::after {
     animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
 }
 
 @layer components {
   .card {
-    @apply rounded-xl border border-line/70 bg-surface;
+    @apply rounded-2xl border border-line/60 bg-surface;
   }
 
   .label {
     @apply text-[11px] font-medium uppercase tracking-[0.14em] text-muted;
   }
 
+  /* The status word: large, but not a hero. It answers the question, then gets out of the way. */
+  .status-word {
+    @apply text-[26px] font-semibold leading-none;
+    letter-spacing: 0;
+  }
+
+  .reading {
+    @apply font-mono text-[40px] font-semibold leading-none tabular-nums;
+    letter-spacing: 0;
+  }
+
+  .reading-unit {
+    @apply ml-1 font-sans text-sm font-normal text-muted;
+  }
+
   .btn {
-    @apply inline-flex items-center justify-center gap-2 rounded-lg border px-3 py-2 text-sm
-      transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-50;
+    @apply inline-flex items-center justify-center gap-2 rounded-xl border px-4 py-3 text-sm
+      transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-40;
   }
 
   .btn-primary {
-    @apply btn border-good/40 bg-good/15 text-good hover:bg-good/25;
+    @apply btn border-white bg-white font-medium text-canvas hover:bg-slate-200;
   }
 
   .btn-ghost {
@@ -57,7 +69,7 @@ body {
   }
 
   .field {
-    @apply w-full rounded-lg border border-line bg-canvas px-3 py-2 text-sm text-white
+    @apply w-full rounded-xl border border-line bg-canvas px-4 py-3 text-white
       placeholder:text-slate-500 focus:border-info;
   }
 

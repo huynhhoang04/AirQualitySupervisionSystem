@@ -6,205 +6,157 @@ import { formatDateTime } from "../lib/format";
 interface Props {
   history: Telemetry[];
   threshold: number;
-  /** A reading whose sensor was at its rail is a floor, not a measurement. */
-  hasSaturation?: boolean;
 }
 
-const PAD = { top: 12, right: 8, bottom: 22, left: 34 };
-const HEIGHT = 240;
+const PAD = { top: 10, right: 6, bottom: 18, left: 28 };
+const HEIGHT = 132;
+const WIDTH = 640;
 
 /**
- * Hand-drawn SVG rather than a chart library: the series is thinned to ~800 points by the backend,
- * a fixed viewBox keeps the layout stable while data refetches, and the hover readout is a plain
- * absolutely-positioned div.
+ * Drawn for trend, not for forensics. Samples are median-bucketed into five-minute cells so a
+ * single dust mote cannot become a spike, and any bucket that still sits far above its neighbours
+ * is drawn as a separate hairline instead of joining the line.
  */
-export function HistoryChart({ history, threshold, hasSaturation }: Props) {
+export function HistoryChart({ history, threshold }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
-  const [hover, setHover] = useState<{ x: number; point: Telemetry } | null>(null);
+  const [hover, setHover] = useState<{ x: number; label: string; value: number } | null>(null);
 
-  const points = useMemo(
-    () =>
-      history
-        .filter((row) => row.pm25 != null)
-        .map((row) => ({ t: Date.parse(row.recorded_at), v: row.pm25 as number, row })),
-    [history],
-  );
-
-  const { width, minT, maxT, maxV, niceStep, y } = useMemo(() => {
-    const w = 720;
-    const now = Date.now();
-    const minTime = points.length ? Math.min(...points.map((p) => p.t)) : now - 3600_000;
-    const maxTime = points.length ? Math.max(...points.map((p) => p.t)) : now;
-    // The axis tops out above both the data and the threshold so the line never touches the frame.
-    const top = Math.max(threshold * 1.4, ...points.map((p) => p.v), 10) * 1.1;
-    // Grid labels land on round numbers: a step of 10/15/20/25… no wider than five lines.
-    const rawStep = top / 4;
-    const magnitude = Math.pow(10, Math.floor(Math.log10(rawStep)));
-    const step = [1, 2, 2.5, 5, 10].map((m) => m * magnitude).find((candidate) => candidate >= rawStep) ?? rawStep;
-    const axisTop = Math.ceil(top / step) * step;
-    return {
-      width: w,
-      minT: minTime,
-      maxT: Math.max(maxTime, minTime + 60_000),
-      maxV: axisTop,
-      niceStep: step,
-      y: (v: number) => PAD.top + (1 - v / axisTop) * (HEIGHT - PAD.top - PAD.bottom),
-    };
-  }, [points, threshold]);
-
-  const gridValues = useMemo(() => {
-    const values: number[] = [];
-    for (let v = 0; v <= maxV + 0.001; v += niceStep) {
-      values.push(v);
+  const { line, outliers, thresholdY, gridY, minT, maxT, x, y, count } = useMemo(() => {
+    const rows = history.filter((row) => row.pm25 != null);
+    const buckets = new Map<number, number[]>();
+    for (const row of rows) {
+      const t = Date.parse(row.recorded_at);
+      const cell = Math.floor(t / 300_000) * 300_000;
+      const list = buckets.get(cell) ?? [];
+      list.push(row.pm25 as number);
+      buckets.set(cell, list);
     }
-    return values;
-  }, [maxV, niceStep]);
+    const points = [...buckets.entries()]
+      .sort((a, b) => a[0] - b[0])
+      .map(([t, values]) => {
+        const sorted = [...values].sort((a, b) => a - b);
+        return { t, v: sorted[Math.floor(sorted.length / 2)] };
+      });
 
-  const x = (t: number) =>
-    PAD.left + ((t - minT) / (maxT - minT)) * (width - PAD.left - PAD.right);
+    const now = Date.now();
+    const start = points.length ? Math.min(points[0].t, now - 3_600_000) : now - 3_600_000;
+    const end = points.length ? Math.max(points[points.length - 1].t, start + 60_000) : now;
+    const top = Math.max(threshold * 1.6, ...points.map((p) => p.v), 20) * 1.08;
+    const sx = (t: number) => PAD.left + ((t - start) / (end - start)) * (WIDTH - PAD.left - PAD.right);
+    const sy = (v: number) => PAD.top + (1 - v / top) * (HEIGHT - PAD.top - PAD.bottom);
 
-  const path = points.map((p, i) => `${i === 0 ? "M" : "L"}${x(p.t).toFixed(1)},${y(p.v).toFixed(1)}`).join(" ");
-  const thresholdY = y(threshold);
-  const avg = points.length
-    ? points.reduce((sum, p) => sum + p.v, 0) / points.length
-    : null;
+    // A point is an outlier when it is far above both neighbours — the shape of a one-sample event.
+    const spikes: { t: number; v: number }[] = [];
+    for (let i = 1; i < points.length - 1; i++) {
+      const [prev, cur, next] = [points[i - 1], points[i], points[i + 1]];
+      if (cur.v > prev.v + threshold * 0.8 && cur.v > next.v + threshold * 0.8) {
+        spikes.push(cur);
+      }
+    }
+    const spikeTimes = new Set(spikes.map((s) => s.t));
+    const smoothed = points.filter((p) => !spikeTimes.has(p.t));
+
+    return {
+      line: smoothed.map((p, i) => `${i === 0 ? "M" : "L"}${sx(p.t).toFixed(1)},${sy(p.v).toFixed(1)}`).join(" "),
+      outliers: spikes.map((s) => ({ x: sx(s.t), y: sy(s.v), value: s.v, t: s.t })),
+      thresholdY: sy(threshold),
+      gridY: [0, threshold, top].map((v) => ({ y: sy(v), v })),
+      minT: start,
+      maxT: end,
+      x: sx,
+      y: sy,
+      count: points.length,
+    };
+  }, [history, threshold]);
 
   const onMove = (event: React.PointerEvent<HTMLDivElement>) => {
     const box = wrapRef.current?.getBoundingClientRect();
-    if (!box || points.length === 0) return;
+    if (!box) return;
     const ratio = Math.min(1, Math.max(0, (event.clientX - box.left) / box.width));
-    const target = minT + ratio * (maxT - minT);
-    // Nearest sample, not nearest pixel: the series is sparse relative to its time axis.
-    let best = points[0];
-    for (const p of points) {
-      if (Math.abs(p.t - target) < Math.abs(best.t - target)) best = p;
-    }
-    setHover({ x: ratio * 100, point: best.row });
+    const t = minT + ratio * (maxT - minT);
+    const nearest = history
+      .filter((row) => row.pm25 != null)
+      .reduce<{ t: number; v: number; at: string } | null>((best, row) => {
+        const rt = Date.parse(row.recorded_at);
+        if (!best || Math.abs(rt - t) < Math.abs(best.t - t)) {
+          return { t: rt, v: row.pm25 as number, at: row.recorded_at };
+        }
+        return best;
+      }, null);
+    if (nearest) setHover({ x: ratio * 100, label: formatDateTime(nearest.at), value: nearest.v });
   };
 
-  if (points.length === 0) {
+  if (count === 0) {
     return (
-      <div className="flex h-[240px] items-center justify-center rounded-lg border border-dashed border-line text-sm text-muted">
-        Chưa có dữ liệu trong 24 giờ qua.
+      <div className="flex h-[132px] items-center justify-center rounded-xl border border-dashed border-line text-sm text-muted">
+        Chưa có dữ liệu trong 24 giờ qua
       </div>
     );
   }
 
+  const hourTicks = [0, 0.5, 1].map((f) => ({ x: x(minT + f * (maxT - minT)), t: minT + f * (maxT - minT) }));
+
   return (
     <div>
-      <div
-        ref={wrapRef}
-        className="relative -mx-1 overflow-x-auto px-1 [scrollbar-width:thin]"
-        onPointerMove={onMove}
-        onPointerLeave={() => setHover(null)}
-      >
-        {/* Below ~600 px the 720-unit viewBox would shrink its own labels into noise, so the chart
-            keeps a readable minimum width and the wrapper scrolls instead. */}
-        <div className="min-w-[600px]">
+      <div ref={wrapRef} className="relative" onPointerMove={onMove} onPointerLeave={() => setHover(null)}>
         <svg
-          viewBox={`0 0 ${width} ${HEIGHT}`}
-          className="h-[240px] w-full"
+          viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
+          className="h-[132px] w-full"
           role="img"
-          aria-label={`Biểu đồ PM2.5 24 giờ, ${points.length} điểm, ngưỡng ${threshold} µg/m³`}
+          aria-label={`PM2.5 24 giờ, ${count} điểm, ngưỡng ${threshold} µg/m³`}
         >
-          {/* Horizontal grid + value labels */}
-          {gridValues.map((v) => (
-            <g key={v}>
-              <line
-                x1={PAD.left}
-                x2={width - PAD.right}
-                y1={y(v)}
-                y2={y(v)}
-                stroke="currentColor"
-                className="text-line/50"
-                strokeDasharray="3 4"
-              />
-              <text x={PAD.left - 6} y={y(v) + 3} textAnchor="end" className="fill-muted" fontSize="9">
-                {Math.round(v)}
+          {gridY.map((g, i) => (
+            <g key={i}>
+              <line x1={PAD.left} x2={WIDTH - PAD.right} y1={g.y} y2={g.y} stroke="currentColor"
+                className="text-line/50" strokeDasharray="2 4" />
+              <text x={PAD.left - 5} y={g.y + 3} textAnchor="end" className="fill-muted" fontSize="8">
+                {Math.round(g.v)}
               </text>
             </g>
           ))}
 
-          {/* Threshold: solid dashed line plus a direct label, never colour alone */}
-          <line
-            x1={PAD.left}
-            x2={width - PAD.right}
-            y1={thresholdY}
-            y2={thresholdY}
-            stroke="currentColor"
-            className="text-bad"
-            strokeDasharray="6 4"
-            strokeWidth="1.5"
-          />
-          <text
-            x={PAD.left + 4}
-            y={thresholdY - 8}
-            textAnchor="start"
-            className="fill-bad"
-            fontSize="9"
-          >
-            ngưỡng {Math.round(threshold)}
+          <line x1={PAD.left} x2={WIDTH - PAD.right} y1={thresholdY} y2={thresholdY}
+            stroke="currentColor" className="text-bad" strokeWidth="1.2" strokeDasharray="5 3" />
+          <text x={PAD.left + 3} y={thresholdY - 4} className="fill-bad" fontSize="8">
+            ngưỡng {threshold.toFixed(0)}
           </text>
 
-          <path d={path} fill="none" stroke="currentColor" className="text-info" strokeWidth="1.8" />
+          <path d={line} fill="none" stroke="currentColor" className="text-info" strokeWidth="1.6"
+            strokeLinejoin="round" />
 
-          {/* Time axis labels: start, middle, end */}
-          {[0, 0.5, 1].map((f) => (
-            <text
-              key={f}
-              x={PAD.left + f * (width - PAD.left - PAD.right)}
-              y={HEIGHT - 6}
-              textAnchor={f === 0 ? "start" : f === 1 ? "middle" : "end"}
-              className="fill-muted"
-              fontSize="9"
-            >
-              {new Date(minT + f * (maxT - minT)).toLocaleTimeString("vi-VN", {
-                hour: "2-digit",
-                minute: "2-digit",
-              })}
+          {outliers.map((o) => (
+            <line key={o.t} x1={o.x} x2={o.x} y1={y(threshold)} y2={o.y} stroke="currentColor"
+              className="text-warn/70" strokeWidth="1" strokeDasharray="2 2" />
+          ))}
+
+          {hourTicks.map((tick) => (
+            <text key={tick.t} x={tick.x} y={HEIGHT - 4}
+              textAnchor={tick.x < PAD.left + 20 ? "start" : tick.x > WIDTH - PAD.right - 20 ? "end" : "middle"}
+              className="fill-muted" fontSize="8">
+              {new Date(tick.t).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })}
             </text>
           ))}
 
           {hover && (
-            <line
-              x1={(hover.x / 100) * width}
-              x2={(hover.x / 100) * width}
-              y1={PAD.top}
-              y2={HEIGHT - PAD.bottom}
-              stroke="currentColor"
-              className="text-slate-500"
-              strokeDasharray="2 3"
-            />
+            <line x1={(hover.x / 100) * WIDTH} x2={(hover.x / 100) * WIDTH} y1={PAD.top}
+              y2={HEIGHT - PAD.bottom} stroke="currentColor" className="text-slate-500" strokeDasharray="2 3" />
           )}
         </svg>
 
         {hover && (
           <div
-            className="pointer-events-none absolute top-2 z-10 -translate-x-1/2 rounded-lg border border-line bg-surface/95 px-2.5 py-1.5 text-[11px] shadow-lg"
+            className="pointer-events-none absolute top-0 z-10 -translate-x-1/2 rounded-lg border border-line bg-surface/95 px-2 py-1 text-[10px] shadow-lg"
             style={{ left: `${hover.x}%` }}
           >
-            <div className="font-mono text-sm text-white">{hover.point.pm25?.toFixed(1)} µg/m³</div>
-            <div className="text-muted">{formatDateTime(hover.point.recorded_at)}</div>
+            <div className="font-mono text-xs text-white">{hover.value.toFixed(1)} µg/m³</div>
+            <div className="text-muted">{hover.label}</div>
           </div>
         )}
-        </div>
       </div>
 
-      <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-muted">
-        <span>{points.length} điểm</span>
-        {avg != null && <span>trung bình {avg.toFixed(1)} µg/m³</span>}
-        <span className="inline-flex items-center gap-1">
-          <span className="inline-block h-0.5 w-4 bg-info" aria-hidden="true" /> PM2.5
-        </span>
-        <span className="inline-flex items-center gap-1">
-          <span className="inline-block h-0.5 w-4 border-t border-dashed border-bad" aria-hidden="true" />
-          ngưỡng
-        </span>
-        {hasSaturation && (
-          <span className="text-warn">
-            cảm biến bụi đã bão hoà — giá trị cao nhất là sàn, không phải số đo
-          </span>
-        )}
+      <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-muted">
+        <span>24 giờ · gộp 5 phút</span>
+        {outliers.length > 0 && <span className="text-warn">{outliers.length} điểm bất thường</span>}
       </div>
     </div>
   );

@@ -1,6 +1,18 @@
 export type FanState = "ON" | "OFF";
 export type FanMode = "AUTO" | "MANUAL";
 
+/** Why the loop last acted — the server's own vocabulary (io_contract §10). */
+export type DecisionReason =
+  | "threshold_breach"
+  | "forecast_breach"
+  | "hysteresis_off"
+  | "max_on"
+  | "manual"
+  | null;
+
+/** What the room screen shows at the top: one word, not a number. */
+export type AirStatus = "good" | "filtering" | "watch";
+
 export interface Device {
   device_id: string;
   name: string | null;
@@ -17,6 +29,11 @@ export interface Device {
   dust_baseline_us: number;
   last_seen_at: string | null;
   created_at: string;
+  /** Fan hours counted by the node. */
+  filter_runtime_s: number;
+  filter_replaced_at: string | null;
+  last_reason: DecisionReason;
+  last_decision_at: string | null;
 }
 
 export interface Telemetry {

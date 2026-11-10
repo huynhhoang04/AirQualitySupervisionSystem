@@ -62,6 +62,12 @@ public class DeviceController {
         return devices.unpair(deviceId);
     }
 
+    /** "Đã thay lõi lọc" — resets the hours counter and tells the node. */
+    @PostMapping("/{deviceId}/filter")
+    public Device resetFilter(@PathVariable String deviceId) {
+        return devices.resetFilter(deviceId);
+    }
+
     /** Manual control — {@code {"command":"set_actuator","params":{"state":"ON","level":2,"mode":"MANUAL"}}}. */
     @PostMapping("/{deviceId}/command")
     public Device command(@PathVariable String deviceId, @RequestBody DeviceService.CommandRequest request) {

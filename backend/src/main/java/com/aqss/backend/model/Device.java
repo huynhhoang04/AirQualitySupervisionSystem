@@ -68,6 +68,21 @@ public class Device {
     @Column(name = "last_seen_at")
     private Instant lastSeenAt;
 
+    /** Fan hours the node has counted. Published on every actuator-state message. */
+    @Column(name = "filter_runtime_s", nullable = false)
+    private Integer filterRuntimeS;
+
+    /** When the operator last said "new filter fitted"; the runtime counts from here. */
+    @Column(name = "filter_replaced_at")
+    private Instant filterReplacedAt;
+
+    /** Why the loop last acted: threshold_breach, forecast_breach, hysteresis_off, max_on, manual. */
+    @Column(name = "last_reason", length = 30)
+    private String lastReason;
+
+    @Column(name = "last_decision_at")
+    private Instant lastDecisionAt;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 }

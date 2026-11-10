@@ -62,6 +62,7 @@ public class DeviceService {
                     .fanMode("AUTO")
                     .telemetryIntervalMs(5000)
                     .dustBaselineUs(1400f)
+                    .filterRuntimeS(0)
                     .offSince(Instant.now())
                     .createdAt(Instant.now())
                     .build();
@@ -245,11 +246,39 @@ public class DeviceService {
         if (!on && wasOn) {
             device.setOffSince(now);
         }
+        if ("USER".equals(actor)) {
+            // A hand on the control is a decision too, and the room screen must say so.
+            device.setLastReason("manual");
+            device.setLastDecisionAt(now);
+        }
         devices.save(device);
         audit.log(actor, on ? "ACTIVATE" : "DEACTIVATE", deviceId,
                 Map.of("level", on ? clamped : 0, "mode", manual ? "MANUAL" : "AUTO",
                         "published", published));
         return published;
+    }
+
+    /** Records why the loop acted, so the room screen can say it in one sentence. */
+    @Transactional
+    public void recordDecision(Device device, String reason) {
+        device.setLastReason(reason);
+        device.setLastDecisionAt(Instant.now());
+        devices.save(device);
+    }
+
+    /** "Đã thay lõi" — the node's own counter keeps running, so the baseline is what moves. */
+    @Transactional
+    public Device resetFilter(String deviceId) {
+        Device device = require(deviceId);
+        device.setFilterRuntimeS(0);
+        device.setFilterReplacedAt(Instant.now());
+        devices.save(device);
+        audit.log("USER", "FILTER", deviceId, Map.of(
+                "filter_runtime_s", 0,
+                "replaced_at", String.valueOf(device.getFilterReplacedAt())));
+        // Tell the node too: its counter is the one that persists across a power cut.
+        notifyNode(deviceId, "reset_filter", Map.of());
+        return device;
     }
 
     /**
@@ -319,6 +348,10 @@ public class DeviceService {
         device.setFanLevel(event.level() == null ? (short) 0 : event.level().shortValue());
         if (event.mode() != null) {
             device.setFanMode(event.mode());
+        }
+        // The node counts fan hours itself; this was being received and discarded.
+        if (event.filterRuntimeH() != null) {
+            device.setFilterRuntimeS(Math.round(event.filterRuntimeH() * 3600f));
         }
         if ("ON".equals(device.getFanState()) && !"ON".equals(previousState)) {
             device.setOnSince(now);

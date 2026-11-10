@@ -72,8 +72,7 @@ public class ControlLoop {
                 case ACTIVATE -> activate(device, space, pm25, forecastBreach ? "forecast_breach" : "threshold_breach");
                 case DEACTIVATE -> deactivate(device, space, pm25);
                 case NONE -> renewLeaseIfDue(device, now, cfg);
-            }
-        }
+            }        }
     }
 
     private void activate(Device device, Space space, double pm25, String reason) {
@@ -82,6 +81,7 @@ public class ControlLoop {
                 .map(AiClient.DosageResult::filterLevel)
                 .orElse(2);
         deviceService.applyActuator(device.getDeviceId(), true, Math.max(1, Math.min(level, 3)), "AUTO", "BACKEND");
+        deviceService.recordDecision(device, reason);
         log.info("{} PM2.5 {} vs {} -> fan ON level {} ({})", device.getDeviceId(), pm25,
                 space.getThresholdPm25(), level, reason);
 
@@ -91,8 +91,14 @@ public class ControlLoop {
     }
 
     private void deactivate(Device device, Space space, double pm25) {
+        String reason = device.getOnSince() != null
+                && Duration.between(device.getOnSince(), Instant.now()).toMinutes()
+                >= settings.control().maxOnMinutes()
+                ? "max_on" : "hysteresis_off";
         deviceService.applyActuator(device.getDeviceId(), false, 0, "AUTO", "BACKEND");
-        log.info("{} PM2.5 {} vs {} -> fan OFF", device.getDeviceId(), pm25, space.getThresholdPm25());
+        deviceService.recordDecision(device, reason);
+        log.info("{} PM2.5 {} vs {} -> fan OFF ({})", device.getDeviceId(), pm25,
+                space.getThresholdPm25(), reason);
     }
 
     /** Rule 2: tell the room early, once per 30 min, through the OLED. */

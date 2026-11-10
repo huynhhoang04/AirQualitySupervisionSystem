@@ -6,36 +6,25 @@ export default {
   theme: {
     extend: {
       colors: {
-        // Semantic tokens from the design system: dark tech, status green. Components never use a
-        // raw hex, so a palette change is one edit here.
-        canvas: "#0F172A",
-        surface: "#1B2336",
-        muted: "#94A3B8",
-        line: "#334155",
-        good: "#22C55E",
-        warn: "#F59E0B",
-        bad: "#EF4444",
-        info: "#38BDF8",
-        ai: "#A78BFA",
+        // A quiet, slightly blue-shifted dark surface. The status colours carry all the emphasis,
+        // so the chrome around them stays almost colourless.
+        canvas: "#0C1016",
+        surface: "#151A22",
+        line: "#2A323E",
+        muted: "#8A96A8",
+        good: "#4ADE80",
+        warn: "#FBBF24",
+        bad: "#FB7185",
+        info: "#7DD3FC",
       },
       fontFamily: {
-        sans: ["Fira Sans", "system-ui", "sans-serif"],
-        // Every number that can change while you look at it uses the mono face so digits do not
-        // jitter and columns stay aligned.
-        mono: ["Fira Code", "ui-monospace", "monospace"],
-      },
-      borderRadius: {
-        xl: "0.875rem",
+        sans: ["Instrument Sans", "system-ui", "sans-serif"],
+        mono: ["JetBrains Mono", "ui-monospace", "monospace"],
       },
       keyframes: {
-        pulseSoft: {
-          "0%, 100%": { opacity: "1" },
-          "50%": { opacity: "0.45" },
-        },
+        breathe: { "0%, 100%": { opacity: "1" }, "50%": { opacity: "0.55" } },
       },
-      animation: {
-        pulseSoft: "pulseSoft 2s ease-in-out infinite",
-      },
+      animation: { breathe: "breathe 3s ease-in-out infinite" },
     },
   },
   plugins: [],

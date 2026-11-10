@@ -66,6 +66,9 @@ export const api = {
     request<Device>("/api/v1/devices/pair", { method: "POST", body: JSON.stringify(body) }),
   unpair: (id: string) =>
     request<Device>(`/api/v1/devices/${encodeURIComponent(id)}/unpair`, { method: "POST" }),
+  /** "Đã thay lõi" — resets the fan-hours counter on the backend and on the node. */
+  resetFilter: (id: string) =>
+    request<Device>(`/api/v1/devices/${encodeURIComponent(id)}/filter`, { method: "POST" }),
 
   latest: (id: string) => request<Telemetry>(`/api/v1/devices/${encodeURIComponent(id)}/latest`),
   history: (id: string, hours = 24) => {
