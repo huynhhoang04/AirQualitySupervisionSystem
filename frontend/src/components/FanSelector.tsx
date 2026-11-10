@@ -1,7 +1,14 @@
 import { useState } from "react";
 
 import type { Device } from "../api/types";
-import { fanCommand, fanSelection, isPositionActive, type FanSelection } from "../lib/room";
+import {
+  CYCLE_SECONDS,
+  MIN_OFF_MINUTES,
+  fanCommand,
+  fanSelection,
+  isPositionActive,
+  type FanSelection,
+} from "../lib/room";
 
 interface Props {
   device: Device;
@@ -67,7 +74,8 @@ export function FanSelector({ device, pending, error, onCommand }: Props) {
       </div>
 
       <p className="mt-2 text-[11px] leading-relaxed text-muted">
-        AUTO để hệ thống tự quyết định · chọn 1–3 là giữ nguyên cho tới khi bạn đổi lại
+        AUTO để hệ thống tự quyết định. Hệ thống kiểm tra mỗi {CYCLE_SECONDS} giây, và luôn để quạt
+        nghỉ ít nhất {MIN_OFF_MINUTES} phút trước khi bật lại — nên đôi khi phải chờ.
       </p>
 
       {error && (

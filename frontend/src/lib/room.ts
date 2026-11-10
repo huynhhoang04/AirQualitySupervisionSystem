@@ -1,18 +1,100 @@
-import type { AirStatus, DecisionReason, Device, FanMode, Space, Telemetry } from "../api/types";
+import type { Device, Space, Telemetry } from "../api/types";
 
 /**
- * The one place the product's vocabulary is decided.
+ * The product's vocabulary, in one place.
  *
- * The screens never show a raw number where a word will do: a room is "Tốt" or "Đang lọc", the fan
- * "đang tắt" or "tự bật 12 phút trước", and the reason a decision happened is a sentence, not a
- * database enum.
+ * A room name is free text the operator typed. Everything that used to be a technical field —
+ * purpose, ventilation, volume — is derived from a template, so the connect flow never asks a
+ * question a filter owner cannot answer.
  */
 
+export interface RoomTemplate {
+  key: string;
+  label: string;
+  /** Filled into the space row; invisible to the user but used by ML#1 when it exists. */
+  purpose: string;
+  volumeM3: number;
+  ventilation: string;
+  /** Threshold in µg/m³, chosen to match the template's typical occupancy. */
+  threshold: number;
+  hint: string;
+}
+
+export const ROOM_TEMPLATES: RoomTemplate[] = [
+  {
+    key: "bedroom",
+    label: "Phòng ngủ",
+    purpose: "bedroom",
+    volumeM3: 15,
+    ventilation: "low",
+    threshold: 25,
+    hint: "ngủ 8 giờ mỗi đêm",
+  },
+  {
+    key: "living",
+    label: "Phòng khách",
+    purpose: "living_room",
+    volumeM3: 28,
+    ventilation: "medium",
+    threshold: 35,
+    hint: "sinh hoạt buổi tối",
+  },
+  {
+    key: "classroom",
+    label: "Lớp học",
+    purpose: "classroom",
+    volumeM3: 60,
+    ventilation: "medium",
+    threshold: 30,
+    hint: "đông người, 6 giờ mỗi ngày",
+  },
+  {
+    key: "lobby",
+    label: "Sảnh",
+    purpose: "office",
+    volumeM3: 80,
+    ventilation: "high",
+    threshold: 45,
+    hint: "người đi lại liên tục",
+  },
+  {
+    key: "custom",
+    label: "Khác",
+    purpose: "living_room",
+    volumeM3: 20,
+    ventilation: "medium",
+    threshold: 35,
+    hint: "tự đặt tên và ngưỡng",
+  },
+];
+
+export function templateOf(key: string): RoomTemplate {
+  return ROOM_TEMPLATES.find((template) => template.key === key) ?? ROOM_TEMPLATES[0];
+}
+
+export type FanState = "ON" | "OFF";
+export type FanMode = "AUTO" | "MANUAL";
+
+export type DecisionReason =
+  | "threshold_breach"
+  | "forecast_breach"
+  | "hysteresis_off"
+  | "max_on"
+  | "manual"
+  | null;
+
+export type AirStatus = "good" | "filtering" | "watch";
+
+// ── Time ────────────────────────────────────────────────────────────────────
+
 export const ONLINE_WINDOW_MS = 30_000;
-/** A reading older than this does not drive the fan (CONTROL_STALE_READING_MINUTES). */
 export const STALE_READING_MS = 5 * 60_000;
-/** Filter life: the node counts hours, this is where "sắp hết" starts. */
-export const FILTER_LOW_HOURS = 100;
+export const FILTER_LIFE_HOURS = 2000;
+export const FILTER_WARN_HOURS = 100;
+
+/** The loop's timing, from the same defaults the backend uses (application.yml §aqss.control). */
+export const CYCLE_SECONDS = 60;
+export const MIN_OFF_MINUTES = 3;
 
 export function isOnline(lastSeenAt: string | null | undefined): boolean {
   if (!lastSeenAt) return false;
@@ -29,7 +111,6 @@ export function formatAgo(iso: string | null | undefined): string {
   return `${Math.round(seconds / 86400)} ngày trước`;
 }
 
-/** "12 phút" / "1 giờ 20 phút" — how long something has been happening. */
 export function formatMinutes(totalMinutes: number): string {
   const minutes = Math.max(0, Math.round(totalMinutes));
   if (minutes < 60) return `${minutes} phút`;
@@ -44,20 +125,17 @@ export function minutesSince(iso: string | null | undefined): number | null {
 }
 
 export function formatHours(hours: number): string {
-  if (hours >= 100) return `${Math.round(hours).toLocaleString("vi-VN")} giờ`;
-  if (hours >= 1) return `${hours.toFixed(0)} giờ`;
-  return `${Math.round(hours * 60)} phút`;
+  if (hours >= 10) return `${Math.round(hours).toLocaleString("vi-VN")} giờ`;
+  if (hours >= 1) return `${hours.toFixed(1)} giờ`;
+  return `${Math.max(1, Math.round(hours * 60))} phút`;
 }
 
-// ── The room's state, in one word ───────────────────────────────────────────
+// ── The device's state, in one word ─────────────────────────────────────────
 
 export interface RoomState {
   status: AirStatus;
-  /** "Tốt" · "Đang lọc" · "Cần chú ý" */
   word: string;
-  /** One sentence: what the system is doing and why. */
   detail: string;
-  /** True when the fan is running under the control loop's own decision. */
   automatic: boolean;
 }
 
@@ -69,17 +147,22 @@ const REASON_TEXT: Record<Exclude<DecisionReason, null>, string> = {
   manual: "vì bạn điều chỉnh",
 };
 
-export function roomState(device: Device | undefined, latest: Telemetry | undefined, space: Space | undefined): RoomState {
+export function roomState(
+  device: Device | undefined,
+  latest: Telemetry | undefined,
+  space: Space | undefined,
+): RoomState {
   const threshold = space?.threshold_pm25 ?? 35;
   const pm25 = latest?.pm25 ?? null;
   const fanOn = device?.fan_state === "ON";
   const reason = device?.last_reason ?? null;
 
   if (pm25 == null) {
+    const online = isOnline(device?.last_seen_at);
     return {
       status: "good",
-      word: isOnline(device?.last_seen_at) ? "Đang chờ" : "Mất liên lạc",
-      detail: isOnline(device?.last_seen_at)
+      word: online ? "Đang chờ" : "Mất liên lạc",
+      detail: online
         ? "máy đã kết nối, chưa gửi số đo đầu tiên"
         : `số liệu cuối ${formatAgo(device?.last_seen_at ?? latest?.recorded_at)}`,
       automatic: false,
@@ -88,10 +171,9 @@ export function roomState(device: Device | undefined, latest: Telemetry | undefi
 
   if (fanOn) {
     const since = minutesSince(device?.on_since);
-    const when = since == null ? "" : `${reason === "manual" ? "bật" : "tự bật"} ${formatMinutes(since)} trước`;
-    const why = reason ? REASON_TEXT[reason] : "đang lọc";
-    // Still filtering, but the air is already under the cut-off: say so, so the word and the number
-    // do not disagree on screen.
+    const when =
+      since == null ? "" : `${reason === "manual" ? "bật" : "tự bật"} ${formatMinutes(since)} trước`;
+    const why = reason && reason in REASON_TEXT ? REASON_TEXT[reason] : "đang lọc";
     const settling = pm25 < threshold;
     return {
       status: settling ? "good" : "filtering",
@@ -104,10 +186,15 @@ export function roomState(device: Device | undefined, latest: Telemetry | undefi
   }
 
   if (pm25 >= threshold) {
+    const restLeft = MIN_OFF_MINUTES - (minutesSince(device?.off_since) ?? MIN_OFF_MINUTES);
+    const wait =
+      restLeft > 0
+        ? `sau ${Math.ceil(restLeft)} phút nữa (quạt đang nghỉ tối thiểu)`
+        : "trong vòng 1 phút";
     return {
       status: "watch",
       word: "Cần chú ý",
-      detail: "bụi trên ngưỡng — quạt sẽ tự bật ở chu kỳ tới",
+      detail: `bụi trên ngưỡng — quạt sẽ tự bật ${wait}`,
       automatic: false,
     };
   }
@@ -120,7 +207,6 @@ export function roomState(device: Device | undefined, latest: Telemetry | undefi
   };
 }
 
-/** What the fan will do next, in the user's terms — never "0.7 × threshold". */
 export function fanBehaviour(space: Space | undefined): { on: string; off: string } {
   const threshold = space?.threshold_pm25 ?? 35;
   return {
@@ -129,13 +215,17 @@ export function fanBehaviour(space: Space | undefined): { on: string; off: strin
   };
 }
 
-export function filterHours(device: Device | undefined): { used: number; low: boolean } {
-  const seconds = device?.filter_runtime_s ?? 0;
-  const used = seconds / 3600;
-  return { used, low: used > 0 && used < FILTER_LOW_HOURS };
+export function filterHours(device: Device | undefined): {
+  used: number;
+  remaining: number;
+  low: boolean;
+} {
+  const used = (device?.filter_runtime_s ?? 0) / 3600;
+  const remaining = Math.max(0, FILTER_LIFE_HOURS - used);
+  return { used, remaining, low: remaining < FILTER_WARN_HOURS };
 }
 
-// ── Fan control: five mutually exclusive positions ──────────────────────────
+// ── Fan control ─────────────────────────────────────────────────────────────
 
 export interface FanSelection {
   mode: FanMode;
@@ -159,20 +249,17 @@ export function isPositionActive(
   current: FanSelection,
   position: { mode: FanMode; on: boolean; level: number },
 ): boolean {
-  if (position.mode === "AUTO") {
-    return current.mode === "AUTO";
-  }
-  if (current.mode !== "MANUAL") {
-    return false;
-  }
-  if (!position.on) {
-    return !current.on;
-  }
+  if (position.mode === "AUTO") return current.mode === "AUTO";
+  if (current.mode !== "MANUAL") return false;
+  if (!position.on) return !current.on;
   return current.on && current.level === position.level;
 }
 
-/** Picking any position is one command, not a sequence. */
-export function fanCommand(selection: FanSelection): { state: "ON" | "OFF"; level: number; mode: FanMode } {
+export function fanCommand(selection: FanSelection): {
+  state: "ON" | "OFF";
+  level: number;
+  mode: FanMode;
+} {
   return {
     state: selection.on ? "ON" : "OFF",
     level: selection.on ? Math.max(1, selection.level) : 0,

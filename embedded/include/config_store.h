@@ -33,6 +33,7 @@ bool netConfigured();
 void pairingCode(char* out, size_t len);
 
 void configSetSpaceId(const char* space_id);
+void configClearSpaceId();
 void configSetDustBaseline(float baseline_us);
 void configSetTelemetryInterval(uint32_t interval_ms);
 void configSetFilterRuntime(uint32_t seconds);

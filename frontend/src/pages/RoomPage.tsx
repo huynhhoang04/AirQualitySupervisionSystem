@@ -30,12 +30,27 @@ export function RoomPage({ deviceId }: { deviceId: string }) {
   if (devices.isLoading) {
     return <Centered>Đang tải…</Centered>;
   }
+  if (devices.isError) {
+    return (
+      <Centered>
+        <p className="text-sm text-slate-200">Không kết nối được tới hệ thống</p>
+        <p className="mt-1 text-[12px] text-muted">{String(devices.error?.message ?? "")}</p>
+        <button type="button" onClick={() => devices.refetch()} className="btn-ghost mt-4">
+          Thử lại
+        </button>
+      </Centered>
+    );
+  }
+
   if (!device) {
     return (
       <Centered>
-        <p className="text-sm text-muted">Không tìm thấy phòng này.</p>
+        <p className="text-sm text-slate-200">Máy này không còn trong hệ thống</p>
+        <p className="mt-1 text-[12px] leading-relaxed text-muted">
+          Có thể nó đã được ngắt kết nối ở một tab khác.
+        </p>
         <Link to="/" className="btn-ghost mt-4">
-          Về danh sách phòng
+          Về danh sách máy
         </Link>
       </Centered>
     );
@@ -126,21 +141,27 @@ export function RoomPage({ deviceId }: { deviceId: string }) {
       </section>
 
       <section className="card mt-4 flex items-center justify-between gap-3 p-4">
-        <div className="flex items-center gap-3">
-          <span className={`${filter.low ? "text-warn" : "text-slate-400"}`}>
+        <div className="flex min-w-0 items-center gap-3">
+          <span className={`shrink-0 ${filter.low ? "text-warn" : "text-slate-400"}`}>
             <Icon name="filter" size={20} />
           </span>
-          <div>
+          <div className="min-w-0">
             <div className="text-[11px] uppercase tracking-[0.12em] text-muted">Lõi lọc</div>
             <div className="font-mono text-sm text-slate-200">
-              đã dùng {formatHours(filter.used)}
-              {filter.low && <span className="ml-2 text-warn">sắp hết</span>}
+              {filter.low ? (
+                <>
+                  còn {formatHours(filter.remaining)}
+                  <span className="ml-2 text-warn">sắp hết</span>
+                </>
+              ) : (
+                <>còn {formatHours(filter.remaining)}</>
+              )}
             </div>
           </div>
         </div>
         <Link
           to={`/room/${encodeURIComponent(device.device_id)}/settings`}
-          className="text-[11px] text-muted underline-offset-4 hover:text-white hover:underline"
+          className="shrink-0 text-[11px] text-muted underline-offset-4 hover:text-white hover:underline"
         >
           đổi lõi
         </Link>

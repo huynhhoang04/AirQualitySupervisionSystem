@@ -1,17 +1,4 @@
-export type FanState = "ON" | "OFF";
-export type FanMode = "AUTO" | "MANUAL";
-
-/** Why the loop last acted — the server's own vocabulary (io_contract §10). */
-export type DecisionReason =
-  | "threshold_breach"
-  | "forecast_breach"
-  | "hysteresis_off"
-  | "max_on"
-  | "manual"
-  | null;
-
-/** What the room screen shows at the top: one word, not a number. */
-export type AirStatus = "good" | "filtering" | "watch";
+import type { DecisionReason, FanMode, FanState } from "../lib/room";
 
 export interface Device {
   device_id: string;
@@ -103,6 +90,8 @@ export interface SpaceRequest {
 
 export interface PairRequest {
   pairing_code: string;
-  space_code: string;
+  /** Either an existing room code, or omit it and pass space_name to create one. */
+  space_code?: string;
+  space_name?: string;
   name?: string;
 }

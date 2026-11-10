@@ -29,7 +29,7 @@ public class DeviceController {
     private final DeviceService devices;
     private final TelemetryService telemetry;
 
-    /** Paired devices only; {@code ?include_unpaired=true} for the debugging view. */
+    /** Paired devices only; {@code ?include_unpaired=true} returns rows waiting to be paired. */
     @GetMapping
     public List<Device> list(@RequestParam(name = "include_unpaired", defaultValue = "false") boolean includeUnpaired) {
         return devices.findAll(includeUnpaired);
@@ -51,10 +51,10 @@ public class DeviceController {
         return ResponseEntity.noContent().build();
     }
 
-    /** {@code {"pairing_code":"7K2M9X","space_code":"SP_201","name":"..."}} — io_contract §7.1. */
+    /** {@code {"pairing_code":"7K2M9X","space_name":"Phòng ngủ"}} — io_contract §7.1. */
     @PostMapping("/pair")
     public Device pair(@RequestBody DeviceService.PairRequest request) {
-        return devices.pair(request.pairingCode(), request.spaceCode(), request.name());
+        return devices.pair(request.pairingCode(), request.spaceCode(), request.name(), request.spaceName());
     }
 
     @PostMapping("/{deviceId}/unpair")

@@ -83,6 +83,22 @@ void configSetSpaceId(const char* space_id) {
     s_prefs.end();
 }
 
+/** Forget the room entirely: the NVS key is removed, not blanked, so a reboot has nothing to revive. */
+void configClearSpaceId() {
+    cfgLock();
+    s_cfg.space_id[0] = '\0';
+    s_cfg.paired = false;
+    cfgUnlock();
+
+    if (!s_prefs.begin(kNamespace, false)) {
+        AQSS_LOG("nvs: cannot clear space_id");
+        return;
+    }
+    s_prefs.remove("space_id");
+    s_prefs.putBool("paired", false);
+    s_prefs.end();
+}
+
 void configSetDustBaseline(float baseline_us) {
     if (baseline_us < 800.0f || baseline_us > 2500.0f) {
         return;

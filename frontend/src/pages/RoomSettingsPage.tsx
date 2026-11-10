@@ -127,12 +127,15 @@ function FilterSection({ device }: { device: Device }) {
 
   return (
     <section className="mt-10 border-t border-line/60 pt-6">
-      <div className="flex items-baseline justify-between">
+      <div className="flex items-baseline justify-between gap-3">
         <div className="label">Lõi lọc</div>
-        <span className="font-mono text-[11px] text-muted">{formatHours(filter.used)} đã dùng</span>
+        <span className={`font-mono text-[11px] ${filter.low ? "text-warn" : "text-muted"}`}>
+          còn {formatHours(filter.remaining)}
+        </span>
       </div>
       <p className="mt-1 text-sm leading-relaxed text-muted">
-        Máy tự đếm giờ chạy quạt. Thay lõi xong thì đặt lại để đồng hồ bắt đầu từ 0.
+        Đã chạy {formatHours(filter.used)}. Máy tự đếm giờ quạt; thay lõi xong thì đặt lại để đồng hồ
+        bắt đầu từ 0.
       </p>
 
       {!confirming ? (

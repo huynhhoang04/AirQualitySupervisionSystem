@@ -271,6 +271,16 @@ static void handleCommand(const char* payload, size_t length) {
             g_sensorData.paired = true;
             dataUnlock();
             AQSS_LOG("cmd: set_space %s (paired)", spaceId);
+        } else {
+            // Empty space_id means "forget this room": drop the NVS copy so a reboot cannot
+            // resurrect a binding the operator already removed, and go back to the pairing screen.
+            configSetPaired(false);
+            configClearSpaceId();
+            dataLock();
+            g_sensorData.space_id[0] = '\0';
+            g_sensorData.paired = false;
+            dataUnlock();
+            AQSS_LOG("cmd: set_space cleared — node shows the pairing code again");
         }
 
     } else if (strcmp(command, "recalibrate_dust") == 0) {

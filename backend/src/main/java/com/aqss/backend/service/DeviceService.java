@@ -1,6 +1,7 @@
 package com.aqss.backend.service;
 
 import com.aqss.backend.model.Device;
+import com.aqss.backend.model.Space;
 import com.aqss.backend.mqtt.MqttLink;
 import com.aqss.backend.repo.DeviceRepository;
 import com.aqss.backend.repo.SpaceRepository;
@@ -33,6 +34,7 @@ public class DeviceService {
     private final SpaceRepository spaces;
     private final MqttLink mqtt;
     private final AuditService audit;
+    private final SpaceCodes spaceCodes;
 
     @Transactional(readOnly = true)
     public List<Device> findAll(boolean includeUnpaired) {
@@ -47,12 +49,16 @@ public class DeviceService {
     }
 
     /**
-     * A node is registered the first time it is heard from — but unpaired. The room binding is set
-     * by {@link #pair}, never by whatever the node happened to have in NVS (io_contract §7.1).
+     * A node is registered the first time it is heard from — but unpaired.
+     *
+     * <p>The {@code space_id} in a telemetry payload comes from the node's own NVS and can be a
+     * stale copy of a room the operator already removed. It is therefore never used to bind: only
+     * {@link #pair} does that. Re-linking here would un-unpair a device on its next message, which
+     * is exactly what "I removed it but it came back after a refresh" looked like.
      */
     @Transactional
     public Device ensure(String deviceId, String spaceCode) {
-        Device device = devices.findById(deviceId).orElseGet(() -> {
+        return devices.findById(deviceId).orElseGet(() -> {
             Device created = Device.builder()
                     .deviceId(deviceId)
                     .name(deviceId)
@@ -66,16 +72,10 @@ public class DeviceService {
                     .offSince(Instant.now())
                     .createdAt(Instant.now())
                     .build();
-            log.info("registered unpaired device {} (space hint ignored: {})", deviceId, spaceCode);
+            log.info("registered unpaired device {} (telemetry space hint '{}' ignored; pairing binds)",
+                    deviceId, spaceCode);
             return devices.save(created);
         });
-        if (device.getSpaceCode() == null && spaceCode != null && spaces.existsById(spaceCode)) {
-            // A row created before pairing existed (or seeded by hand) may already know its room.
-            device.setSpaceCode(spaceCode);
-            device.setPairedAt(Instant.now());
-            devices.save(device);
-        }
-        return device;
     }
 
     /** Every inbound message may carry the pairing code; remember the newest one. */
@@ -90,26 +90,47 @@ public class DeviceService {
         }
     }
 
-    /** {@code POST /devices/pair} — the only way a node becomes visible on the dashboard. */
+    /**
+     * {@code POST /devices/pair} — the only way a node becomes visible on the dashboard.
+     *
+     * <p>A space is created when the operator names one that does not exist yet, so the connect flow
+     * never has to ask "which room code?". The name is both the room label and the device label.
+     */
     @Transactional
-    public Device pair(String rawCode, String spaceCode, String name) {
+    public Device pair(String rawCode, String spaceCode, String name, String spaceName) {
         String code = normalise(rawCode);
         if (code.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "pairing_code is required");
         }
-        if (spaceCode == null || spaceCode.isBlank() || !spaces.existsById(spaceCode)) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "unknown space: " + spaceCode);
-        }
+
         Device device = devices.findFirstByPairingCode(code)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
                         "no node has connected with code " + code + " yet"));
 
-        if (device.getPairedAt() != null && !spaceCode.equals(device.getSpaceCode())) {
+        String roomCode = spaceCode == null ? "" : spaceCode.trim();
+        if (roomCode.isEmpty()) {
+            // Caller named a room instead of passing a code: derive one and create it on demand.
+            String label = (spaceName == null || spaceName.isBlank())
+                    ? (name == null || name.isBlank() ? "Phòng" : name)
+                    : spaceName;
+            roomCode = spaceCodes.derive(label);
+            spaces.save(Space.builder()
+                    .code(roomCode)
+                    .name(label)
+                    .thresholdPm25(35f)
+                    .thresholdSource("manual")
+                    .updatedAt(Instant.now())
+                    .build());
+        } else if (!spaces.existsById(roomCode)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "unknown space: " + roomCode);
+        }
+
+        if (device.getPairedAt() != null && !roomCode.equals(device.getSpaceCode())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     device.getDeviceId() + " is already paired to " + device.getSpaceCode());
         }
 
-        device.setSpaceCode(spaceCode);
+        device.setSpaceCode(roomCode);
         device.setPairedAt(Instant.now());
         if (name != null && !name.isBlank()) {
             device.setName(name);
@@ -117,15 +138,20 @@ public class DeviceService {
         devices.save(device);
 
         // The node keeps its own copy for the OLED; the binding that matters is the one above.
-        notifyNode(device.getDeviceId(), "set_space", Map.of("space_id", spaceCode));
+        notifyNode(device.getDeviceId(), "set_space", Map.of("space_id", roomCode));
         audit.log("USER", "PAIR", device.getDeviceId(), Map.of(
                 "pairing_code", code,
-                "space_code", spaceCode,
+                "space_code", roomCode,
                 "name", device.getName()));
-        log.info("paired {} (code {}) to {}", device.getDeviceId(), code, spaceCode);
+        log.info("paired {} (code {}) to {}", device.getDeviceId(), code, roomCode);
         return device;
     }
 
+    /**
+     * Forget the node. This is a two-sided operation: the backend drops the binding, and the node is
+     * told to go back to its pairing screen. Without the second half the node keeps its NVS copy and
+     * the OLED keeps showing a room that no longer exists.
+     */
     @Transactional
     public Device unpair(String deviceId) {
         Device device = require(deviceId);
@@ -135,8 +161,15 @@ public class DeviceService {
         device.setFanMode("AUTO");
         device.setFanState("OFF");
         device.setFanLevel((short) 0);
+        device.setLastReason(null);
+        device.setLastDecisionAt(null);
         devices.save(device);
-        audit.log("USER", "UNPAIR", deviceId, Map.of("previous_space_code", String.valueOf(previous)));
+
+        // Empty space_id is the "forget" signal; the firmware clears NVS and shows the pairing code.
+        boolean notified = notifyNode(deviceId, "set_space", Map.of("space_id", ""));
+        audit.log("USER", "UNPAIR", deviceId, Map.of(
+                "previous_space_code", String.valueOf(previous),
+                "node_notified", notified));
         return device;
     }
 
@@ -369,7 +402,7 @@ public class DeviceService {
     public record CommandRequest(String command, Map<String, Object> params) {
     }
 
-    public record PairRequest(String pairingCode, String spaceCode, String name) {
+    public record PairRequest(String pairingCode, String spaceCode, String name, String spaceName) {
     }
 
     private static String normalise(String raw) {
