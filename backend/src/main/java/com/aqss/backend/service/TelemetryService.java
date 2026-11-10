@@ -36,6 +36,7 @@ public class TelemetryService {
     private final DeviceService deviceService;
     private final AiClient ai;
     private final ObjectMapper mapper;
+    private final ControlLoop control;
 
     @EventListener
     @Transactional
@@ -77,6 +78,9 @@ public class TelemetryService {
                         ? null : event.system().wifi_rssi().shortValue())
                 .pm25Saturated(event.system() != null && Boolean.TRUE.equals(event.system().pm25_saturated()))
                 .build());
+
+        // The reading that just arrived is what the loop should judge, not the one from a minute ago.
+        control.onReading(device);
     }
 
     private static boolean inRange(Float value, float min, float max) {

@@ -43,7 +43,7 @@ export interface Space {
   region: string | null;
   ventilation_estimate: string | null;
   threshold_pm25: number;
-  threshold_source: "manual" | "ai";
+  threshold_source: "manual" | "ai" | "profile";
   updated_at: string;
 }
 
@@ -94,4 +94,24 @@ export interface PairRequest {
   space_code?: string;
   space_name?: string;
   name?: string;
+  /** Room profile carried through from the template the operator picked. */
+  purpose?: string;
+  volume_m3?: number;
+  occupancy_hours?: number;
+}
+
+/** The room plus the reasoning behind its suggested threshold. */
+export interface ComputedThreshold {
+  thresholdPm25: number;
+  dailyDoseTarget: number;
+  ventilationFactor: number;
+  co2Factor: number;
+  occupancyHours: number;
+  volumeM3: number | null;
+  co2Ppm: number | null;
+}
+
+export interface ThresholdPreview {
+  space: Space;
+  computed: ComputedThreshold;
 }

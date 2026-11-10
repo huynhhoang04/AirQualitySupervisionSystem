@@ -35,6 +35,7 @@ public class DeviceService {
     private final MqttLink mqtt;
     private final AuditService audit;
     private final SpaceCodes spaceCodes;
+    private final ThresholdService thresholds;
 
     @Transactional(readOnly = true)
     public List<Device> findAll(boolean includeUnpaired) {
@@ -97,7 +98,8 @@ public class DeviceService {
      * never has to ask "which room code?". The name is both the room label and the device label.
      */
     @Transactional
-    public Device pair(String rawCode, String spaceCode, String name, String spaceName) {
+    public Device pair(String rawCode, String spaceCode, String name, String spaceName,
+                       String purpose, Float volumeM3, Integer occupancyHours) {
         String code = normalise(rawCode);
         if (code.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "pairing_code is required");
@@ -114,13 +116,20 @@ public class DeviceService {
                     ? (name == null || name.isBlank() ? "Phòng" : name)
                     : spaceName;
             roomCode = spaceCodes.derive(label);
-            spaces.save(Space.builder()
+            // The template the operator picked carries the room's profile; the threshold is derived
+            // from it by the same service the settings screen uses, so both paths agree.
+            Space created = Space.builder()
                     .code(roomCode)
                     .name(label)
+                    .purpose(purpose)
+                    .volumeM3(volumeM3)
                     .thresholdPm25(35f)
                     .thresholdSource("manual")
                     .updatedAt(Instant.now())
-                    .build());
+                    .build();
+            created.setThresholdPm25((float) thresholds.compute(created, null).thresholdPm25());
+            created.setThresholdSource("profile");
+            spaces.save(created);
         } else if (!spaces.existsById(roomCode)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "unknown space: " + roomCode);
         }
@@ -402,7 +411,8 @@ public class DeviceService {
     public record CommandRequest(String command, Map<String, Object> params) {
     }
 
-    public record PairRequest(String pairingCode, String spaceCode, String name, String spaceName) {
+    public record PairRequest(String pairingCode, String spaceCode, String name, String spaceName,
+                              String purpose, Float volumeM3, Integer occupancyHours) {
     }
 
     private static String normalise(String raw) {

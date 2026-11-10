@@ -1,7 +1,9 @@
 package com.aqss.backend.service;
 
 import com.aqss.backend.model.Space;
+import com.aqss.backend.repo.DeviceRepository;
 import com.aqss.backend.repo.SpaceRepository;
+import com.aqss.backend.repo.TelemetryRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -23,7 +25,9 @@ public class SpaceService {
     private static final float THRESHOLD_MAX = 500f;
 
     private final SpaceRepository spaces;
-    private final AiClient ai;
+    private final TelemetryRepository telemetry;
+    private final DeviceRepository devices;
+    private final ThresholdService thresholds;
     private final AuditService audit;
 
     @Transactional(readOnly = true)
@@ -76,24 +80,54 @@ public class SpaceService {
         return spaces.save(space);
     }
 
-    /** Ask Layer 3 (ML#1) for the threshold of this space; keeps the manual value when disabled. */
-    @Transactional
-    public Space recomputeThreshold(String code) {
+    /**
+     * What the room profile implies, without writing anything. The dashboard shows this so the
+     * operator can read the reasoning before accepting the number.
+     */
+    @Transactional(readOnly = true)
+    public ThresholdPreview previewThreshold(String code) {
         Space space = require(code);
-        ai.threshold(new AiClient.ThresholdRequest(space.getCode(), space.getVolumeM3(), space.getPurpose(),
-                        space.getRegion(), space.getVentilationEstimate(), 1))
-                .ifPresent(result -> {
-                    if (result.baseThresholdPm25() != null) {
-                        space.setThresholdPm25(validateThreshold(result.baseThresholdPm25()));
-                        space.setThresholdSource("ai");
-                        space.setUpdatedAt(Instant.now());
-                        audit.log("AI", "THRESHOLD", null, java.util.Map.of(
-                                "space", space.getCode(),
-                                "threshold_pm25", result.baseThresholdPm25(),
-                                "model_version", String.valueOf(result.modelVersion())));
-                    }
-                });
-        return spaces.save(space);
+        return new ThresholdPreview(space, thresholds.compute(space, currentCo2(space)));
+    }
+
+    /**
+     * Store the profile-derived threshold. Unlike {@link #save}, this marks the threshold as
+     * computed rather than manual, so the dashboard can say where the number came from.
+     */
+    @Transactional
+    public ThresholdPreview applyComputedThreshold(String code) {
+        Space space = require(code);
+        ThresholdService.Result result = thresholds.compute(space, currentCo2(space));
+        space.setThresholdPm25(validateThreshold((float) result.thresholdPm25()));
+        space.setThresholdSource("profile");
+        space.setUpdatedAt(Instant.now());
+        spaces.save(space);
+        audit.log("BACKEND", "THRESHOLD", null, java.util.Map.of(
+                "space", space.getCode(),
+                "threshold_pm25", result.thresholdPm25(),
+                "co2_factor", result.co2Factor(),
+                "ventilation_factor", result.ventilationFactor(),
+                "occupancy_hours", result.occupancyHours()));
+        return new ThresholdPreview(space, result);
+    }
+
+    /**
+     * The room's most recent CO₂, which is what makes the threshold react to how sealed the room is
+     * right now. Null when the room has no device or no reading yet.
+     */
+    private Double currentCo2(Space space) {
+        return spaces.findById(space.getCode())
+                .map(Space::getCode)
+                .flatMap(code -> telemetry.findFirstByDeviceIdOrderByRecordedAtDesc(deviceOf(code))
+                        .map(reading -> reading.getCo2() == null ? null : reading.getCo2().doubleValue()))
+                .orElse(null);
+    }
+
+    private String deviceOf(String spaceCode) {
+        return devices.findBySpaceCode(spaceCode).stream()
+                .findFirst()
+                .map(com.aqss.backend.model.Device::getDeviceId)
+                .orElse("");
     }
 
     @Transactional
@@ -111,5 +145,9 @@ public class SpaceService {
 
     public record SpaceRequest(String code, String name, Float volumeM3, String purpose, String region,
                                String ventilationEstimate, Float thresholdPm25) {
+    }
+
+    /** The space plus the reasoning that produced its suggested threshold. */
+    public record ThresholdPreview(Space space, ThresholdService.Result computed) {
     }
 }

@@ -91,3 +91,24 @@ export function useSaveSpace(code?: string) {
     },
   });
 }
+
+/** The threshold the room profile implies — shown before the operator accepts it. */
+export const useThresholdPreview = (code?: string, enabled = true) =>
+  useQuery({
+    queryKey: ["threshold-preview", code],
+    queryFn: () => api.previewThreshold(code!),
+    enabled: Boolean(code) && enabled,
+    staleTime: 0,
+  });
+
+export function useApplyThreshold(code?: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.applyThreshold(code!),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["spaces"] });
+      queryClient.invalidateQueries({ queryKey: ["threshold-preview", code] });
+      queryClient.invalidateQueries({ queryKey: ["devices"] });
+    },
+  });
+}

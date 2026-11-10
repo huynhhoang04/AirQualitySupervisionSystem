@@ -18,6 +18,8 @@ export function ConnectPage() {
   const [code, setCode] = useState("");
   const [template, setTemplate] = useState<RoomTemplate>(ROOM_TEMPLATES[0]);
   const [roomName, setRoomName] = useState(ROOM_TEMPLATES[0].label);
+  const [volume, setVolume] = useState("");
+  const [occupancy, setOccupancy] = useState("");
   const [deviceName, setDeviceName] = useState("");
   const [error, setError] = useState<string | null>(null);
 
@@ -31,6 +33,9 @@ export function ConnectPage() {
         pairing_code: code,
         space_name: roomLabel,
         name: deviceName.trim() || roomLabel,
+        volume_m3: volume ? Number(volume) : undefined,
+        occupancy_hours: occupancy ? Number(occupancy) : undefined,
+        purpose: template.purpose,
       },
       {
         onSuccess: (device) => navigate(`/room/${encodeURIComponent(device.device_id)}`),
@@ -151,6 +156,12 @@ export function ConnectPage() {
                   onClick={() => {
                     setTemplate(option);
                     setRoomName(option.label);
+                    // Choosing "Khác" clears the numbers so the operator types real ones instead of
+                    // inheriting a template they did not pick.
+                    if (option.key === "custom") {
+                      setVolume("");
+                      setOccupancy("");
+                    }
                   }}
                   className={`rounded-xl border p-3 text-left transition-colors ${
                     active ? "border-white bg-white/10" : "border-line hover:border-slate-500"
@@ -165,7 +176,47 @@ export function ConnectPage() {
             })}
           </div>
 
-          <label className="mt-5 block">
+          {/* The chosen template's numbers, shown rather than hidden: they are what the threshold
+              is derived from, so the operator can see them before connecting. */}
+          {template.key !== "custom" ? (
+            <dl className="mt-3 grid grid-cols-3 gap-2 rounded-xl border border-line/70 px-3 py-2.5">
+              <Fact label="Thể tích" value={`${template.volumeM3} m³`} />
+              <Fact label="Có người" value={`${template.occupancyHours} h/ngày`} />
+              <Fact label="Ngưỡng gợi ý" value={`${template.threshold}`} />
+            </dl>
+          ) : (
+            <div className="mt-3 space-y-2 rounded-xl border border-line/70 p-3">
+              <p className="text-[11px] leading-relaxed text-muted">
+                Nhập số đo thật của phòng. Ngưỡng sẽ được tính từ đây.
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                <label className="block text-[11px]">
+                  <span className="text-muted">Thể tích (m³)</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={10000}
+                    value={volume}
+                    onChange={(event) => setVolume(event.target.value)}
+                    className="field mt-1 py-2 font-mono text-sm"
+                  />
+                </label>
+                <label className="block text-[11px]">
+                  <span className="text-muted">Giờ có người mỗi ngày</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={24}
+                    value={occupancy}
+                    onChange={(event) => setOccupancy(event.target.value)}
+                    className="field mt-1 py-2 font-mono text-sm"
+                  />
+                </label>
+              </div>
+            </div>
+          )}
+
+          <label className="mt-4 block">
             <span className="label">Tên máy</span>
             <input
               value={roomName}
@@ -232,6 +283,15 @@ export function ConnectPage() {
           </p>
         </section>
       )}
+    </div>
+  );
+}
+
+function Fact({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <dt className="text-[10px] uppercase tracking-wider text-muted">{label}</dt>
+      <dd className="mt-0.5 font-mono text-[13px] text-slate-200">{value}</dd>
     </div>
   );
 }

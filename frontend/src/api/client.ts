@@ -8,6 +8,7 @@ import type {
   Space,
   SpaceRequest,
   Telemetry,
+  ThresholdPreview,
 } from "./types";
 
 export const API_BASE = (import.meta.env.VITE_API_URL ?? "http://localhost:8080").replace(/\/$/, "");
@@ -100,8 +101,11 @@ export const api = {
     }),
   deleteSpace: (code: string) =>
     request<void>(`/api/v1/spaces/${encodeURIComponent(code)}`, { method: "DELETE" }),
-  recomputeThreshold: (code: string) =>
-    request<Space>(`/api/v1/spaces/${encodeURIComponent(code)}/threshold`, { method: "POST" }),
+  /** The threshold the room profile implies, without saving it. */
+  previewThreshold: (code: string) =>
+    request<ThresholdPreview>(`/api/v1/spaces/${encodeURIComponent(code)}/threshold/preview`),
+  applyThreshold: (code: string) =>
+    request<ThresholdPreview>(`/api/v1/spaces/${encodeURIComponent(code)}/threshold`, { method: "POST" }),
 
   // ── Audit ─────────────────────────────────────────────────────────────────
   audit: (deviceId?: string, limit = 50) => {

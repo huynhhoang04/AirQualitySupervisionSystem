@@ -54,7 +54,8 @@ public class DeviceController {
     /** {@code {"pairing_code":"7K2M9X","space_name":"Phòng ngủ"}} — io_contract §7.1. */
     @PostMapping("/pair")
     public Device pair(@RequestBody DeviceService.PairRequest request) {
-        return devices.pair(request.pairingCode(), request.spaceCode(), request.name(), request.spaceName());
+        return devices.pair(request.pairingCode(), request.spaceCode(), request.name(),
+                request.spaceName(), request.purpose(), request.volumeM3(), request.occupancyHours());
     }
 
     @PostMapping("/{deviceId}/unpair")

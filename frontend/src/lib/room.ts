@@ -14,6 +14,7 @@ export interface RoomTemplate {
   /** Filled into the space row; invisible to the user but used by ML#1 when it exists. */
   purpose: string;
   volumeM3: number;
+  occupancyHours: number;
   ventilation: string;
   /** Threshold in µg/m³, chosen to match the template's typical occupancy. */
   threshold: number;
@@ -26,6 +27,7 @@ export const ROOM_TEMPLATES: RoomTemplate[] = [
     label: "Phòng ngủ",
     purpose: "bedroom",
     volumeM3: 15,
+    occupancyHours: 8,
     ventilation: "low",
     threshold: 25,
     hint: "ngủ 8 giờ mỗi đêm",
@@ -35,6 +37,7 @@ export const ROOM_TEMPLATES: RoomTemplate[] = [
     label: "Phòng khách",
     purpose: "living_room",
     volumeM3: 28,
+    occupancyHours: 4,
     ventilation: "medium",
     threshold: 35,
     hint: "sinh hoạt buổi tối",
@@ -44,6 +47,7 @@ export const ROOM_TEMPLATES: RoomTemplate[] = [
     label: "Lớp học",
     purpose: "classroom",
     volumeM3: 60,
+    occupancyHours: 6,
     ventilation: "medium",
     threshold: 30,
     hint: "đông người, 6 giờ mỗi ngày",
@@ -53,6 +57,7 @@ export const ROOM_TEMPLATES: RoomTemplate[] = [
     label: "Sảnh",
     purpose: "office",
     volumeM3: 80,
+    occupancyHours: 2,
     ventilation: "high",
     threshold: 45,
     hint: "người đi lại liên tục",
@@ -62,9 +67,10 @@ export const ROOM_TEMPLATES: RoomTemplate[] = [
     label: "Khác",
     purpose: "living_room",
     volumeM3: 20,
+    occupancyHours: 8,
     ventilation: "medium",
     threshold: 35,
-    hint: "tự đặt tên và ngưỡng",
+    hint: "tự nhập thông số phòng",
   },
 ];
 

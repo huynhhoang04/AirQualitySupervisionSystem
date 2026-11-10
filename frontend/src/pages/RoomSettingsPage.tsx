@@ -4,11 +4,13 @@ import { Link, useNavigate } from "react-router-dom";
 import type { Device, Space } from "../api/types";
 import { Icon } from "../components/Icon";
 import {
+  useApplyThreshold,
   useDevices,
   useLatest,
   useResetFilter,
   useSaveSpace,
   useSpaces,
+  useThresholdPreview,
   useUnpairDevice,
 } from "../hooks/useAqss";
 import { fanBehaviour, filterHours, formatAgo, formatHours, roomState } from "../lib/room";
@@ -59,64 +61,170 @@ export function RoomSettingsPage({ deviceId }: { deviceId: string }) {
   );
 }
 
+type ThresholdMode = "manual" | "auto";
+
 function ThresholdSection({ space }: { space?: Space }) {
   const save = useSaveSpace(space?.code);
+  const applyAuto = useApplyThreshold(space?.code);
   const current = space?.threshold_pm25 ?? 35;
-  const selected =
-    SENSITIVITY.reduce((best, option) =>
-      Math.abs(option.threshold - current) < Math.abs(best.threshold - current) ? option : best,
-    SENSITIVITY[1]);
+  const selected = SENSITIVITY.reduce((best, option) =>
+    Math.abs(option.threshold - current) < Math.abs(best.threshold - current) ? option : best,
+  SENSITIVITY[1]);
+
+  const [mode, setMode] = useState<ThresholdMode>(space?.threshold_source === "profile" ? "auto" : "manual");
   const [draft, setDraft] = useState<number | null>(null);
-  const effective = draft ?? selected.threshold;
+  const preview = useThresholdPreview(space?.code, mode === "auto");
+
+  const effective = mode === "auto"
+    ? (preview.data?.computed.thresholdPm25 ?? current)
+    : (draft ?? selected.threshold);
   const behaviour = fanBehaviour({ ...(space as Space), threshold_pm25: effective });
   const changed = Math.abs(effective - current) > 0.01;
 
   return (
     <section className="mt-8">
-      <div className="label">Độ nhạy</div>
-      <p className="mt-1 text-sm leading-relaxed text-muted">
-        Quyết định bụi nhiều đến mức nào thì máy tự bật. Chọn xong, máy giữ đúng mức này.
-      </p>
-
-      <div className="mt-3 grid grid-cols-3 gap-2">
-        {SENSITIVITY.map((option) => (
+      <div className="flex items-baseline justify-between">
+        <div className="label">Ngưỡng bật máy</div>
+        <div className="flex gap-1 rounded-lg border border-line p-0.5" role="group" aria-label="Cách đặt ngưỡng">
           <button
-            key={option.key}
             type="button"
-            aria-pressed={effective === option.threshold}
-            onClick={() => setDraft(option.threshold)}
-            className={`rounded-xl border py-3 text-sm transition-colors ${
-              effective === option.threshold
-                ? "border-white bg-white font-medium text-canvas"
-                : "border-line text-slate-400 hover:border-slate-500 hover:text-white"
+            aria-pressed={mode === "manual"}
+            onClick={() => setMode("manual")}
+            className={`rounded-md px-2.5 py-1 text-[11px] transition-colors ${
+              mode === "manual" ? "bg-white font-medium text-canvas" : "text-muted hover:text-white"
             }`}
           >
-            {option.label}
+            Tự chọn
           </button>
-        ))}
+          <button
+            type="button"
+            aria-pressed={mode === "auto"}
+            onClick={() => setMode("auto")}
+            className={`rounded-md px-2.5 py-1 text-[11px] transition-colors ${
+              mode === "auto" ? "bg-white font-medium text-canvas" : "text-muted hover:text-white"
+            }`}
+          >
+            Tự động
+          </button>
+        </div>
       </div>
+
+      {mode === "manual" ? (
+        <>
+          <p className="mt-1 text-sm leading-relaxed text-muted">
+            Chọn mức nhạy bạn muốn. Máy bật khi bụi chạm ngưỡng, tắt khi xuống dưới 70 % ngưỡng.
+          </p>
+          <div className="mt-3 grid grid-cols-3 gap-2">
+            {SENSITIVITY.map((option) => (
+              <button
+                key={option.key}
+                type="button"
+                aria-pressed={effective === option.threshold}
+                onClick={() => setDraft(option.threshold)}
+                className={`rounded-xl border py-3 text-sm transition-colors ${
+                  effective === option.threshold
+                    ? "border-white bg-white font-medium text-canvas"
+                    : "border-line text-slate-400 hover:border-slate-500 hover:text-white"
+                }`}
+              >
+                {option.label}
+                <span className="mt-0.5 block font-mono text-[10px] opacity-70">{option.threshold}</span>
+              </button>
+            ))}
+          </div>
+        </>
+      ) : (
+        <>
+          <p className="mt-1 text-sm leading-relaxed text-muted">
+            Tính từ hồ sơ phòng và số đo CO₂ hiện tại. Ngưỡng thấp hơn khi phòng kín hoặc phải ở lâu hơn.
+          </p>
+
+          {preview.isLoading ? (
+            <div className="mt-3 rounded-xl border border-line/70 px-3 py-4 text-sm text-muted">
+              Đang tính…
+            </div>
+          ) : preview.data ? (
+            <div className="mt-3 rounded-xl border border-line/70 divide-y divide-line/50">
+              <div className="flex items-baseline justify-between px-3 py-2.5">
+                <span className="text-sm text-slate-200">Ngưỡng đề xuất</span>
+                <span className="font-mono text-lg text-white">
+                  {preview.data.computed.thresholdPm25.toFixed(1)}
+                  <span className="ml-1 font-sans text-[11px] text-muted">µg/m³</span>
+                </span>
+              </div>
+              <Factor
+                label="Mục tiêu liều/ngày"
+                value={`${preview.data.computed.dailyDoseTarget.toFixed(1)} µg/m³`}
+                note={`WHO 24h = 15, chia cho ${preview.data.computed.occupancyHours} giờ có người`}
+              />
+              <Factor
+                label="Hệ số thông gió"
+                value={`× ${preview.data.computed.ventilationFactor.toFixed(2)}`}
+                note={space?.ventilation_estimate === "low" ? "phòng kín" : space?.ventilation_estimate === "high" ? "thoáng" : "trung bình"}
+              />
+              <Factor
+                label="Hệ số CO₂"
+                value={`× ${preview.data.computed.co2Factor.toFixed(2)}`}
+                note={
+                  preview.data.computed.co2Ppm == null
+                    ? "chưa có số đo CO₂"
+                    : `${Math.round(preview.data.computed.co2Ppm)} ppm hiện tại`
+                }
+              />
+            </div>
+          ) : (
+            <p className="mt-3 rounded-xl border border-bad/30 bg-bad/10 px-3 py-2 text-[12px] text-bad">
+              Không tính được. Kiểm tra lại hồ sơ phòng.
+            </p>
+          )}
+        </>
+      )}
 
       <div className="mt-3 rounded-xl border border-line/70 px-3 py-2.5 text-[12px] leading-relaxed text-muted">
         Ngưỡng <span className="font-mono text-slate-200">{effective.toFixed(1)} µg/m³</span> ·{" "}
         {behaviour.on} · {behaviour.off}
       </div>
 
-      {changed && (
+      {mode === "auto" ? (
         <button
           type="button"
-          disabled={save.isPending || !space}
-          onClick={() => save.mutate({ threshold_pm25: effective })}
+          disabled={applyAuto.isPending || !space || !preview.data}
+          onClick={() => applyAuto.mutate()}
           className="btn-primary mt-3 w-full"
         >
-          {save.isPending ? "Đang lưu…" : `Đặt ngưỡng ${effective.toFixed(0)} µg/m³`}
+          {applyAuto.isPending ? "Đang áp dụng…" : `Áp dụng ${effective.toFixed(0)} µg/m³`}
         </button>
+      ) : (
+        changed && (
+          <button
+            type="button"
+            disabled={save.isPending || !space}
+            onClick={() => save.mutate({ threshold_pm25: effective })}
+            className="btn-primary mt-3 w-full"
+          >
+            {save.isPending ? "Đang lưu…" : `Đặt ngưỡng ${effective.toFixed(0)} µg/m³`}
+          </button>
+        )
       )}
-      {save.error && (
+
+      {(save.error || applyAuto.error) && (
         <p className="mt-2 rounded-lg border border-bad/30 bg-bad/10 px-2.5 py-1.5 text-[11px] text-bad">
-          {save.error.message}
+          {(save.error ?? applyAuto.error)?.message}
         </p>
       )}
     </section>
+  );
+}
+
+function Factor({ label, value, note }: { label: string; value: string; note: string }) {
+  return (
+    <div className="flex items-baseline justify-between gap-3 px-3 py-2.5">
+      <div className="min-w-0">
+        <div className="text-[12px] text-slate-300">{label}</div>
+        <div className="text-[11px] leading-snug text-muted">{note}</div>
+      </div>
+      <span className="shrink-0 font-mono text-sm text-slate-200">{value}</span>
+    </div>
   );
 }
 

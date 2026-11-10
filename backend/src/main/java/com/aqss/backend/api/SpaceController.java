@@ -45,9 +45,20 @@ public class SpaceController {
         return ResponseEntity.noContent().build();
     }
 
-    /** Ask Layer 3 (ML#1) to recompute the threshold for this space. */
+    /**
+     * Compute the threshold the room profile implies, without saving it.
+     *
+     * <p>The dashboard shows this before the operator commits, so "auto" is a suggestion they can
+     * read and argue with — not a number that silently replaces theirs.
+     */
+    @GetMapping("/{code}/threshold/preview")
+    public SpaceService.ThresholdPreview preview(@PathVariable String code) {
+        return spaces.previewThreshold(code);
+    }
+
+    /** Compute and store the profile-derived threshold. */
     @PostMapping("/{code}/threshold")
-    public Space recompute(@PathVariable String code) {
-        return spaces.recomputeThreshold(code);
+    public SpaceService.ThresholdPreview apply(@PathVariable String code) {
+        return spaces.applyComputedThreshold(code);
     }
 }
