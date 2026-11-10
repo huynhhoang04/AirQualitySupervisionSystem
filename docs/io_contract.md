@@ -1,31 +1,32 @@
-# AQSS V4 — I/O Contract
+# AQSS V5 — I/O Contract
 
 > **Single source of truth for the data contracts between the layers.**
-> **Version 4.0** — adds device pairing, closes the control loop, and makes every
-> value on the wire mean exactly one thing.
+> **Version 5.0** — the external AI service is gone. Three layers remain: node, backend, dashboard.
 
-## What changed from 3.0
+## What changed from 4.0
 
-| Change | Why |
+| Removed | Why |
 | :--- | :--- |
-| **Pairing code** on the status + telemetry payloads, and `POST /devices/pair` | A node must not appear on the dashboard until an operator links it to a room. The OLED shows the code; the dashboard asks for it |
-| `devices.paired_at` / `devices.pairing_code`, `devices.off_since` | Pairing state, the code lookup, and the min-OFF timer |
-| `set_actuator` gains `mode` (`AUTO`/`MANUAL`) | The firmware used to force AUTO on every command, so a dashboard override lasted one telemetry period |
-| `sensors.*` may be `null` | A sensor that has no reading yet is *absent*, not `0.0` (which the backend rejects as out of range) |
-| `system.pm25_saturated` / `system.dust_fault` | A GP2Y1023 at its rail reports ~393 µg/m³ as if it were real; the flag travels with the reading |
-| `telemetry.pm25_saturated` column | The dashboard can say "saturated", not "393 µg/m³" |
-| Forecast pre-emption + min-OFF/max-ON in the control loop | The project's headline claim: actuate *before* the breach |
-| `GET /audit` query names (`device_id`) | `@RequestParam` binds the Java parameter name; the UI was sending `device_id` and the filter silently did nothing |
-| `GET /devices` returns only paired devices | Unpaired telemetry is stored but hidden |
+| Layer 3 (FastAPI: threshold / dosage / forecast), `AI_ENABLED`, `AI_BASE_URL` | The threshold is now computed **in-process** from the room profile and live CO₂; the fan level on a breach is fixed. A separate service added deployment cost and returned numbers a formula can produce |
+| `predictions` table, `GET/POST /devices/{id}/forecast` | Nothing produced or read a forecast. At 5 s cadence a room's PM2.5 becomes unpredictable beyond ~30 minutes, so a 24 h model had nothing to learn from |
+| `CONTROL_FORECAST_*`, `CONTROL_LEASE_RENEW_MINUTES` is kept | Dead configuration is worse than none |
 
-Everything else from 3.0 stands.
+| Changed | Why |
+| :--- | :--- |
+| Fan activation is **immediate** (no minimum OFF wait) | Waiting 3 minutes while the air is already bad is a delay, not protection. The motor is protected on the OFF side: minimum ON, maximum ON |
+| `threshold_source` gains `profile` | A threshold derived from the room, distinct from one typed by an operator |
+| `devices.filter_runtime_s` / `filter_replaced_at` | The node always counted fan hours and published them; the backend was discarding the value |
+| `devices.last_reason` / `last_decision_at` | The dashboard needs to say *why* the fan is running, not just that it is |
+| `POST /devices/pair` takes `space_name` | The operator names a room; the code is derived |
+
+Everything else from 4.0 stands.
 
 ---
 
 ## 1. MQTT
 
 Broker: any MQTT v3.1.1 broker reachable over the internet (EMQX Cloud, HiveMQ, mosquitto).
-TLS brokers use port 8883; the firmware ships the DigiCert Global Root G2 CA and enables TLS with
+TLS brokers use port 8883; the firmware pins DigiCert Global Root G2 and enables TLS with
 `MQTT_USE_TLS=1`.
 
 | Topic | Direction | QoS | Retain | Payload |
@@ -35,8 +36,8 @@ TLS brokers use port 8883; the firmware ships the DigiCert Global Root G2 CA and
 | `aqss/devices/{id}/status` | device → server | 1 | **yes** | §4, `ONLINE` on connect, `OFFLINE` via LWT |
 | `aqss/devices/{id}/command` | server → device | 1 | no | §5 |
 
-The broker may replay the retained `status` message on every backend connect. That is expected and
-idempotent: `status` is only used to learn the device exists, its pairing code, and liveness.
+The broker replays the retained `status` on every backend connect. That is expected: `status` is
+used to learn the device exists, its pairing code, and liveness — never to bind a room.
 
 ## 2. Telemetry payload
 
@@ -44,8 +45,8 @@ idempotent: `status` is only used to learn the device exists, its pairing code, 
 {
   "device_id": "AQSS_ESP32S3_01",
   "space_id": "SP_201",
-  "pairing_code": "7K2M9X",
-  "timestamp": 1724217600,
+  "pairing_code": "X35AJK",
+  "timestamp": 1762740000,
   "sensors": { "pm25": 35.4, "co2": 620.0, "temperature": 29.5, "humidity": 68.2 },
   "system":  { "wifi_rssi": -65, "uptime_sec": 3600, "free_heap": 245760,
                "min_free_heap": 185000, "pm25_saturated": false, "dust_fault": false }
@@ -54,73 +55,73 @@ idempotent: `status` is only used to learn the device exists, its pairing code, 
 
 | Field | Unit | Notes |
 | :--- | :---: | :--- |
-| `device_id` | — | ≤ 32 chars. The node's identity; a row is created on first sight |
-| `space_id` | — | Optional. **Advisory only** — the room binding is set by pairing (§7), never by the node |
-| `pairing_code` | — | 6 chars from `A–Z2–9` (no `I/O/0/1`). Derived from the chip MAC, stable across reboots. Shown on the OLED |
+| `device_id` | — | ≤ 32 chars. A row is created on first sight, **unpaired** |
+| `space_id` | — | The node's own NVS copy. **Advisory only** — it never binds a room; pairing does |
+| `pairing_code` | — | 6 symbols from `A–Z2–9` (no `I/O/0/1`), derived from the chip MAC. Shown on the OLED |
 | `timestamp` | s (epoch) | NTP; the server falls back to its own clock if `< 1.7e9` |
-| `sensors.pm25` | µg/m³ | GP2Y1023 `(W − W₀) / 14`; `null` until the first full 1 s sample window |
+| `sensors.pm25` | µg/m³ | GP2Y1023 `(W − W₀) / 14`; `null` until the first 1 s sample window |
 | `sensors.co2` / `temperature` / `humidity` | ppm / °C / % | SCD40; `null` until its first periodic reading |
-| `system.pm25_saturated` | — | The pulse width reached `DUST_SATURATION_US`; the value is a floor, not a measurement |
-| `system.dust_fault` | — | No valid pulse for 3 s — the sensor is unplugged or its LED is dead |
+| `system.pm25_saturated` | — | The pulse width reached `DUST_SATURATION_US`; the value is a floor |
+| `system.dust_fault` | — | No valid pulse for 3 s — sensor unplugged or its LED is dead |
 
-**Null is not zero.** A field that is `null` means "no reading yet"; it is stored as SQL `NULL` and
-is not a validation failure. `0.0` in `co2` would be out of range and is rejected (§9).
+**Null is not zero.** A `null` field means "no reading yet"; it is stored as SQL `NULL` and is not a
+validation failure. A `0.0` in `co2` would be out of range and would get the whole sample rejected.
 
 ## 3. Actuator state payload
 
 ```json
-{ "device_id": "AQSS_ESP32S3_01", "timestamp": 1724217600, "state": "ON",
-  "level": 2, "duty_pct": 60, "mode": "AUTO", "filter_runtime_h": 123.4 }
+{ "device_id": "AQSS_ESP32S3_01", "timestamp": 1762740000, "state": "ON",
+  "level": 2, "duty_pct": 60, "mode": "AUTO", "filter_runtime_h": 12.3 }
 ```
 
 Published when `state`, `level` or `mode` changes, and every 5 s while the fan is ON.
+`filter_runtime_h` is the node's own fan-hours counter — the backend stores it (§6).
 
 ## 4. Status + LWT
 
 ```json
-{ "device_id": "AQSS_ESP32S3_01", "pairing_code": "7K2M9X",
-  "status": "ONLINE", "timestamp": 1724217600 }
+{ "device_id": "AQSS_ESP32S3_01", "pairing_code": "X35AJK",
+  "status": "ONLINE", "timestamp": 1762740000 }
 ```
 
-The firmware registers the will on `aqss/devices/{id}/status` (retain, QoS 1, `{"status":"OFFLINE"}`),
-so a dead node shows up as OFFLINE without a watchdog job here. `OFFLINE` never advances
-`last_seen_at` — only `ONLINE` does.
+The firmware registers the will on `aqss/devices/{id}/status` (retain, QoS 1,
+`{"status":"OFFLINE"}`). `OFFLINE` never advances `last_seen_at` — only `ONLINE` does, and telemetry
+advances it too.
 
 ## 5. Commands (server → device)
 
 ```json
-{ "command": "set_actuator", "params": { "state": "ON", "level": 2, "mode": "AUTO" } }
+{ "command": "set_actuator", "params": { "state": "ON", "level": 3, "mode": "AUTO" } }
 ```
 
 | Command | Params | Effect |
 | :--- | :--- | :--- |
-| `set_actuator` | `state: ON\|OFF`, `level: 0–3`, `mode: AUTO\|MANUAL` (default `AUTO`) | Duty 0 / 35 / 60 / 90 %. `mode` is applied to the node; it also renews the 10 min fail-safe lease |
-| `display_warning` | `message`, `severity: INFO\|WARNING\|CRITICAL` | Text band on the OLED (30 min TTL) |
-| `set_space` | `space_id` | Persisted to NVS (advisory display only; the binding lives in the backend) |
+| `set_actuator` | `state: ON\|OFF`, `level: 0–3`, `mode: AUTO\|MANUAL` | Duty 0 / 35 / 60 / 90 %. `mode` is applied to the node; it also renews the 10 min fail-safe lease |
+| `set_space` | `space_id` | `""` means **forget**: the node drops its NVS copy, clears the paired flag, and the OLED returns to the pairing code |
+| `reset_filter` | — | Clears the fan-hours counter in NVS |
 | `set_interval` | `interval_ms` | Telemetry period (1000–60000) |
 | `recalibrate_dust` | `baseline_w0` (opt.) | GP2Y1023 baseline; defaults to the current pulse |
+| `display_warning` | `message`, `severity: INFO\|WARNING\|CRITICAL` | Text band on the OLED (30 min TTL) |
 | `force_ntp_sync` | — | Immediate NTP resync |
 | `reboot` | — | `ESP.restart()` |
 
 The firmware null-checks `command` before comparing, so a malformed payload cannot crash the node.
 A `set_actuator` in `AUTO` mode is a **lease renewal**: the backend republishes it at least every
-5 minutes while a fan is running so the node's fail-safe does not cut a healthy fan.
+5 minutes while a fan runs, so the node's fail-safe does not cut a healthy fan.
 
 ---
 
-## 6. Database (Flyway `V1__init.sql` + `V2__pairing.sql`)
+## 6. Database (Flyway `V1` → `V4`)
 
 | Table | Columns | Notes |
 | :--- | :--- | :--- |
-| `spaces` | `code` PK, `name`, `volume_m3`, `purpose`, `region`, `ventilation_estimate`, `threshold_pm25`, `threshold_source` (`manual`/`ai`), `updated_at` | Threshold lives **on the space** |
-| `devices` | `device_id` PK, `name`, `space_code` FK, `pairing_code`, `paired_at`, `fan_state`, `fan_level`, `fan_mode`, `on_since`, `off_since`, `last_command_at`, `telemetry_interval_ms`, `dust_baseline_us`, `last_seen_at`, `created_at` | Created on first message, **unpaired**; `paired_at` is set by §7 |
+| `spaces` | `code` PK, `name`, `volume_m3`, `purpose`, `region`, `ventilation_estimate`, `threshold_pm25`, `threshold_source` (`manual`/`profile`), `updated_at` | The threshold lives on the room |
+| `devices` | `device_id` PK, `name`, `space_code` FK, `pairing_code`, `paired_at`, `fan_state`, `fan_level`, `fan_mode`, `on_since`, `off_since`, `last_command_at`, `telemetry_interval_ms`, `dust_baseline_us`, `last_seen_at`, `filter_runtime_s`, `filter_replaced_at`, `last_reason`, `last_decision_at`, `created_at` | Created on first message, unpaired |
 | `telemetry` | `id`, `device_id` FK, `recorded_at`, `pm25`, `co2`, `temperature`, `humidity`, `wifi_rssi`, `pm25_saturated` | Index `(device_id, recorded_at DESC)` |
-| `predictions` | `id`, `device_id` FK, `predicted_at`, `model_version`, `points` (JSON text) | 96 quantile points from Layer 3 |
-| `audit_log` | `id`, `occurred_at`, `actor` (`USER`/`BACKEND`/`DEVICE`/`AI`), `action`, `device_id`, `detail` (JSON text) | One log for every action |
+| `audit_log` | `id`, `occurred_at`, `actor` (`USER`/`BACKEND`/`DEVICE`/`AI`), `action`, `device_id`, `detail` | One log for every action |
 
-`V2__pairing.sql` adds `devices.pairing_code`, `devices.paired_at`, `devices.off_since`,
-`telemetry.pm25_saturated`, an index on `devices.pairing_code`, and back-fills `paired_at` for rows
-that already have a `space_code` (the seeded demo device).
+Migrations: `V1` schema, `V2` pairing, `V3` filter runtime + decision reason, `V4` drops
+`predictions`.
 
 ## 7. REST API
 
@@ -128,67 +129,60 @@ JSON is **snake_case** everywhere (platform-wide Jackson setting). No authentica
 
 | Method | Path | Purpose |
 | :--- | :--- | :--- |
-| `GET` | `/api/v1/devices` | **Paired** devices with live fan state (`?include_unpaired=true` for all) |
+| `GET` | `/api/v1/devices` | **Paired** devices (`?include_unpaired=true` for all) |
 | `GET` | `/api/v1/devices/{id}` | One device |
-| `PUT` | `/api/v1/devices/{id}` | Patch `{name, space_code, telemetry_interval_ms, dust_baseline_us}`; `null` fields are left untouched |
-| `DELETE` | `/api/v1/devices/{id}` | Forget the device (the node re-registers unpaired on its next message) |
-| `POST` | `/api/v1/devices/pair` | `{pairing_code, space_code, name?}` → link an unpaired node to a room |
-| `POST` | `/api/v1/devices/{id}/unpair` | Drop the room binding; telemetry keeps arriving but is hidden |
+| `PUT` | `/api/v1/devices/{id}` | Patch `{name, space_code, telemetry_interval_ms, dust_baseline_us}`; `null` leaves a field untouched |
+| `DELETE` | `/api/v1/devices/{id}` | Forget the device |
+| `POST` | `/api/v1/devices/pair` | `{pairing_code, space_name, name?, purpose?, volume_m3?, occupancy_hours?}` → link a node, creating the room if needed |
+| `POST` | `/api/v1/devices/{id}/unpair` | Drop the binding **and** tell the node to forget it |
+| `POST` | `/api/v1/devices/{id}/filter` | "New filter fitted" — resets the counter on both sides |
 | `POST` | `/api/v1/devices/{id}/command` | Any command from §5 |
-| `GET` | `/api/v1/devices/{id}/latest` | Newest reading (map card) |
-| `GET` | `/api/v1/devices/{id}/telemetry?from&to` | Chart data, default last 24 h |
-| `GET` | `/api/v1/devices/{id}/forecast` | Stored 96-point forecast (`[]` until one exists) |
-| `POST` | `/api/v1/devices/{id}/forecast` | Resample 24 h → Layer 3 → store → return |
-| `GET` | `/api/v1/spaces` | Spaces + thresholds |
-| `GET` | `/api/v1/spaces/{code}` | One space |
-| `PUT` | `/api/v1/spaces/{code}` | Patch `{name, volume_m3, purpose, region, ventilation_estimate, threshold_pm25}`; `null` fields are left untouched |
+| `GET` | `/api/v1/devices/{id}/latest` | Newest reading |
+| `GET` | `/api/v1/devices/{id}/telemetry?from&to` | Chart data, default last 24 h, thinned to ~800 points |
+| `GET` | `/api/v1/spaces` | Rooms + thresholds |
+| `GET` | `/api/v1/spaces/{code}` | One room |
+| `PUT` | `/api/v1/spaces/{code}` | Patch `{name, volume_m3, purpose, region, ventilation_estimate, threshold_pm25}` |
 | `DELETE` | `/api/v1/spaces/{code}` | Delete |
-| `POST` | `/api/v1/spaces/{code}/threshold` | Ask ML#1 for a threshold (no-op while `AI_ENABLED=false`) |
+| `GET` | `/api/v1/spaces/{code}/threshold/preview` | The threshold the profile implies, **without saving** |
+| `POST` | `/api/v1/spaces/{code}/threshold` | Compute and store it (`threshold_source: profile`) |
 | `GET` | `/api/v1/audit?device_id&limit` | Audit trail, newest first |
 | `GET` | `/actuator/health` | Liveness |
 
 ### 7.1 Pairing
 
-`POST /api/v1/devices/pair`
-
 ```json
-{ "pairing_code": "7K2M9X", "space_code": "SP_201", "name": "Node phòng 201" }
+{ "pairing_code": "X35AJK", "space_name": "Phòng ngủ", "name": "Máy phòng ngủ",
+  "purpose": "bedroom", "volume_m3": 15, "occupancy_hours": 8 }
 ```
 
 * The code is normalised (uppercase, non-alphanumerics stripped) and matched against
   `devices.pairing_code`.
-* `404` — no node has ever connected with that code. The node must have published `status` or
-  telemetry at least once.
-* `400` — unknown `space_code`.
-* `409` — the device is already paired to a different space (call `unpair` first).
-* Success sets `paired_at`, `space_code`, `name` (when provided), publishes `set_space`, writes
-  `audit_log(USER, PAIR)` and returns the device.
+* When `space_name` is given and no such room exists, one is created: the code is derived from the
+  ASCII skeleton of the name (`Phòng ngủ tầng 2` → `PHONG_NGU_TANG_2`), and its threshold is computed
+  from the profile in the same request.
+* `404` — no node has connected with that code. `400` — invalid code. `409` — already paired elsewhere.
 
-### 7.2 Device JSON
+### 7.2 Threshold computation
 
-```json
-{ "device_id": "AQSS_ESP32S3_01", "name": "Node phòng 201", "space_code": "SP_201",
-  "pairing_code": "7K2M9X", "paired_at": "2026-11-10T03:00:00Z",
-  "fan_state": "OFF", "fan_level": 0, "fan_mode": "AUTO",
-  "on_since": null, "off_since": null, "last_command_at": null,
-  "telemetry_interval_ms": 5000, "dust_baseline_us": 1400.0,
-  "last_seen_at": "2026-11-10T03:00:05Z", "created_at": "2026-11-10T02:00:00Z" }
+There is no model. `ThresholdService` applies a dose argument over the room's mass balance:
+
+```
+threshold = 15 × √(24 / occupancy_hours) × f(volume) × f(ventilation) × f(CO₂)
 ```
 
-## 8. Layer 3 API (backend is the caller)
+| Factor | Range | Meaning |
+| :--- | :--- | :--- |
+| `15` | — | WHO 2021 24 h guideline, µg/m³ |
+| `√(24/h)` | 1.0 – 3.5 | A room occupied longer tolerates a lower peak |
+| `f(volume)` | 0.7 – 1.6 | `∛(V/20)`; a larger room dilutes more |
+| `f(ventilation)` | 0.75 – 1.35 | low / medium / high |
+| `f(CO₂)` | 0.75 – 1.0 | CO₂ above 420 ppm means a sealed, occupied room — exactly when a lower bar is right |
 
-| Method | Endpoint | Request | Response |
-| :--- | :--- | :--- | :--- |
-| POST | `/api/v1/threshold` | `{space_id, volume_m3, purpose, region, ventilation_estimate, occupancy_typical}` | `{space_id, base_threshold_pm25, uncertainty_lower, uncertainty_upper, model_version}` |
-| POST | `/api/v1/dosage` | `{space_id, volume_m3, purpose, current_pm25, base_threshold, outdoor_pm25_estimate, filter_cadr}` | `{space_id, filter_level, run_duration_minutes, model_version}` |
-| POST | `/api/v1/forecast` | `{space_id, series:[{timestamp, pm25}] × ≤96}` | `{space_id, status, model_version, forecast_sequence:[{target_time, pm25_q10, pm25_q50, pm25_q90}]}` |
+The result is clamped to `[10, 60]`. The upper bound is a health rule, not a formula output: above
+60 µg/m³ the air is unhealthy for sensitive groups on every index the project quotes.
+The response reports every factor, so the dashboard explains the number instead of asserting it.
 
-Payloads are **snake_case in both directions**; `AiClient` must use the application's configured
-`RestClient.Builder` so the Jackson naming strategy applies. `filter_level` maps to PWM duty
-0/35/60/90 %. Every call is skipped when `AI_ENABLED=false`, and a failure never blocks the control
-loop (the rule-based fallbacks are the defaults in `ControlLoop`).
-
-## 9. Sensor acceptance window (firmware and backend enforce the same table)
+## 8. Sensor acceptance window (firmware and backend enforce the same table)
 
 | Sensor | Unit | Valid | Reject |
 | :--- | :---: | :--- | :--- |
@@ -201,33 +195,25 @@ loop (the rule-based fallbacks are the defaults in `ControlLoop`).
 A `null` sensor field is accepted and stored as `NULL`. The firmware drops an out-of-range sample
 before it reaches the payload; the backend is the second gate.
 
-## 10. Control loop (every `CONTROL_CYCLE_MS`, default 60 s)
+## 9. Control loop
 
-Only devices with `paired_at IS NOT NULL`, `fan_mode = AUTO` and a `space_code` participate.
+Telemetry arrives every 5 s and **evaluates immediately**; a 60 s timer re-evaluates as a safety net
+for devices that stopped reporting. Only devices with `paired_at`, `fan_mode = AUTO` and a
+`space_code` participate. A reading older than 5 minutes is ignored.
 
 ```
-pm25  = newest reading for the device (ignored when older than 5 min)
-thr   = space.threshold_pm25
-breach = newest forecast has a point within 2 h with pm25_q90 >= thr
-         (forecast ignored when older than 3 h)
-
-if fan is OFF and min OFF (3 min) has elapsed:
-    breach            -> ACTIVATE, level from ML#2 (reason forecast_breach)
-    pm25 >= thr       -> ACTIVATE, level from ML#2 (reason threshold_breach)
-
-if fan is ON:
-    on for >= 120 min -> DEACTIVATE (reason max_on)
-    pm25 < 0.7 * thr and on for >= 5 min -> DEACTIVATE (reason hysteresis_off)
-    otherwise         -> republish set_actuator (lease renewal; no audit row)
+if fan is OFF and pm25 >= threshold                 -> ACTIVATE, level 3, reason threshold_breach
+if fan is ON and on for >= 120 min                  -> DEACTIVATE, reason max_on
+if fan is ON, pm25 < 0.7 × threshold, on >= 5 min   -> DEACTIVATE, reason hysteresis_off
+otherwise (AUTO, fan ON)                            -> republish set_actuator every 5 min (lease)
 ```
 
-Every activation/deactivation is written to `audit_log` with `actor = BACKEND`. A forecast breach
-also pushes `display_warning` to the OLED at most once per 30 min and writes `audit_log(BACKEND,
-ALERT)`. CO2 never actuates.
+**Activation never waits.** A breach means the air is already bad; the motor is protected on the
+other side of the cycle — it runs at least 5 minutes once started, and at most 2 hours.
 
-### 10.1 Manual override
+Every activation and deactivation is written to `audit_log` with `actor = BACKEND`, and the device
+row records `last_reason` / `last_decision_at` so the dashboard can say why in one sentence.
+A manual command records `reason = manual`.
 
-`set_actuator` with `mode = MANUAL` (the dashboard's manual control) sets the node to MANUAL; the
-backend stores `fan_mode = MANUAL` and the control loop skips the device until the operator picks
-AUTO again. The physical button cycles OFF → L1 → L2 → L3 → OFF in MANUAL; holding it 3 s returns
-the node to AUTO and renews the lease.
+CO₂ never actuates: HEPA media cannot remove it. It is stored, shown, and used only as an input to
+the threshold.

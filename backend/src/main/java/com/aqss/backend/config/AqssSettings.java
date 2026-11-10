@@ -16,8 +16,6 @@ public record AqssSettings(
                           int minOffMinutes,
                           int maxOnMinutes,
                           int staleReadingMinutes,
-                          int forecastHorizonMinutes,
-                          int forecastMaxAgeMinutes,
                           int leaseRenewMinutes) {
     }
 

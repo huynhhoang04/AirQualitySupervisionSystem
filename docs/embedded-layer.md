@@ -410,7 +410,7 @@ void Task_ReadSCD40(void* pvParam) {
 
 ## 🖥️ 6. OLED 128×64 (U8g2 Full Framebuffer) — Values + Early Warning
 
-The OLED is now a **warning channel**: the backend pushes `display_warning` commands with forecast-based messages *before* a threshold breach.
+The OLED is a **warning channel**: the backend can push `display_warning` for advisory messages. It also shows the pairing code until the node is linked to a room, then the readings.
 
 ```text
 ┌──────────────────────────────────────┐

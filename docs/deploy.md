@@ -30,7 +30,7 @@ Không mở port nào: node và backend đều **dial ra** broker.
 | Backend | **Render** + `render.yaml` ở root repo (Docker, plan free) | Render tự quét file này khi tạo Blueprint; Dockerfile nằm trong `backend/` |
 | Database | **Neon free**, endpoint **direct** (không `-pooler`) | Flyway + JPA ổn định; Hikari pool đặt 5 cho vừa hạn mức |
 | CD | Render `autoDeploy: false` + GitHub Actions gọi **deploy hook** sau khi CI xanh | Không bao giờ deploy một commit đỏ |
-| Layer 3 | **Không nằm trong repo**; giữ contract `io_contract.md` §8 | `AiClient` vẫn gọi 3 endpoint khi service có mặt |
+| Layer 3 (AI) | **Đã bỏ** | Ngưỡng tính trong backend (`ThresholdService`); dự báo không có dữ liệu để học — xem `dl.md` |
 | Firmware | Build trong CI, phát hành theo tag; cấu hình qua SoftAP | Không nhúng credential vào firmware |
 
 ## 2. Những gì phải thay đổi để deploy được
@@ -41,7 +41,7 @@ Không mở port nào: node và backend đều **dial ra** broker.
 | Router/DB | Postgres 16 + partition tháng + materialized view | Neon, bảng thường + index |
 | MQTT | Spring Integration + `tcp://` | 1 Paho client + `ssl://…emqxsl.com:8883` (DigiCert G2 pinned trên node) |
 | Auth | JWT/RBAC/device API key | Không auth (xem rủi ro §3) |
-| Layer 3 | `dl_analyst/` (68 MB) trong repo | Xoá; chỉ còn contract |
+| Layer 3 | service FastAPI riêng | Xoá; ngưỡng tính in-process |
 | Firmware | WiFi/broker hardcode trong `config.h` | SoftAP portal ghi vào NVS, TLS 8883 |
 | CI | backend + layer3 + bruno + compose | backend, Docker image, firmware, bruno |
 | CD | Render auto-deploy mỗi push | Deploy hook chỉ khi CI xanh |
@@ -101,8 +101,7 @@ jdbc:postgresql://ep-xxx.ap-southeast-1.aws.neon.tech/aqss_db?sslmode=require
 | `DB_USER` / `DB_PASS` | user/pass Neon |
 | `MQTT_BROKER_URL` | `ssl://vc1f2107.ala.asia-southeast1.emqxsl.com:8883` |
 | `MQTT_USER` / `MQTT_PASS` | credential HiveMQ |
-| `AI_BASE_URL` | bỏ trống hoặc URL Layer 3 |
-| `CORS_ORIGIN` | origin dashboard (tạm `http://localhost:5173`) |
+| `CORS_ORIGIN` | danh sách origin, phân cách bằng dấu phẩy: dev + dashboard deploy |
 
 3. Deploy lần đầu, log phải có: `Successfully applied 1 migration` → `MQTT connected to ssl://…` → `Started BackendApplication`.
 4. Copy URL `https://<service>.onrender.com` và **Settings → Deploy Hook** (URL hook).
@@ -164,10 +163,12 @@ Deploy lên Render dạng **Static Site**:
 4. Lấy URL dashboard (vd `https://aqss-dashboard.onrender.com`) rồi quay lại service backend:
    **Environment → `CORS_ORIGIN`** = đúng URL đó → redeploy backend.
 
-`CORS_ORIGIN` chỉ nhận **một** origin. Nếu cần chạy song song local + production thì đổi qua lại,
-hoặc mở rộng `WebConfig` sang danh sách (một dòng `setAllowedOrigins`).
+`CORS_ORIGIN` nhận **danh sách** origin, phân cách bằng dấu phẩy — đặt cả origin dev và origin
+dashboard để không phải đổi qua lại:
 
-Ghi chú: khối dự báo hiển thị `unavailable` cho tới khi Layer 3 được deploy và `AI_ENABLED=true`.
+```text
+CORS_ORIGIN=http://localhost:5173,https://<dashboard>.onrender.com
+```
 
 ## 10. Kiểm tra sau deploy
 

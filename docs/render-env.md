@@ -16,9 +16,7 @@ Giá trị dưới đây điền vào **Render → Settings → Environment** (h
 | `MQTT_USER` | `aqss-admin` | EMQX → Access Control → Authentication |
 | `MQTT_PASS` | *(mật khẩu MQTT của `aqss-admin`)* | như trên |
 | `MQTT_QOS` | `1` | cố định |
-| `AI_BASE_URL` | `http://localhost:8000` | Layer 3 chưa deploy — để tạm |
-| `AI_ENABLED` | `false` | khi Layer 3 lên thì đổi `true` + URL thật |
-| `CORS_ORIGIN` | `http://localhost:5173` | đổi thành URL frontend khi deploy |
+| `CORS_ORIGIN` | `http://localhost:5173` | **danh sách phân cách bằng dấu phẩy**: origin dev + origin dashboard deploy |
 | `LOG_LEVEL_AQSS` | `INFO` | |
 | `PORT` | *(Render tự inject)* | **không** đặt tay; app đọc `SERVER_PORT` rồi tới `PORT` |
 
@@ -37,9 +35,7 @@ MQTT_BROKER_URL=ssl://vc1f2107.ala.asia-southeast1.emqxsl.com:8883
 MQTT_USER=aqss-admin
 MQTT_PASS=<mqtt-password>
 MQTT_QOS=1
-AI_BASE_URL=http://localhost:8000
-AI_ENABLED=false
-CORS_ORIGIN=http://localhost:5173
+CORS_ORIGIN=http://localhost:5173,https://<dashboard>.onrender.com
 LOG_LEVEL_AQSS=INFO
 ```
 

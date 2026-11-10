@@ -42,12 +42,6 @@ services:
       - key: MQTT_QOS
         value: "1"
 
-      # ── Layer 3 (FastAPI) ───────────────────────────────────────────────
-      - key: AI_BASE_URL
-        sync: false
-      - key: AI_ENABLED
-        value: "false"
-
       # ── Application ─────────────────────────────────────────────────────
       # Browser origin of the dashboard (Vite dev server or the deployed frontend).
       - key: CORS_ORIGIN
