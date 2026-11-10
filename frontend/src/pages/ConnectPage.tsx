@@ -35,8 +35,10 @@ export function ConnectPage() {
       {
         onSuccess: (device) => navigate(`/room/${encodeURIComponent(device.device_id)}`),
         onError: (err) => {
-          setError(describePairError(err));
-          if (err instanceof ApiError && err.status === 404) setStep(1);
+          // A wrong code sends the operator back to the field they have to correct — but the reason
+          // has to survive the jump, or the step silently resets and looks like a broken button.
+          setError(describePairError(err, code));
+          if (err instanceof ApiError && (err.status === 404 || err.status === 400)) setStep(1);
         },
       },
     );
@@ -108,6 +110,12 @@ export function ConnectPage() {
             Tiếp tục
           </button>
 
+          {error && (
+            <div className="mt-4 rounded-xl border border-bad/30 bg-bad/10 px-3 py-2.5 text-sm leading-relaxed text-bad">
+              {error}
+            </div>
+          )}
+
           <div className="mt-8 rounded-xl border border-line/70 p-4 text-[12px] leading-relaxed text-muted">
             <div className="font-medium text-slate-300">Màn hình không hiện mã?</div>
             <p className="mt-1">
@@ -171,6 +179,12 @@ export function ConnectPage() {
           <button type="button" onClick={() => setStep(3)} className="btn-primary mt-5 w-full py-4">
             Tiếp tục
           </button>
+
+          {error && (
+            <div className="mt-4 rounded-xl border border-bad/30 bg-bad/10 px-3 py-2.5 text-sm leading-relaxed text-bad">
+              {error}
+            </div>
+          )}
         </section>
       )}
 
@@ -232,12 +246,14 @@ function Row({ label, value, mono }: { label: string; value: string; mono?: bool
 }
 
 /** Pairing errors are HTTP details; the screen shows what to do about them. */
-function describePairError(error: unknown): string {
+function describePairError(error: unknown, code: string): string {
   if (error instanceof ApiError) {
     if (error.status === 404) {
-      return "Chưa có máy nào dùng mã này. Đợi khoảng 10 giây sau khi cắm điện rồi thử lại.";
+      return `Không có máy nào đang dùng mã ${code}. Đọc lại trên màn hình máy — mã gồm 6 ký tự, ` +
+        `và máy phải đang hiện mã (không phải màn hình số đo).`;
     }
     if (error.status === 409) return "Máy này đã được ghép với một phòng khác.";
+    if (error.status === 400) return "Mã không hợp lệ. Chỉ dùng chữ A–Z và số 2–9.";
     if (error.status === 0) return "Không kết nối được tới hệ thống. Kiểm tra mạng.";
     return error.message;
   }

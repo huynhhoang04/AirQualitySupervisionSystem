@@ -203,7 +203,7 @@ function DeviceSection({ device }: { device: Device }) {
               type="button"
               disabled={unpair.isPending}
               onClick={() =>
-                unpair.mutate(device.device_id, { onSuccess: () => navigate("/connect") })
+                unpair.mutate(device.device_id, { onSuccess: () => navigate("/") })
               }
               className="btn-danger flex-1"
             >
