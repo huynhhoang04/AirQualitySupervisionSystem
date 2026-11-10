@@ -61,6 +61,33 @@ static void drawSetup(const SensorData_t& d) {
     }
 }
 
+/** Shown while the node is online but not yet linked to a room — the operator reads the code. */
+static void drawPairing(const SensorData_t& d) {
+    s_u8g2.setFont(u8g2_font_helvB08_tr);
+    s_u8g2.drawStr(2, 11, "AQSS PAIRING");
+
+    s_u8g2.setFont(u8g2_font_6x10_tr);
+    s_u8g2.drawStr(2, 25, "Enter this code in");
+    s_u8g2.drawStr(2, 36, "the dashboard:");
+
+    // The code is the one thing the operator must read correctly: big, centred, spaced.
+    s_u8g2.setFont(u8g2_font_helvB14_tr);
+    char spaced[16];
+    size_t out = 0;
+    for (size_t i = 0; d.pairing_code[i] != '\0' && out < sizeof(spaced) - 2; i++) {
+        spaced[out++] = d.pairing_code[i];
+        spaced[out++] = ' ';
+    }
+    spaced[out] = '\0';
+    const int width = s_u8g2.getStrWidth(spaced);
+    s_u8g2.drawStr((128 - width) / 2, 56, spaced);
+
+    if (!d.mqtt_connected) {
+        s_u8g2.setFont(u8g2_font_6x10_tr);
+        s_u8g2.drawStr(2, 63, "offline - code stays valid");
+    }
+}
+
 static void drawMain(const SensorData_t& d) {
     drawStatusBar(d);
 
@@ -98,7 +125,7 @@ static void drawMain(const SensorData_t& d) {
         s_u8g2.drawStr(2, 61, "! PM2.5 saturated");
     } else {
         snprintf(line, sizeof(line), "%s  %s  %luh", d.fan_mode == FAN_MODE_AUTO ? "AUTO" : "MANUAL",
-                 d.mqtt_connected ? "online" : "offline", (unsigned long)(millis() / 3600000UL));
+             d.mqtt_connected ? "online" : "offline", (unsigned long)(millis() / 3600000UL));
         s_u8g2.drawStr(2, 61, line);
     }
 }
@@ -121,6 +148,8 @@ void Task_UpdateOLED(void* pvParam) {
         s_u8g2.clearBuffer();
         if (d.provisioning) {
             drawSetup(d);
+        } else if (!d.paired) {
+            drawPairing(d);
         } else {
             drawMain(d);
         }

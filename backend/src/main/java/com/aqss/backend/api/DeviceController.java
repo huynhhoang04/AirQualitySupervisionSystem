@@ -1,9 +1,8 @@
 package com.aqss.backend.api;
 
 import com.aqss.backend.model.Device;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.aqss.backend.model.Telemetry;
+import com.aqss.backend.service.AiClient;
 import com.aqss.backend.service.DeviceService;
 import com.aqss.backend.service.TelemetryService;
 import lombok.RequiredArgsConstructor;
@@ -21,7 +20,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.time.Instant;
 import java.util.List;
 
-/** Everything the dashboard needs about a node: state, history, forecast, commands. */
+/** Everything the dashboard needs about a node: pairing, state, history, forecast, commands. */
 @RestController
 @RequestMapping("/api/v1/devices")
 @RequiredArgsConstructor
@@ -29,11 +28,11 @@ public class DeviceController {
 
     private final DeviceService devices;
     private final TelemetryService telemetry;
-    private final ObjectMapper objectMapper;
 
+    /** Paired devices only; {@code ?include_unpaired=true} for the debugging view. */
     @GetMapping
-    public List<Device> list() {
-        return devices.findAll();
+    public List<Device> list(@RequestParam(name = "include_unpaired", defaultValue = "false") boolean includeUnpaired) {
+        return devices.findAll(includeUnpaired);
     }
 
     @GetMapping("/{deviceId}")
@@ -52,7 +51,18 @@ public class DeviceController {
         return ResponseEntity.noContent().build();
     }
 
-    /** Manual control — {@code {"command":"set_actuator","params":{"state":"ON","level":2}}}. */
+    /** {@code {"pairing_code":"7K2M9X","space_code":"SP_201","name":"..."}} — io_contract §7.1. */
+    @PostMapping("/pair")
+    public Device pair(@RequestBody DeviceService.PairRequest request) {
+        return devices.pair(request.pairingCode(), request.spaceCode(), request.name());
+    }
+
+    @PostMapping("/{deviceId}/unpair")
+    public Device unpair(@PathVariable String deviceId) {
+        return devices.unpair(deviceId);
+    }
+
+    /** Manual control — {@code {"command":"set_actuator","params":{"state":"ON","level":2,"mode":"MANUAL"}}}. */
     @PostMapping("/{deviceId}/command")
     public Device command(@PathVariable String deviceId, @RequestBody DeviceService.CommandRequest request) {
         return devices.command(deviceId, request);
@@ -63,7 +73,7 @@ public class DeviceController {
         return telemetry.latest(deviceId);
     }
 
-    /** Chart data: raw readings between two instants (defaults to the last 24 h). */
+    /** Chart data: raw readings between two instants (defaults to the last 24 h, thinned to ~1500 points). */
     @GetMapping("/{deviceId}/telemetry")
     public List<Telemetry> history(@PathVariable String deviceId,
                                    @RequestParam(required = false) Instant from,
@@ -73,21 +83,14 @@ public class DeviceController {
 
     /** The cached 96-point forecast from Layer 3 (empty array until one is produced). */
     @GetMapping("/{deviceId}/forecast")
-    public JsonNode forecast(@PathVariable String deviceId) {
-        return readTree(telemetry.storedForecast(deviceId));
+    public List<AiClient.ForecastPoint> forecast(@PathVariable String deviceId) {
+        return telemetry.forecastPoints(deviceId);
     }
 
     /** Ask Layer 3 for a fresh forecast and store it. */
     @PostMapping("/{deviceId}/forecast")
-    public JsonNode refreshForecast(@PathVariable String deviceId) {
-        return readTree(telemetry.refreshForecast(deviceId));
-    }
-
-    private JsonNode readTree(String json) {
-        try {
-            return objectMapper.readTree(json);
-        } catch (Exception e) {
-            return objectMapper.createArrayNode();
-        }
+    public List<AiClient.ForecastPoint> refreshForecast(@PathVariable String deviceId) {
+        telemetry.refreshForecast(deviceId);
+        return telemetry.forecastPoints(deviceId);
     }
 }

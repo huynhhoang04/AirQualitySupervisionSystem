@@ -9,21 +9,59 @@ body,
 }
 
 body {
-  @apply bg-ink text-slate-200 antialiased;
+  @apply bg-canvas text-slate-100 antialiased;
   margin: 0;
-  font-family: Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-feature-settings: "tnum" 1;
+}
+
+/* A visible, high-contrast focus ring on every interactive element: the dashboard is keyboard
+   reachable, and removing the ring is the most common accessibility regression. */
+:focus-visible {
+  @apply outline-none ring-2 ring-info ring-offset-2 ring-offset-canvas;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 @layer components {
   .card {
-    @apply rounded-xl border border-line bg-panel;
+    @apply rounded-xl border border-line/70 bg-surface;
   }
 
   .label {
-    @apply text-[11px] uppercase tracking-[0.14em] text-slate-500;
+    @apply text-[11px] font-medium uppercase tracking-[0.14em] text-muted;
   }
 
-  .value {
-    @apply text-2xl font-semibold tabular-nums text-slate-100;
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg border px-3 py-2 text-sm
+      transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .btn-primary {
+    @apply btn border-good/40 bg-good/15 text-good hover:bg-good/25;
+  }
+
+  .btn-ghost {
+    @apply btn border-line text-slate-300 hover:border-slate-500 hover:text-white;
+  }
+
+  .btn-danger {
+    @apply btn border-bad/40 bg-bad/10 text-bad hover:bg-bad/20;
+  }
+
+  .field {
+    @apply w-full rounded-lg border border-line bg-canvas px-3 py-2 text-sm text-white
+      placeholder:text-slate-500 focus:border-info;
+  }
+
+  .chip {
+    @apply inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs;
   }
 }

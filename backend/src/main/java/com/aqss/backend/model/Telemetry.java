@@ -46,4 +46,8 @@ public class Telemetry {
 
     @Column(name = "wifi_rssi")
     private Short wifiRssi;
+
+    /** The dust sensor reached its rail; {@code pm25} is a floor, not a measurement. */
+    @Column(name = "pm25_saturated", nullable = false)
+    private boolean pm25Saturated;
 }

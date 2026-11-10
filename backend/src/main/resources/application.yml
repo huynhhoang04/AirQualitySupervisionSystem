@@ -44,6 +44,16 @@ aqss:
     cycle-ms: ${CONTROL_CYCLE_MS:60000}
     hysteresis-ratio: ${CONTROL_HYSTERESIS_RATIO:0.7}
     min-on-minutes: ${CONTROL_MIN_ON_MINUTES:5}
+    min-off-minutes: ${CONTROL_MIN_OFF_MINUTES:3}
+    max-on-minutes: ${CONTROL_MAX_ON_MINUTES:120}
+    # A reading older than this does not drive the fan: no command is safer than a stale one.
+    stale-reading-minutes: ${CONTROL_STALE_READING_MINUTES:5}
+    # Forecast pre-emption (io_contract §10): a q90 breach this far ahead activates early.
+    forecast-horizon-minutes: ${CONTROL_FORECAST_HORIZON_MINUTES:120}
+    # A forecast is ignored once it is older than this.
+    forecast-max-age-minutes: ${CONTROL_FORECAST_MAX_AGE_MINUTES:180}
+    # Never renew the node's command lease more often than this while the fan runs.
+    lease-renew-minutes: ${CONTROL_LEASE_RENEW_MINUTES:5}
   mqtt:
     broker-url: ${MQTT_BROKER_URL:tcp://${MQTT_HOST:localhost}:${MQTT_PORT:1883}}
     client-id: ${MQTT_CLIENT_ID:aqss-backend}

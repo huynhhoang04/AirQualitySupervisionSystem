@@ -8,7 +8,7 @@
 #include "system_utils.h"
 
 // Intel 4-wire fan: pin 2 sits on a constant +12 V, pin 4 is the 25 kHz PWM input.
-// Duty per commanded level (io_contract §2): 0 → 0 %, 1 → 35 %, 2 → 60 %, 3 → 90 %.
+// Duty per commanded level (io_contract §5): 0 → 0 %, 1 → 35 %, 2 → 60 %, 3 → 90 %.
 static const uint8_t kLevelDuty[4] = {0, 89, 153, 230};
 
 static bool s_appliedOn = false;
@@ -34,6 +34,20 @@ static void applyDuty(bool on, uint8_t level) {
 
     s_appliedOn = duty > 0;
     s_appliedDuty = duty;
+}
+
+/** OFF → L1 → L2 → L3 → OFF, always in MANUAL. */
+static void cycleManualLevel() {
+    const FanCommand_t current = fanCmdSnapshot();
+    uint8_t next = 0;
+    if (current.on) {
+        next = (uint8_t)(current.level >= 3 ? 0 : current.level + 1);
+    } else {
+        next = 1;
+    }
+    // A level above 0 implies ON; fanCmdSet enforces that too.
+    fanCmdSet(next > 0, next, FAN_MODE_MANUAL, false);
+    AQSS_LOG("button: MANUAL %s L%u", next > 0 ? "ON" : "OFF", (unsigned)next);
 }
 
 void Task_FanControl(void* pvParam) {
@@ -67,18 +81,16 @@ void Task_FanControl(void* pvParam) {
                 pressStartMs = now;
                 holdHandled = false;
             } else if (!holdHandled && (uint32_t)(now - pressStartMs) < FAN_BUTTON_HOLD_MS) {
-                const FanCommand_t current = fanCmdSnapshot();
-                const bool newOn = !current.on;
-                const uint8_t level = current.level > 0 ? current.level : 2;
-                fanCmdSet(newOn, level, FAN_MODE_MANUAL, false);
-                AQSS_LOG("button: MANUAL %s L%u", newOn ? "ON" : "OFF", level);
+                cycleManualLevel();
             }
         }
 
         if (stablePressed && !holdHandled && (uint32_t)(now - pressStartMs) >= FAN_BUTTON_HOLD_MS) {
             holdHandled = true;
             const FanCommand_t current = fanCmdSnapshot();
-            fanCmdSet(current.on, current.level, FAN_MODE_AUTO, false);
+            // Returning to AUTO also renews the lease: the backend has not sent a command for a
+            // while, so without this the fail-safe below would cut the fan on the next tick.
+            fanCmdSet(current.on, current.level, FAN_MODE_AUTO, true);
             AQSS_LOG("button: hold -> AUTO mode");
         }
 
@@ -96,7 +108,7 @@ void Task_FanControl(void* pvParam) {
         const bool wantOn = cmd.on && cmd.level > 0;
         if (wantOn != s_appliedOn || (wantOn && kLevelDuty[cmd.level] != s_appliedDuty)) {
             applyDuty(wantOn, cmd.level);
-            AQSS_LOG("fan: %s L%u duty=%u%%", s_appliedOn ? "ON" : "OFF", cmd.level,
+            AQSS_LOG("fan: %s L%u duty=%u%%", s_appliedOn ? "ON" : "OFF", (unsigned)cmd.level,
                      (unsigned)((s_appliedDuty * 100u) / 255u));
         }
 

@@ -36,6 +36,10 @@ typedef struct {
     float co2;
     float temperature;
     float humidity;
+    bool pm25_valid;
+    bool co2_valid;
+    bool pm25_saturated;
+    bool dust_fault;
     int rssi;
     uint32_t uptime_s;
     uint32_t free_heap;
@@ -70,19 +74,36 @@ static void serializeSample(const TelemetrySample& s, char* out, size_t len) {
     JsonDocument doc;
     doc["device_id"] = AQSS_DEVICE_ID;
     doc["space_id"] = s.space_id;
+    char code[PAIRING_CODE_LEN + 1];
+    pairingCode(code, sizeof(code));
+    doc["pairing_code"] = code;
     doc["timestamp"] = s.timestamp;
 
+    // A sensor with no reading yet is absent, not 0.0: 0 is outside the acceptance window and the
+    // backend would discard the whole sample, losing the PM2.5 that did read.
     JsonObject sensors = doc["sensors"].to<JsonObject>();
-    sensors["pm25"] = roundf(s.pm25 * 10.0f) / 10.0f;
-    sensors["co2"] = roundf(s.co2 * 10.0f) / 10.0f;
-    sensors["temperature"] = roundf(s.temperature * 10.0f) / 10.0f;
-    sensors["humidity"] = roundf(s.humidity * 10.0f) / 10.0f;
+    if (s.pm25_valid) {
+        sensors["pm25"] = roundf(s.pm25 * 10.0f) / 10.0f;
+    } else {
+        sensors["pm25"] = nullptr;
+    }
+    if (s.co2_valid) {
+        sensors["co2"] = roundf(s.co2 * 10.0f) / 10.0f;
+        sensors["temperature"] = roundf(s.temperature * 10.0f) / 10.0f;
+        sensors["humidity"] = roundf(s.humidity * 10.0f) / 10.0f;
+    } else {
+        sensors["co2"] = nullptr;
+        sensors["temperature"] = nullptr;
+        sensors["humidity"] = nullptr;
+    }
 
     JsonObject system = doc["system"].to<JsonObject>();
     system["wifi_rssi"] = s.rssi;
     system["uptime_sec"] = s.uptime_s;
     system["free_heap"] = s.free_heap;
     system["min_free_heap"] = s.min_free_heap;
+    system["pm25_saturated"] = s.pm25_saturated;
+    system["dust_fault"] = s.dust_fault;
 
     serializeJson(doc, out, len);
 }
@@ -98,14 +119,46 @@ static void bufferOffline(const TelemetrySample& sample) {
 }
 
 static void publishStatus(const char* status) {
-    char payload[128];
+    char payload[160];
+    char code[PAIRING_CODE_LEN + 1];
+    pairingCode(code, sizeof(code));
     const uint32_t ts = timeIsValid() ? (uint32_t)time(nullptr) : 0;
     snprintf(payload, sizeof(payload),
-             "{\"device_id\":\"%s\",\"status\":\"%s\",\"timestamp\":%lu}", AQSS_DEVICE_ID, status,
-             (unsigned long)ts);
+             "{\"device_id\":\"%s\",\"pairing_code\":\"%s\",\"status\":\"%s\",\"timestamp\":%lu}",
+             AQSS_DEVICE_ID, code, status, (unsigned long)ts);
     if (!publishPayload(kTopicStatus, payload, true, 1)) {
         AQSS_LOG("mqtt: status publish failed");
     }
+}
+
+/** Snapshot the shared state into the wire shape used by both the live and the buffered path. */
+static TelemetrySample currentSample() {
+    const SensorData_t d = dataSnapshot();
+    TelemetrySample sample;
+    memset(&sample, 0, sizeof(sample));
+    strlcpy(sample.space_id, d.space_id, sizeof(sample.space_id));
+    sample.timestamp = timeIsValid() ? (uint32_t)time(nullptr) : 0;
+    sample.pm25 = d.pm25_ugm3;
+    sample.co2 = d.co2_ppm;
+    sample.temperature = d.temperature_c;
+    sample.humidity = d.humidity_pct;
+    sample.pm25_valid = d.dust_ready;
+    sample.co2_valid = d.scd40_ready;
+    sample.pm25_saturated = d.dust_saturated;
+    sample.dust_fault = d.dust_fault;
+    sample.rssi = d.wifi_rssi;
+    sample.uptime_s = millis() / 1000UL;
+    sample.free_heap = ESP.getFreeHeap();
+    sample.min_free_heap = d.min_free_heap;
+    return sample;
+}
+
+/** Called while the broker is unreachable so the gap is back-filled once it returns. */
+static void bufferCurrentReading() {
+    if (!timeIsValid()) {
+        return;
+    }
+    bufferOffline(currentSample());
 }
 
 static void publishTelemetry() {
@@ -118,20 +171,7 @@ static void publishTelemetry() {
         return;
     }
 
-    const SensorData_t d = dataSnapshot();
-
-    TelemetrySample sample;
-    memset(&sample, 0, sizeof(sample));
-    strlcpy(sample.space_id, d.space_id, sizeof(sample.space_id));
-    sample.timestamp = (uint32_t)time(nullptr);
-    sample.pm25 = d.pm25_ugm3;
-    sample.co2 = d.co2_ppm;
-    sample.temperature = d.temperature_c;
-    sample.humidity = d.humidity_pct;
-    sample.rssi = d.wifi_rssi;
-    sample.uptime_s = millis() / 1000UL;
-    sample.free_heap = ESP.getFreeHeap();
-    sample.min_free_heap = d.min_free_heap;
+    const TelemetrySample sample = currentSample();
 
     char payload[MQTT_BUFFER_SIZE];
     serializeSample(sample, payload, sizeof(payload));
@@ -195,6 +235,7 @@ static void handleCommand(const char* payload, size_t length) {
 
     if (strcmp(command, "set_actuator") == 0) {
         const char* state = params["state"] | "OFF";
+        const char* mode = params["mode"] | "AUTO";
         int level = params["level"] | 0;
         if (level < 0) {
             level = 0;
@@ -203,8 +244,11 @@ static void handleCommand(const char* payload, size_t length) {
             level = 3;
         }
         const bool on = strcmp(state, "ON") == 0;
-        fanCmdSet(on, (uint8_t)level, FAN_MODE_AUTO, true);
-        AQSS_LOG("cmd: set_actuator state=%s level=%d", state, level);
+        // The backend decides whether this is an automatic or a manual override; forcing AUTO
+        // here is what made a dashboard MANUAL last less than one telemetry period.
+        const FanMode_t fanMode = (strcmp(mode, "MANUAL") == 0) ? FAN_MODE_MANUAL : FAN_MODE_AUTO;
+        fanCmdSet(on, (uint8_t)level, fanMode, true);
+        AQSS_LOG("cmd: set_actuator state=%s level=%d mode=%s", state, level, mode);
 
     } else if (strcmp(command, "display_warning") == 0) {
         const char* message = params["message"] | "";
@@ -221,10 +265,12 @@ static void handleCommand(const char* payload, size_t length) {
         const char* spaceId = params["space_id"] | "";
         if (spaceId[0] != '\0') {
             configSetSpaceId(spaceId);
+            configSetPaired(true);
             dataLock();
             strlcpy(g_sensorData.space_id, spaceId, sizeof(g_sensorData.space_id));
+            g_sensorData.paired = true;
             dataUnlock();
-            AQSS_LOG("cmd: set_space %s", spaceId);
+            AQSS_LOG("cmd: set_space %s (paired)", spaceId);
         }
 
     } else if (strcmp(command, "recalibrate_dust") == 0) {
@@ -367,11 +413,14 @@ static bool mqttConnect() {
         AQSS_LOG("mqtt: connect to %s:%d failed (%d)", MQTT_SERVER, MQTT_PORT, s_mqtt.connectError());
         return false;
     }
-
     if (s_mqtt.subscribe(kTopicCommand, 1) != 1) {
         AQSS_LOG("mqtt: subscribe to %s failed", kTopicCommand);
     }
-    publishStatus("ONLINE");
+    // The status carries the pairing code; the dashboard needs it, so publish it once NTP is
+    // valid (a timestamp of 0 would be stored as 1970 and read as "never seen").
+    if (timeIsValid()) {
+        publishStatus("ONLINE");
+    }
     AQSS_LOG("mqtt: connected to %s:%d", MQTT_SERVER, MQTT_PORT);
     return true;
 }
@@ -384,6 +433,12 @@ void Task_MQTT_Network(void* pvParam) {
         AQSS_LOG("%s -> setup portal",
                  g_forceProvisioning ? "button held" : "no credentials");
         provisioningRun(false);   // manual setup: AP stays until saved
+    }
+
+    {
+        char code[PAIRING_CODE_LEN + 1];
+        pairingCode(code, sizeof(code));
+        AQSS_LOG("pairing: code %s — enter it in the dashboard to link this node to a room", code);
     }
 
 #if MQTT_USE_TLS
@@ -413,6 +468,9 @@ void Task_MQTT_Network(void* pvParam) {
     uint32_t lastStateMs = 0;
     uint32_t lastNtpMs = 0;
     bool lastFanState = false;
+    uint8_t lastFanLevel = 0;
+    uint8_t lastFanMode = 0xFF;   // 0xFF forces the first actuator-state publish
+    bool wasTimeValid = false;
 
     for (;;) {
         aqssWdtFeed();
@@ -449,7 +507,24 @@ void Task_MQTT_Network(void* pvParam) {
             AQSS_LOG("ntp: sync requested (ip=%s rssi=%d)", WiFi.localIP().toString().c_str(), WiFi.RSSI());
         }
 
+        // The first ONLINE was suppressed because time was not valid yet; publish it now that it
+        // is, so the backend gets a dated liveness message rather than 1970.
+        if (!wasTimeValid && timeIsValid()) {
+            wasTimeValid = true;
+            if (s_mqtt.connected()) {
+                publishStatus("ONLINE");
+                AQSS_LOG("ntp: time valid, status ONLINE published");
+            }
+        }
+
         if (!s_mqtt.connected()) {
+            // Still sample while offline: otherwise the buffer only ever fills when a publish
+            // fails on a live connection, which is the one case that rarely happens.
+            const RuntimeConfig offlineCfg = configSnapshot();
+            if ((uint32_t)(now - lastTelemetryMs) >= offlineCfg.telemetry_interval_ms) {
+                lastTelemetryMs = now;
+                bufferCurrentReading();
+            }
             dataLock();
             g_sensorData.mqtt_connected = false;
             dataUnlock();
@@ -467,9 +542,13 @@ void Task_MQTT_Network(void* pvParam) {
         }
 
         const SensorData_t d = dataSnapshot();
-        if (d.fan_state != lastFanState ||
+        // Publish on any change of state/level/mode — not just on the ON/OFF edge, otherwise a
+        // level change while the fan is OFF never reaches the backend — plus a heartbeat while ON.
+        if (d.fan_state != lastFanState || d.fan_level != lastFanLevel || d.fan_mode != lastFanMode ||
             (d.fan_state && (uint32_t)(now - lastStateMs) >= FAN_STATE_PUBLISH_MS)) {
             lastFanState = d.fan_state;
+            lastFanLevel = d.fan_level;
+            lastFanMode = d.fan_mode;
             lastStateMs = now;
             publishActuatorState();
         }

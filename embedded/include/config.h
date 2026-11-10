@@ -125,6 +125,11 @@
 #define TELEMETRY_INTERVAL_MAX_MS 60000
 #define OFFLINE_BUFFER_SLOTS 60
 
+// ─── Pairing ──────────────────────────────────────────────────────────────────
+// The backend creates the device row, but leaves it hidden until an operator types this code
+// into the dashboard. Six symbols from a 32-character alphabet (no I/O/0/1).
+#define PAIRING_CODE_LEN 6
+
 // ─── OLED ─────────────────────────────────────────────────────────────────────
 #define OLED_SHIFT_PERIOD_MS 1800000UL
 #define WARNING_TTL_MS (30UL * 60UL * 1000UL)

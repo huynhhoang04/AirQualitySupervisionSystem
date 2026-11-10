@@ -15,6 +15,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.nio.charset.StandardCharsets;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
@@ -26,14 +27,15 @@ import java.util.Map;
 @Slf4j
 public class MqttLink implements MqttCallbackExtended {
 
-    private static final String TOPIC_FILTER = "aqss/devices/+/+";
-    private static final String TOPIC_FILTER_STATE = "aqss/devices/+/actuator/state";
+    private static final String TELEMETRY = "aqss/devices/+/telemetry";
+    private static final String STATUS = "aqss/devices/+/status";
+    private static final String ACTUATOR_STATE = "aqss/devices/+/actuator/state";
 
     private final AqssSettings settings;
     private final ObjectMapper mapper;
     private final ApplicationEventPublisher events;
 
-    private MqttClient client;
+    private volatile MqttClient client;
 
     @PostConstruct
     void start() {
@@ -63,12 +65,18 @@ public class MqttLink implements MqttCallbackExtended {
                 options.setPassword(settings.mqtt().password().toCharArray());
             }
             client.connect(options);
-            client.subscribe(TOPIC_FILTER, settings.mqtt().qos());
-            client.subscribe(TOPIC_FILTER_STATE, settings.mqtt().qos());
-            log.info("MQTT connected to {} (telemetry + status + actuator state)", settings.mqtt().brokerUrl());
+            subscribeAll();
+            log.info("MQTT connected to {} (subscribed for telemetry, status, actuator state)",
+                    settings.mqtt().brokerUrl());
         } catch (Exception e) {
             log.warn("MQTT unavailable ({}): {}", settings.mqtt().brokerUrl(), e.getMessage());
         }
+    }
+
+    private void subscribeAll() throws Exception {
+        client.subscribe(TELEMETRY, settings.mqtt().qos());
+        client.subscribe(STATUS, settings.mqtt().qos());
+        client.subscribe(ACTUATOR_STATE, settings.mqtt().qos());
     }
 
     /** Re-arm the connection if the first attempt lost the race with the platform network. */
@@ -80,8 +88,7 @@ public class MqttLink implements MqttCallbackExtended {
     @Override
     public void connectComplete(boolean reconnect, String serverURI) {
         try {
-            client.subscribe(TOPIC_FILTER, settings.mqtt().qos());
-            client.subscribe(TOPIC_FILTER_STATE, settings.mqtt().qos());
+            subscribeAll();
             log.info("MQTT {} to {}", reconnect ? "reconnected" : "connected", serverURI);
         } catch (Exception e) {
             log.warn("Could not resubscribe: {}", e.getMessage());
@@ -97,12 +104,12 @@ public class MqttLink implements MqttCallbackExtended {
     public void messageArrived(String topic, MqttMessage message) {
         String payload = new String(message.getPayload(), StandardCharsets.UTF_8);
         try {
-            if (topic.endsWith("/telemetry")) {
+            if (topic.endsWith("/actuator/state")) {
+                events.publishEvent(mapper.readValue(payload, ActuatorStateEvent.class));
+            } else if (topic.endsWith("/telemetry")) {
                 events.publishEvent(mapper.readValue(payload, TelemetryEvent.class));
             } else if (topic.endsWith("/status")) {
                 events.publishEvent(mapper.readValue(payload, StatusEvent.class));
-            } else if (topic.endsWith("/actuator/state")) {
-                events.publishEvent(mapper.readValue(payload, ActuatorStateEvent.class));
             }
         } catch (Exception e) {
             log.warn("Dropped MQTT message on {} ({}): {}", topic, payload, e.getMessage());
@@ -114,32 +121,48 @@ public class MqttLink implements MqttCallbackExtended {
         // QoS 1 acknowledgement only; nothing to do.
     }
 
-    /** {@code {"command": "...", "params": {...}}} — see io_contract.md §4. */
-    public void publishCommand(String deviceId, String command, Map<String, Object> params) {
+    /**
+     * {@code {"command": "...", "params": {...}}} — see io_contract.md §5.
+     *
+     * <p>Best-effort: a broker that is down must not break the REST API or the control loop. The
+     * caller that cares (an explicit user command) checks the return value.
+     */
+    public boolean publishCommand(String deviceId, String command, Map<String, Object> params) {
+        MqttClient current = client;
+        if (current == null || !current.isConnected()) {
+            log.warn("Not connected — dropped {} for {}", command, deviceId);
+            return false;
+        }
         try {
-            String json = mapper.writeValueAsString(Map.of(
-                    "command", command,
-                    "params", params == null ? Map.of() : params));
-            MqttMessage message = new MqttMessage(json.getBytes(StandardCharsets.UTF_8));
+            // LinkedHashMap, not Map.of: Map.of rejects null values and one null param would turn
+            // the whole command into an NPE on the control-loop thread.
+            Map<String, Object> envelope = new LinkedHashMap<>();
+            envelope.put("command", command);
+            envelope.put("params", params == null ? Map.of() : params);
+
+            MqttMessage message = new MqttMessage(mapper.writeValueAsBytes(envelope));
             message.setQos(settings.mqtt().qos());
-            client.publish("aqss/devices/" + deviceId + "/command", message);
+            current.publish("aqss/devices/" + deviceId + "/command", message);
+            return true;
         } catch (Exception e) {
-            throw new IllegalStateException("Cannot publish MQTT command " + command + ": " + e.getMessage(), e);
+            log.warn("Cannot publish {} to {}: {}", command, deviceId, e.getMessage());
+            return false;
         }
     }
 
-    // ── Inbound payloads (io_contract §1–§3) ─────────────────────────────────
+    // ── Inbound payloads (io_contract §2–§4) ─────────────────────────────────
     public record Sensors(Float pm25, Float co2, Float temperature, Float humidity) {
     }
 
-    public record SystemInfo(Integer wifi_rssi, Long uptime_sec, Long free_heap, Long min_free_heap) {
+    public record SystemInfo(Integer wifi_rssi, Long uptime_sec, Long free_heap, Long min_free_heap,
+                             Boolean pm25_saturated, Boolean dust_fault) {
     }
 
-    public record TelemetryEvent(String deviceId, String spaceId, Long timestamp,
+    public record TelemetryEvent(String deviceId, String spaceId, String pairingCode, Long timestamp,
                                  Sensors sensors, SystemInfo system) {
     }
 
-    public record StatusEvent(String deviceId, String status, Long timestamp) {
+    public record StatusEvent(String deviceId, String pairingCode, String status, Long timestamp) {
     }
 
     public record ActuatorStateEvent(String deviceId, String state, Integer level,

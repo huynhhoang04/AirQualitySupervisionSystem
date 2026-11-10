@@ -14,8 +14,16 @@ public record AqssSettings(
     public record Ai(String baseUrl, int timeoutMs, boolean enabled) {
     }
 
-    /** Closed-loop tuning. */
-    public record Control(long cycleMs, double hysteresisRatio, int minOnMinutes) {
+    /** Closed-loop tuning (io_contract §10). */
+    public record Control(long cycleMs,
+                          double hysteresisRatio,
+                          int minOnMinutes,
+                          int minOffMinutes,
+                          int maxOnMinutes,
+                          int staleReadingMinutes,
+                          int forecastHorizonMinutes,
+                          int forecastMaxAgeMinutes,
+                          int leaseRenewMinutes) {
     }
 
     public record Mqtt(String brokerUrl, String clientId, String username, String password, int qos) {

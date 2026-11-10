@@ -1,17 +1,30 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "../api/client";
-import type { SpaceRequest } from "../api/types";
+import type {
+  DeviceUpdateRequest,
+  FanCommand,
+  PairRequest,
+  SpaceRequest,
+} from "../api/types";
+
+// Polling intervals are tied to what the backend can change: telemetry lands every 5 s, the
+// control loop runs every 60 s, the audit trail is append-only.
+const LIVE_MS = 5_000;
+const SLOW_MS = 30_000;
 
 export const useDevices = () =>
-  useQuery({ queryKey: ["devices"], queryFn: api.devices, refetchInterval: 5_000 });
+  useQuery({ queryKey: ["devices"], queryFn: api.devices, refetchInterval: LIVE_MS });
 
 export const useLatest = (deviceId?: string) =>
   useQuery({
     queryKey: ["latest", deviceId],
     queryFn: () => api.latest(deviceId!),
     enabled: Boolean(deviceId),
-    refetchInterval: 5_000,
+    refetchInterval: LIVE_MS,
+    // A brand-new paired node has no reading yet: a 404 is the expected state, not an error to
+    // retry and shout about.
+    retry: false,
   });
 
 export const useHistory = (deviceId?: string, hours = 24) =>
@@ -19,7 +32,7 @@ export const useHistory = (deviceId?: string, hours = 24) =>
     queryKey: ["history", deviceId, hours],
     queryFn: () => api.history(deviceId!, hours),
     enabled: Boolean(deviceId),
-    refetchInterval: 30_000,
+    refetchInterval: SLOW_MS,
   });
 
 export const useForecast = (deviceId?: string) =>
@@ -36,21 +49,57 @@ export const useSpaces = () =>
 export const useAudit = (deviceId?: string) =>
   useQuery({
     queryKey: ["audit", deviceId],
-    queryFn: () => api.audit(deviceId, 25),
+    queryFn: () => api.audit(deviceId, 50),
     refetchInterval: 15_000,
   });
 
-export function useSetFan(deviceId?: string) {
+/** Everything a fan command can invalidate. */
+function invalidateDeviceViews(queryClient: ReturnType<typeof useQueryClient>, deviceId?: string) {
+  queryClient.invalidateQueries({ queryKey: ["devices"] });
+  queryClient.invalidateQueries({ queryKey: ["audit", deviceId] });
+  if (deviceId) {
+    queryClient.invalidateQueries({ queryKey: ["latest", deviceId] });
+  }
+}
+
+export function useFanCommand(deviceId?: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (input: { on: boolean; level: number }) =>
-      api.command(deviceId!, {
-        command: "set_actuator",
-        params: { state: input.on ? "ON" : "OFF", level: input.on ? input.level : 0 },
-      }),
+    mutationFn: (body: FanCommand) => api.command(deviceId!, body),
+    onSuccess: () => invalidateDeviceViews(queryClient, deviceId),
+  });
+}
+
+export function usePairDevice() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: PairRequest) => api.pair(body),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["devices"] });
+      queryClient.invalidateQueries({ queryKey: ["spaces"] });
+      queryClient.invalidateQueries({ queryKey: ["audit"] });
+    },
+  });
+}
+
+export function useUnpairDevice() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (deviceId: string) => api.unpair(deviceId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["devices"] });
       queryClient.invalidateQueries({ queryKey: ["audit"] });
+    },
+  });
+}
+
+export function useUpdateDevice(deviceId?: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: DeviceUpdateRequest) => api.updateDevice(deviceId!, body),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["devices"] });
+      queryClient.invalidateQueries({ queryKey: ["audit", deviceId] });
     },
   });
 }
@@ -61,6 +110,7 @@ export function useSaveSpace(code?: string) {
     mutationFn: (body: SpaceRequest) => api.saveSpace(code!, body),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["spaces"] });
+      queryClient.invalidateQueries({ queryKey: ["devices"] });
       queryClient.invalidateQueries({ queryKey: ["audit"] });
     },
   });

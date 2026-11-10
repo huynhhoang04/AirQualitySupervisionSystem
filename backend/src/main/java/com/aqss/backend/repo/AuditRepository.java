@@ -11,4 +11,6 @@ public interface AuditRepository extends JpaRepository<AuditEntry, Long> {
     List<AuditEntry> findAllByOrderByOccurredAtDesc(Pageable pageable);
 
     List<AuditEntry> findByDeviceIdOrderByOccurredAtDesc(String deviceId, Pageable pageable);
+
+    java.util.Optional<AuditEntry> findFirstByDeviceIdAndActionOrderByOccurredAtDesc(String deviceId, String action);
 }

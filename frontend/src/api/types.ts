@@ -5,10 +5,13 @@ export interface Device {
   device_id: string;
   name: string | null;
   space_code: string | null;
+  pairing_code: string | null;
+  paired_at: string | null;
   fan_state: FanState;
   fan_level: number;
   fan_mode: FanMode;
   on_since: string | null;
+  off_since: string | null;
   last_command_at: string | null;
   telemetry_interval_ms: number;
   dust_baseline_us: number;
@@ -25,6 +28,7 @@ export interface Telemetry {
   temperature: number | null;
   humidity: number | null;
   wifi_rssi: number | null;
+  pm25_saturated: boolean;
 }
 
 export interface Space {
@@ -55,10 +59,14 @@ export interface ForecastPoint {
   pm25_q90: number;
 }
 
-export interface CommandRequest {
-  command: string;
-  params: Record<string, unknown>;
-}
+export type FanCommand =
+  | { command: "set_actuator"; params: { state: FanState; level: number; mode: FanMode } }
+  | { command: "reboot" }
+  | { command: "recalibrate_dust"; params?: { baseline_w0?: number } }
+  | { command: "force_ntp_sync" }
+  | { command: "set_interval"; params: { interval_ms: number } }
+  | { command: "set_space"; params: { space_id: string } }
+  | { command: "display_warning"; params: { message: string; severity: string } };
 
 export interface DeviceUpdateRequest {
   name?: string;
@@ -74,4 +82,10 @@ export interface SpaceRequest {
   region?: string;
   ventilation_estimate?: string;
   threshold_pm25?: number;
+}
+
+export interface PairRequest {
+  pairing_code: string;
+  space_code: string;
+  name?: string;
 }

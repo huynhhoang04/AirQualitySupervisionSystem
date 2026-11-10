@@ -18,9 +18,14 @@ public class AuditController {
 
     private final AuditService audit;
 
+    /**
+     * {@code @RequestParam} binds the Java parameter name, not a JSON-named field — the naming
+     * strategy does not apply here. The name is therefore spelled out so the UI's {@code device_id}
+     * actually filters instead of silently returning every device's events.
+     */
     @GetMapping
-    public List<AuditEntry> recent(@RequestParam(required = false) String deviceId,
-                                   @RequestParam(defaultValue = "100") int limit) {
+    public List<AuditEntry> recent(@RequestParam(name = "device_id", required = false) String deviceId,
+                                   @RequestParam(name = "limit", defaultValue = "100") int limit) {
         return audit.recent(deviceId, limit);
     }
 }

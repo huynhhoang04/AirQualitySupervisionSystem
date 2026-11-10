@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "config.h"
+#include "config_store.h"
 
 SensorData_t g_sensorData;
 volatile bool g_forceProvisioning = false;
@@ -19,6 +20,9 @@ void dataInit(const char* space_id, float dust_baseline_us, uint32_t filter_runt
     g_sensorData.dust_baseline_us = dust_baseline_us;
     g_sensorData.filter_runtime_s = filter_runtime_s;
     g_sensorData.provisioning = false;
+
+    pairingCode(g_sensorData.pairing_code, sizeof(g_sensorData.pairing_code));
+    g_sensorData.paired = configSnapshot().paired;
 
     memset(&g_fanCmd, 0, sizeof(g_fanCmd));
     g_fanCmd.on = false;

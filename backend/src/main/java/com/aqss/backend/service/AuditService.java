@@ -44,4 +44,12 @@ public class AuditService {
                 ? repository.findAllByOrderByOccurredAtDesc(page)
                 : repository.findByDeviceIdOrderByOccurredAtDesc(deviceId, page);
     }
+
+    /** Newest ALERT for a device — the once-per-30-min OLED warning window. */
+    @Transactional(readOnly = true)
+    public Instant lastAlertAt(String deviceId) {
+        return repository.findFirstByDeviceIdAndActionOrderByOccurredAtDesc(deviceId, "ALERT")
+                .map(AuditEntry::getOccurredAt)
+                .orElse(null);
+    }
 }

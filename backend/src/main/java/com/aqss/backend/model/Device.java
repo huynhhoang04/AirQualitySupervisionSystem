@@ -32,6 +32,14 @@ public class Device {
     @Column(name = "space_code", length = 20)
     private String spaceCode;
 
+    /** Shown on the node's OLED; the operator types it into the dashboard to pair. */
+    @Column(name = "pairing_code", length = 8)
+    private String pairingCode;
+
+    /** Null until an operator links the node to a room — unpaired telemetry is stored but hidden. */
+    @Column(name = "paired_at")
+    private Instant pairedAt;
+
     @Column(name = "fan_state", nullable = false, length = 3)
     private String fanState;
 
@@ -43,6 +51,10 @@ public class Device {
 
     @Column(name = "on_since")
     private Instant onSince;
+
+    /** Start of the current OFF period — the min-OFF safety window counts from here. */
+    @Column(name = "off_since")
+    private Instant offSince;
 
     @Column(name = "last_command_at")
     private Instant lastCommandAt;

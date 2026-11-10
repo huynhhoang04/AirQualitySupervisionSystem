@@ -4,6 +4,8 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 
+#include "config.h"
+
 typedef enum { FAN_MODE_AUTO = 0, FAN_MODE_MANUAL = 1 } FanMode_t;
 
 // Single source of truth shared by every task. Never touch the fields directly:
@@ -38,6 +40,8 @@ typedef struct {
     bool wifi_connected;
     bool mqtt_connected;
     bool provisioning;         // SoftAP setup portal is active
+    bool paired;               // backend confirmed the room binding
+    char pairing_code[PAIRING_CODE_LEN + 1];
     char ap_ssid[24];
     char ap_ip[16];
     char wifi_target[33];
@@ -53,8 +57,7 @@ typedef struct {
     uint32_t last_command_ms;
 } FanCommand_t;
 
-extern SensorData_t g_sensorData;
-// Set at boot when the button is held: open the setup portal even if credentials exist.
+extern SensorData_t g_sensorData;// Set at boot when the button is held: open the setup portal even if credentials exist.
 extern volatile bool g_forceProvisioning;
 extern FanCommand_t g_fanCmd;
 extern SemaphoreHandle_t g_dataMutex;

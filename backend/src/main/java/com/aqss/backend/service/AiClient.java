@@ -12,7 +12,12 @@ import java.util.Optional;
 
 /**
  * The backend is the caller: three requests to Layer 3 (threshold, dosage, forecast) and the three
- * answers come back on the same call. Payloads follow io_contract.md §8–§10.
+ * answers come back on the same call. Payloads follow io_contract.md §8.
+ *
+ * <p>The client is built from Spring's managed {@link RestClient.Builder} on purpose. A static
+ * {@code RestClient.builder()} would install its own Jackson converter, which does not apply
+ * {@code spring.jackson.property-naming-strategy=SNAKE_CASE} — every request would go out camelCase
+ * and hit a 422, and every snake_case response field would decode to null.
  */
 @Component
 @Slf4j
@@ -21,12 +26,12 @@ public class AiClient {
     private final AqssSettings.Ai settings;
     private final RestClient http;
 
-    public AiClient(AqssSettings aqssSettings) {
+    public AiClient(AqssSettings aqssSettings, RestClient.Builder builder) {
         this.settings = aqssSettings.ai();
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
         factory.setConnectTimeout(settings.timeoutMs());
         factory.setReadTimeout(settings.timeoutMs());
-        this.http = RestClient.builder().baseUrl(settings.baseUrl()).requestFactory(factory).build();
+        this.http = builder.clone().baseUrl(settings.baseUrl()).requestFactory(factory).build();
     }
 
     public boolean enabled() {
