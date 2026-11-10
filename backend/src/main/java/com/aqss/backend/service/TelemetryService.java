@@ -1,13 +1,10 @@
 package com.aqss.backend.service;
 
 import com.aqss.backend.model.Device;
-import com.aqss.backend.model.Prediction;
 import com.aqss.backend.model.Telemetry;
 import com.aqss.backend.mqtt.MqttLink;
 import com.aqss.backend.repo.DeviceRepository;
-import com.aqss.backend.repo.PredictionRepository;
 import com.aqss.backend.repo.TelemetryRepository;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -31,11 +28,8 @@ import java.util.TreeMap;
 public class TelemetryService {
 
     private final TelemetryRepository repository;
-    private final PredictionRepository predictions;
     private final DeviceRepository devices;
     private final DeviceService deviceService;
-    private final AiClient ai;
-    private final ObjectMapper mapper;
     private final ControlLoop control;
 
     @EventListener
@@ -112,105 +106,4 @@ public class TelemetryService {
         return thinned;
     }
 
-    /** Newest stored prediction, or empty when none exists or it is too old to act on. */
-    @Transactional(readOnly = true)
-    public java.util.Optional<Prediction> newestPrediction(String deviceId) {
-        return predictions.findFirstByDeviceIdOrderByPredictedAtDesc(deviceId);
-    }
-
-    /** Chart data for the forecast: the last stored prediction, or {@code []}. */
-    @Transactional(readOnly = true)
-    public String storedForecast(String deviceId) {
-        return newestPrediction(deviceId).map(Prediction::getPoints).orElse("[]");
-    }
-
-    /**
-     * The stored forecast as typed points.
-     *
-     * <p>{@code points} is a text column, and a forecast can arrive from Layer 3 (real objects) or
-     * be back-filled by hand (an array of JSON strings). Both are accepted here so one bad row
-     * cannot black out the forecast panel or the control loop.
-     */
-    public List<AiClient.ForecastPoint> forecastPoints(String deviceId) {
-        return newestPrediction(deviceId)
-                .map(prediction -> parsePoints(deviceId, prediction.getPoints()))
-                .orElse(List.of());
-    }
-
-    private List<AiClient.ForecastPoint> parsePoints(String deviceId, String json) {
-        try {
-            JsonNode node = mapper.readTree(json == null ? "[]" : json);
-            if (!node.isArray()) {
-                return List.of();
-            }
-            List<AiClient.ForecastPoint> points = new ArrayList<>(node.size());
-            for (JsonNode element : node) {
-                JsonNode object = element;
-                if (element.isTextual()) {
-                    // Double-encoded: the row holds the JSON of a point as a string.
-                    object = mapper.readTree(element.asText());
-                }
-                if (object != null && object.isObject()) {
-                    points.add(mapper.treeToValue(object, AiClient.ForecastPoint.class));
-                }
-            }
-            return points;
-        } catch (Exception e) {
-            log.warn("Ignoring unreadable forecast for {}: {}", deviceId, e.getMessage());
-            return List.of();
-        }
-    }
-
-    /** Resample the last 24 h to 96 fifteen-minute medians, ask Layer 3, keep the answer. */
-    @Transactional
-    public String refreshForecast(String deviceId) {
-        Device device = deviceService.require(deviceId);
-        if (!ai.enabled()) {
-            return storedForecast(deviceId);
-        }
-
-        List<Telemetry> rows = history(deviceId, Instant.now().minus(Duration.ofHours(24)), Instant.now());
-        Map<Instant, List<Float>> buckets = new TreeMap<>();
-        for (Telemetry row : rows) {
-            if (row.getPm25() == null) {
-                continue;
-            }
-            long bucket = Math.floorDiv(row.getRecordedAt().getEpochSecond(), 900L) * 900L;
-            buckets.computeIfAbsent(Instant.ofEpochSecond(bucket), key -> new ArrayList<>())
-                    .add(row.getPm25());
-        }
-        List<AiClient.SeriesPoint> series = buckets.entrySet().stream()
-                .map(entry -> new AiClient.SeriesPoint(entry.getKey(), median(entry.getValue())))
-                .toList();
-        if (series.isEmpty()) {
-            return "[]";
-        }
-
-        return ai.forecast(new AiClient.ForecastRequest(device.getSpaceCode(), series))
-                .filter(result -> result.forecastSequence() != null && !result.forecastSequence().isEmpty())
-                .map(result -> store(deviceId, result))
-                .orElseGet(() -> storedForecast(deviceId));
-    }
-
-    private String store(String deviceId, AiClient.ForecastResult result) {
-        try {
-            String points = mapper.writeValueAsString(result.forecastSequence());
-            predictions.save(Prediction.builder()
-                    .deviceId(deviceId)
-                    .predictedAt(Instant.now())
-                    .modelVersion(result.modelVersion())
-                    .points(points)
-                    .build());
-            return points;
-        } catch (Exception e) {
-            log.warn("Could not store forecast for {}: {}", deviceId, e.getMessage());
-            return "[]";
-        }
-    }
-
-    private static Float median(List<Float> values) {
-        List<Float> sorted = new ArrayList<>(values);
-        sorted.sort(Float::compare);
-        return sorted.get(sorted.size() / 2);
-    }
 }

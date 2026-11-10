@@ -35,11 +35,6 @@ management:
 aqss:
   cors:
     origin: ${CORS_ORIGIN:http://localhost:5173}
-  # Layer 3 (FastAPI). The backend is the caller: threshold, dosage, forecast.
-  ai:
-    base-url: ${AI_BASE_URL:http://localhost:8000}
-    timeout-ms: ${AI_TIMEOUT_MS:30000}
-    enabled: ${AI_ENABLED:false}
   control:
     cycle-ms: ${CONTROL_CYCLE_MS:60000}
     hysteresis-ratio: ${CONTROL_HYSTERESIS_RATIO:0.7}

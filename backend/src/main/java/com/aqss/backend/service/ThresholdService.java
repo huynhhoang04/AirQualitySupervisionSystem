@@ -44,9 +44,14 @@ public class ThresholdService {
     static final double DEFAULT_OCCUPANCY_HOURS = 8.0;
 
     /** How much the room's own air exchange helps; low ventilation means the room needs a lower bar. */
-    static final double VENTILATION_FACTOR_LOW = 0.85;
+    static final double VENTILATION_FACTOR_LOW = 0.75;
     static final double VENTILATION_FACTOR_MEDIUM = 1.0;
-    static final double VENTILATION_FACTOR_HIGH = 1.2;
+    static final double VENTILATION_FACTOR_HIGH = 1.35;
+
+    /** A 20 m³ room is the reference; the factor is the cube root of the ratio, clamped. */
+    static final double REFERENCE_VOLUME_M3 = 20.0;
+    static final double VOLUME_FACTOR_MIN = 0.7;
+    static final double VOLUME_FACTOR_MAX = 1.6;
 
     /** CO₂ above the outdoor baseline shows how sealed and occupied the room is. */
     static final double CO2_BASELINE_PPM = 420.0;
@@ -56,7 +61,12 @@ public class ThresholdService {
     static final double CO2_MAX_CORRECTION = 0.25;
 
     static final double MIN_THRESHOLD = 10.0;
-    static final double MAX_THRESHOLD = 100.0;
+    /**
+     * Ceiling, and it is a health rule rather than a formula result: above ~60 µg/m³ the air is
+     * "unhealthy for sensitive groups" on every index the project quotes. A room may be large and
+     * rarely used, but it must not be allowed to drift to a level that is bad for anyone in it.
+     */
+    static final double MAX_THRESHOLD = 60.0;
 
     /**
      * @param space   the room whose profile to use; null fields fall back to the defaults above
@@ -65,21 +75,43 @@ public class ThresholdService {
     public Result compute(Space space, Double co2Ppm) {
         double occupancyHours = occupancyHours(space.getPurpose());
         double ventilation = ventilationFactor(space.getVentilationEstimate());
+        double volume = volumeFactor(space.getVolumeM3());
         double co2Factor = co2Factor(co2Ppm);
 
         // Dose split over the occupied window: the shorter the stay, the higher a peak it tolerates.
-        double dose = DAILY_TARGET_UGM3 * (24.0 / occupancyHours);
-        double threshold = dose * ventilation * co2Factor;
+        // The square root keeps a seldom-used room from being allowed six times the concentration of
+        // a bedroom — it still tolerates more, just not absurdly so.
+        double dose = DAILY_TARGET_UGM3 * Math.sqrt(24.0 / occupancyHours);
+        // The room's own dilution capacity matters before the fan ever runs: a large, well-ventilated
+        // room reaches the same concentration more slowly and clears sooner.
+        double threshold = dose * ventilation * volume * co2Factor;
         threshold = Math.max(MIN_THRESHOLD, Math.min(MAX_THRESHOLD, threshold));
 
         return new Result(
                 round(threshold),
                 round(dose),
                 round(ventilation),
+                round(volume),
                 round(co2Factor),
                 occupancyHours,
                 space.getVolumeM3(),
                 co2Ppm);
+    }
+
+    /**
+     * How much the room's size buys it, independent of ventilation.
+     *
+     * <p>A larger room needs proportionally more emitted mass to reach the same concentration, and
+     * its air changes turn over more per hour in absolute terms. The factor is deliberately gentle
+     * (a cube root, capped either side) so a big room is not treated as a different kind of room.
+     */
+    static double volumeFactor(Float volumeM3) {
+        if (volumeM3 == null || volumeM3 <= 0) {
+            return 1.0;
+        }
+        double ratio = volumeM3 / REFERENCE_VOLUME_M3;
+        double factor = Math.cbrt(ratio);
+        return Math.max(VOLUME_FACTOR_MIN, Math.min(VOLUME_FACTOR_MAX, factor));
     }
 
     /** A bedroom is occupied longer than a lobby, so its air must be cleaner. */
@@ -130,6 +162,7 @@ public class ThresholdService {
             double thresholdPm25,
             double dailyDoseTarget,
             double ventilationFactor,
+            double volumeFactor,
             double co2Factor,
             double occupancyHours,
             Float volumeM3,

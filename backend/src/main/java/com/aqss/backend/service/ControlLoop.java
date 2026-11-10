@@ -26,12 +26,13 @@ import java.util.Map;
 @Slf4j
 public class ControlLoop {
 
+    /** Duty on a threshold breach: the room is already dirty, so clear it as fast as the fan allows. */
+    private static final int FAN_LEVEL_ON_BREACH = 3;
+
     private final DeviceRepository devices;
     private final SpaceRepository spaces;
     private final TelemetryRepository telemetry;
     private final DeviceService deviceService;
-    private final TelemetryService telemetryService;
-    private final AiClient ai;
     private final AqssSettings settings;
 
     @Scheduled(fixedDelayString = "${aqss.control.cycle-ms:60000}")
@@ -94,15 +95,15 @@ public class ControlLoop {
         }
     }
 
+    /**
+     * Level 3 is the right choice for a breach: a higher duty clears the room faster, and the fan
+     * is already rated for it. There is nothing to predict here — the room is already dirty.
+     */
     private void activate(Device device, Space space, double pm25) {
-        int level = ai.dosage(new AiClient.DosageRequest(space.getCode(), space.getVolumeM3(), space.getPurpose(),
-                        (float) pm25, space.getThresholdPm25(), 35f, 40f))
-                .map(AiClient.DosageResult::filterLevel)
-                .orElse(2);
-        deviceService.applyActuator(device.getDeviceId(), true, Math.max(1, Math.min(level, 3)), "AUTO", "BACKEND");
+        deviceService.applyActuator(device.getDeviceId(), true, FAN_LEVEL_ON_BREACH, "AUTO", "BACKEND");
         deviceService.recordDecision(device, "threshold_breach");
         log.info("{} PM2.5 {} vs {} -> fan ON level {}", device.getDeviceId(), pm25,
-                space.getThresholdPm25(), level);
+                space.getThresholdPm25(), FAN_LEVEL_ON_BREACH);
     }
 
     private void deactivate(Device device, Space space, double pm25) {

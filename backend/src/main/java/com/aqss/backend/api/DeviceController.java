@@ -2,7 +2,6 @@ package com.aqss.backend.api;
 
 import com.aqss.backend.model.Device;
 import com.aqss.backend.model.Telemetry;
-import com.aqss.backend.service.AiClient;
 import com.aqss.backend.service.DeviceService;
 import com.aqss.backend.service.TelemetryService;
 import lombok.RequiredArgsConstructor;
@@ -88,16 +87,4 @@ public class DeviceController {
         return telemetry.history(deviceId, from, to);
     }
 
-    /** The cached 96-point forecast from Layer 3 (empty array until one is produced). */
-    @GetMapping("/{deviceId}/forecast")
-    public List<AiClient.ForecastPoint> forecast(@PathVariable String deviceId) {
-        return telemetry.forecastPoints(deviceId);
-    }
-
-    /** Ask Layer 3 for a fresh forecast and store it. */
-    @PostMapping("/{deviceId}/forecast")
-    public List<AiClient.ForecastPoint> refreshForecast(@PathVariable String deviceId) {
-        telemetry.refreshForecast(deviceId);
-        return telemetry.forecastPoints(deviceId);
-    }
 }

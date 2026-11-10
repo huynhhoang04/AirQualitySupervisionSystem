@@ -56,13 +56,6 @@ export interface AuditEntry {
   detail: string | null;
 }
 
-export interface ForecastPoint {
-  target_time: string;
-  pm25_q10: number;
-  pm25_q50: number;
-  pm25_q90: number;
-}
-
 export type FanCommand =
   | { command: "set_actuator"; params: { state: FanState; level: number; mode: FanMode } }
   | { command: "reboot" }
@@ -105,6 +98,7 @@ export interface ComputedThreshold {
   thresholdPm25: number;
   dailyDoseTarget: number;
   ventilationFactor: number;
+  volumeFactor: number;
   co2Factor: number;
   occupancyHours: number;
   volumeM3: number | null;

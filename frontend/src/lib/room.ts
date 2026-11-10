@@ -83,7 +83,6 @@ export type FanMode = "AUTO" | "MANUAL";
 
 export type DecisionReason =
   | "threshold_breach"
-  | "forecast_breach"
   | "hysteresis_off"
   | "max_on"
   | "manual"
@@ -147,7 +146,6 @@ export interface RoomState {
 
 const REASON_TEXT: Record<Exclude<DecisionReason, null>, string> = {
   threshold_breach: "vì bụi vượt ngưỡng",
-  forecast_breach: "vì dự báo báo trước",
   hysteresis_off: "vì không khí đã xuống dưới mức tắt",
   max_on: "vì đã chạy đủ lâu tối đa",
   manual: "vì bạn điều chỉnh",

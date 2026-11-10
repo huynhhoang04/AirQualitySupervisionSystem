@@ -3,7 +3,6 @@ import type {
   Device,
   DeviceUpdateRequest,
   FanCommand,
-  ForecastPoint,
   PairRequest,
   Space,
   SpaceRequest,
@@ -81,9 +80,6 @@ export const api = {
     );
   },
 
-  forecast: (id: string) => request<ForecastPoint[]>(`/api/v1/devices/${encodeURIComponent(id)}/forecast`),
-  refreshForecast: (id: string) =>
-    request<ForecastPoint[]>(`/api/v1/devices/${encodeURIComponent(id)}/forecast`, { method: "POST" }),
 
   command: (id: string, body: FanCommand) =>
     request<Device>(`/api/v1/devices/${encodeURIComponent(id)}/command`, {

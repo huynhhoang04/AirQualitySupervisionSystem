@@ -64,6 +64,26 @@ class ThresholdServiceTest {
     }
 
     @Test
+    @DisplayName("A larger room tolerates a higher threshold than a cramped one")
+    void volumeRaisesTheThreshold() {
+        Space small = space("bedroom", "low");
+        small.setVolumeM3(12f);
+        Space large = space("bedroom", "low");
+        large.setVolumeM3(45f);
+        assertThat(thresholds.compute(large, null).thresholdPm25())
+                .isGreaterThan(thresholds.compute(small, null).thresholdPm25());
+    }
+
+    @Test
+    @DisplayName("Volume cannot push a room past the health ceiling")
+    void volumeRespectsCeiling() {
+        Space huge = space("living_room", "high");
+        huge.setVolumeM3(5000f);
+        assertThat(thresholds.compute(huge, null).thresholdPm25())
+                .isEqualTo(ThresholdService.MAX_THRESHOLD);
+    }
+
+    @Test
     @DisplayName("The reason is reported, not just the number")
     void reportsItsInputs() {
         ThresholdService.Result result = thresholds.compute(space("bedroom", "low"), 900.0);
@@ -71,5 +91,6 @@ class ThresholdServiceTest {
         assertThat(result.ventilationFactor()).isLessThan(1.0);
         assertThat(result.co2Factor()).isLessThan(1.0);
         assertThat(result.volumeM3()).isEqualTo(20f);
+        assertThat(result.volumeFactor()).isEqualTo(1.0);
     }
 }

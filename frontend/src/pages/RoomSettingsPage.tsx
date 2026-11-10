@@ -158,6 +158,15 @@ function ThresholdSection({ space }: { space?: Space }) {
                 note={`WHO 24h = 15, chia cho ${preview.data.computed.occupancyHours} giờ có người`}
               />
               <Factor
+                label="Hệ số thể tích"
+                value={`× ${preview.data.computed.volumeFactor.toFixed(2)}`}
+                note={
+                  preview.data.computed.volumeM3 == null
+                    ? "chưa nhập thể tích"
+                    : `${preview.data.computed.volumeM3} m³ so với chuẩn 20 m³`
+                }
+              />
+              <Factor
                 label="Hệ số thông gió"
                 value={`× ${preview.data.computed.ventilationFactor.toFixed(2)}`}
                 note={space?.ventilation_estimate === "low" ? "phòng kín" : space?.ventilation_estimate === "high" ? "thoáng" : "trung bình"}
