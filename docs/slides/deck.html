@@ -1,0 +1,840 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>
+      Air Quality Supervision System — Báo cáo hệ thống giám sát chất lượng
+      không khí
+    </title>
+    <link rel="stylesheet" href="deck.css" />
+  </head>
+  <body>
+    <section class="slide cover">
+      <div class="brand">Air Quality Supervision System</div>
+      <div class="cover-content">
+        <p class="eyebrow">Báo cáo cuối kỳ · IoT</p>
+        <h1>
+          Hệ thống giám sát<br />và điều khiển chất lượng<br /><em
+            >không khí trong nhà</em
+          >
+        </h1>
+        <p class="tag">
+          Thiết kế phần cứng, lập trình firmware đa tác vụ, xử lý dữ liệu MQTT
+          và triển khai vòng điều khiển quạt lọc.
+        </p>
+      </div>
+      <div class="meta">
+        <div><span>Thiết bị</span><b>ESP32-S3</b></div>
+        <div><span>Xử lý & điều khiển</span><b>Spring Boot</b></div>
+        <div><span>Giao diện</span><b>React</b></div>
+        <div><span>Mã bài tập</span><b>KTGHPL1 · 2026</b></div>
+      </div>
+      <footer>
+        <span>Air Quality Supervision System · Giới thiệu</span
+        ><span>01 / 13</span>
+      </footer>
+    </section>
+
+    <section class="slide">
+      <header>
+        <div class="eyebrow">Kiến trúc triển khai</div>
+        <h1>Thiết bị, backend và dashboard</h1>
+        <p class="lead">
+          MQTT trao đổi với node; REST API kết nối dashboard với backend.
+        </p>
+      </header>
+      <main>
+        <div class="three architecture-blocks">
+          <article class="panel">
+            <div class="eyebrow">Thiết bị</div>
+            <h2>ESP32-S3</h2>
+            <p>Đọc cảm biến và hiển thị OLED.</p>
+            <p>Nhận lệnh PWM, gửi trạng thái quạt và thời gian chạy bộ lọc.</p>
+            <div class="result">C++ · FreeRTOS · PlatformIO</div>
+          </article>
+          <article class="panel">
+            <div class="eyebrow">Backend</div>
+            <h2>Spring Boot</h2>
+            <p>
+              MqttLink nhận bản tin. TelemetryService kiểm tra và lưu số đo.
+            </p>
+            <p>
+              ThresholdService tính ngưỡng. ControlLoop gửi lệnh và ghi lý do
+              điều khiển.
+            </p>
+            <div class="result">Java 21 · Paho · PostgreSQL</div>
+          </article>
+          <article class="panel">
+            <div class="eyebrow">Giao diện</div>
+            <h2>React</h2>
+            <p>
+              Ghép nối, danh sách máy, chi tiết phòng, cài đặt và hướng dẫn.
+            </p>
+            <p>
+              TanStack Query cập nhật số đo và trạng thái thiết bị mỗi 5 giây.
+            </p>
+            <div class="result">TypeScript · Vite · React Router</div>
+          </article>
+        </div>
+        <div class="data-flow">
+          <span>Node</span><b>telemetry / actuator state →</b
+          ><span>Backend</span><b>← REST →</b><span>Dashboard</span>
+        </div>
+        <div class="note">
+          Chiều điều khiển: backend gửi <code>set_actuator</code> qua MQTT; node
+          áp mức PWM và gửi lại trạng thái thực thi. Dữ liệu và nhật ký được lưu
+          trong PostgreSQL.
+        </div>
+      </main>
+      <footer>
+        <span>Air Quality Supervision System · Kiến trúc triển khai</span
+        ><span>02 / 13</span>
+      </footer>
+    </section>
+
+    <section class="slide">
+      <header>
+        <div class="eyebrow">Phần cứng</div>
+        <h1>Sơ đồ kết nối thiết bị</h1>
+        <p class="lead">
+          ESP32-S3-DevKitC-1 N16R8 · 16 MB Flash · 8 MB PSRAM · nguồn 12 V và
+          LM2596.
+        </p>
+      </header>
+      <main>
+        <div class="hardware-layout">
+          <figure class="hardware-figure">
+            <img
+              src="img/image.png"
+              alt="Sơ đồ Fritzing kết nối nguồn 12 V, mạch hạ áp, ESP32-S3, cảm biến, OLED và quạt 4 dây"
+            />
+            <figcaption>Sơ đồ lắp ráp nguyên mẫu trên Fritzing</figcaption>
+          </figure>
+          <div class="hardware-notes">
+            <article>
+              <h2>Đo và hiển thị</h2>
+              <p>SCD40 và OLED dùng chung I²C 400 kHz trên GPIO 8/9.</p>
+            </article>
+            <article>
+              <h2>Quạt và nguồn</h2>
+              <p>
+                Nguồn 12 V cấp liên tục cho quạt. Chân điều tốc nhận PWM 25 kHz;
+                LM2596 hạ áp xuống 5 V.
+              </p>
+            </article>
+            <article>
+              <h2>Cảm biến bụi</h2>
+              <p>
+                Cấu hình hiện tại dùng GP2Y1023, đọc PWM qua GPIO 18 và cầu chia
+                áp 1 kΩ / 2 kΩ.
+              </p>
+            </article>
+            <p class="figure-note">
+              Sơ đồ còn nhãn GP2Y1010AU0F; nhãn và đấu nối cảm biến bụi cần đồng
+              bộ với cấu hình GP2Y1023 của dự án.
+            </p>
+          </div>
+        </div>
+      </main>
+      <footer>
+        <span>Air Quality Supervision System · Phần cứng</span
+        ><span>03 / 13</span>
+      </footer>
+    </section>
+
+    <section class="slide">
+      <header>
+        <div class="eyebrow">Thu thập và xử lý cảm biến</div>
+        <h1>Đo xung PM2.5 và lọc dữ liệu SCD40</h1>
+        <p class="lead">
+          Hai đường thu thập độc lập cập nhật cấu trúc SensorData_t dùng chung.
+        </p>
+      </header>
+      <main>
+        <div class="two sensor-panels">
+          <article class="panel">
+            <h2>GP2Y1023 · Ngắt theo cạnh</h2>
+            <ol class="technical-steps">
+              <li>
+                ISR <code>CHANGE</code> trên GPIO 18 ghi thời điểm cạnh xuống và
+                cạnh lên bằng <code>esp_timer_get_time()</code>.
+              </li>
+              <li>
+                Loại cạnh xuống cách khung trước dưới 8 ms để hạn chế nhiễu
+                cạnh.
+              </li>
+              <li>
+                Task lấy trung bình độ rộng xung trong cửa sổ 1 giây, sau đó quy
+                đổi sang PM2.5.
+              </li>
+            </ol>
+            <div class="small-formula">
+              PM2.5 = clamp((W̄ − W₀) / 14, 0, 500)
+            </div>
+            <p class="muted">
+              W₀ mặc định 1400 µs; có thể hiệu chỉnh và lưu NVS.
+            </p>
+          </article>
+          <article class="panel">
+            <h2>SCD40 · Đo định kỳ qua I²C</h2>
+            <ol class="technical-steps">
+              <li>
+                Khởi động periodic measurement; kiểm tra data-ready mỗi 1 giây,
+                cảm biến tạo mẫu theo chu kỳ 5 giây.
+              </li>
+              <li>Kiểm tra số đo trước khi đưa vào vòng đệm.</li>
+              <li>Lấy trung bình tối đa 5 mẫu cho CO₂, nhiệt độ và độ ẩm.</li>
+            </ol>
+            <div class="small-formula">x̄ = (x₁ + … + xₙ) / n, n ≤ 5</div>
+            <p class="muted">
+              Sau 5 lỗi giao tiếp liên tiếp, khởi động lại chu kỳ đo.
+            </p>
+          </article>
+        </div>
+        <div class="note">
+          Chưa có mẫu: telemetry gửi null. Cảm biến bụi mất xung hợp lệ quá 3
+          giây: đặt cờ dust_fault.
+        </div>
+        <p class="code-source">
+          Mã nguồn: embedded/src/dust_sensor.cpp · scd40_sensor.cpp
+        </p>
+      </main>
+      <footer>
+        <span>Air Quality Supervision System · Thu thập và xử lý cảm biến</span
+        ><span>04 / 13</span>
+      </footer>
+    </section>
+
+    <section class="slide">
+      <header>
+        <div class="eyebrow">Firmware · FreeRTOS</div>
+        <h1>Lập lịch tác vụ và đồng bộ dữ liệu</h1>
+        <p class="lead">
+          Năm task được ghim vào hai lõi bằng xTaskCreatePinnedToCore().
+        </p>
+      </header>
+      <main>
+        <table class="task-spec-table">
+          <thead>
+            <tr>
+              <th>Task</th>
+              <th>Core</th>
+              <th>Stack truyền vào API</th>
+              <th>Ưu tiên</th>
+              <th>Chức năng</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>mqtt</code></td>
+              <td>0</td>
+              <td>8192</td>
+              <td>2</td>
+              <td>Wi-Fi, MQTT, NTP, gửi telemetry và xử lý lệnh</td>
+            </tr>
+            <tr>
+              <td><code>scd40</code></td>
+              <td>1</td>
+              <td>4096</td>
+              <td>2</td>
+              <td>Đọc CO₂, nhiệt độ và độ ẩm</td>
+            </tr>
+            <tr>
+              <td><code>dust</code></td>
+              <td>1</td>
+              <td>3072</td>
+              <td>3</td>
+              <td>Tổng hợp xung PWM thành nồng độ bụi</td>
+            </tr>
+            <tr>
+              <td><code>fan</code></td>
+              <td>1</td>
+              <td>3072</td>
+              <td>3</td>
+              <td>Áp PWM, đọc nút nhấn, đếm giờ quạt</td>
+            </tr>
+            <tr>
+              <td><code>oled</code></td>
+              <td>1</td>
+              <td>4096</td>
+              <td>1</td>
+              <td>Cập nhật màn hình SSD1306</td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="two">
+          <article class="detail">
+            <h2>Mutex cho trạng thái dùng chung</h2>
+            <p>
+              <code>dataLock()/dataUnlock()</code> bảo vệ số đo và lệnh quạt.
+              <code>dataSnapshot()</code> sao chép trạng thái rồi nhả khóa trước
+              khi serialize hoặc hiển thị.
+            </p>
+          </article>
+          <article class="detail">
+            <h2>Khởi tạo và giám sát</h2>
+            <p>
+              I²C được khởi tạo một lần trong <code>setup()</code>. Mỗi task
+              đăng ký và nạp lại watchdog; thời gian timeout cấu hình là 30
+              giây.
+            </p>
+          </article>
+        </div>
+        <p class="code-source">
+          Mã nguồn: embedded/src/main.cpp · sensor_data.cpp ·
+          include/system_utils.h
+        </p>
+      </main>
+      <footer>
+        <span>Air Quality Supervision System · Firmware · FreeRTOS</span
+        ><span>05 / 13</span>
+      </footer>
+    </section>
+
+    <section class="slide">
+      <header>
+        <div class="eyebrow">Giao tiếp MQTT</div>
+        <h1>Topic, payload và cơ chế kết nối</h1>
+        <p class="lead">
+          Firmware dùng ArduinoMqttClient; backend dùng một kết nối Paho trong
+          MqttLink.
+        </p>
+      </header>
+      <main>
+        <table class="mqtt-table">
+          <thead>
+            <tr>
+              <th>Topic: aqss/devices/{id}/…</th>
+              <th>Chiều truyền</th>
+              <th>Dữ liệu / hành vi</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>telemetry</code></td>
+              <td>Node → Backend</td>
+              <td>5 giây/lần · sensors, system, timestamp · QoS 1</td>
+            </tr>
+            <tr>
+              <td><code>status</code></td>
+              <td>Node → Backend</td>
+              <td>Retained ONLINE; LWT retained OFFLINE · QoS 1</td>
+            </tr>
+            <tr>
+              <td><code>actuator/state</code></td>
+              <td>Node → Backend</td>
+              <td>state, level, duty_pct, mode, filter_runtime_h · QoS 1</td>
+            </tr>
+            <tr>
+              <td><code>command</code></td>
+              <td>Backend → Node</td>
+              <td>Envelope command + params · QoS 1</td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="two">
+          <article class="panel">
+            <h2>Ví dụ lệnh điều khiển</h2>
+            <pre class="technical-code"><code>{
+  &quot;command&quot;: &quot;set_actuator&quot;,
+  &quot;params&quot;: {&quot;state&quot;: &quot;ON&quot;, &quot;level&quot;: 3,
+             &quot;mode&quot;: &quot;AUTO&quot;}
+}</code></pre>
+          </article>
+          <article class="detail">
+            <h2>Thông số kết nối firmware</h2>
+            <p>
+              TLS cổng 8883 với CA gốc; keepalive 30 giây. Thử kết nối MQTT lại
+              sau mỗi 5 giây.
+            </p>
+            <h2 class="subheading">Đóng gói dữ liệu</h2>
+            <p>
+              ArduinoJson serialize vào bộ đệm 512 B. Timestamp Unix được đồng
+              bộ NTP; telemetry chờ đến khi thời gian hợp lệ.
+            </p>
+          </article>
+        </div>
+        <p class="code-source">
+          Mã nguồn: embedded/src/mqtt_network.cpp · backend/…/mqtt/MqttLink.java
+        </p>
+      </main>
+      <footer>
+        <span>Air Quality Supervision System · Giao tiếp MQTT</span
+        ><span>06 / 13</span>
+      </footer>
+    </section>
+
+    <section class="slide">
+      <header>
+        <div class="eyebrow">Backend · Xử lý và lưu trữ</div>
+        <h1>Từ MQTT callback đến PostgreSQL</h1>
+        <p class="lead">
+          MqttLink chuyển JSON thành Spring event; dịch vụ nghiệp vụ xử lý qua
+          @EventListener.
+        </p>
+      </header>
+      <main>
+        <div class="pipeline">
+          <span>MqttLink</span><b>→</b><span>TelemetryEvent</span><b>→</b
+          ><span>TelemetryService</span><b>→</b><span>JPA / PostgreSQL</span>
+        </div>
+        <div class="two">
+          <article class="panel">
+            <h2>Luồng nhận telemetry</h2>
+            <ol class="technical-steps">
+              <li>Kiểm tra device_id và dải giá trị; null được giữ nguyên.</li>
+              <li>
+                Đăng ký node nếu chưa có; cập nhật mã ghép nối và last_seen_at.
+              </li>
+              <li>Lưu Telemetry trong transaction.</li>
+              <li>
+                Gọi <code>ControlLoop.onReading(device)</code> để đánh giá kích
+                hoạt ngay.
+              </li>
+            </ol>
+          </article>
+          <article class="panel">
+            <h2>Bốn bảng đang sử dụng</h2>
+            <table>
+              <thead>
+                <tr>
+                  <th>Bảng</th>
+                  <th>Vai trò</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>spaces</code></td>
+                  <td>Hồ sơ và ngưỡng phòng</td>
+                </tr>
+                <tr>
+                  <td><code>devices</code></td>
+                  <td>Liên kết phòng, trạng thái quạt</td>
+                </tr>
+                <tr>
+                  <td><code>telemetry</code></td>
+                  <td>Chuỗi số đo theo thiết bị</td>
+                </tr>
+                <tr>
+                  <td><code>audit_log</code></td>
+                  <td>Sự kiện và quyết định điều khiển</td>
+                </tr>
+              </tbody>
+            </table>
+          </article>
+        </div>
+        <div class="note">
+          Index telemetry(device_id, recorded_at DESC) phục vụ truy vấn mới nhất
+          và lịch sử. Flyway quản lý schema; Hibernate chạy ddl-auto: validate.
+        </div>
+        <p class="code-source">
+          Mã nguồn: backend/…/TelemetryService.java · MqttLink.java ·
+          resources/db/migration/V1–V4
+        </p>
+      </main>
+      <footer>
+        <span>Air Quality Supervision System · Backend · Xử lý và lưu trữ</span
+        ><span>07 / 13</span>
+      </footer>
+    </section>
+
+    <section class="slide">
+      <header>
+        <div class="eyebrow">Ngưỡng PM2.5</div>
+        <h1>Tính và lưu ngưỡng theo hồ sơ phòng</h1>
+        <p class="lead">
+          Công thức đang triển khai trong ThresholdService; xem trước và áp dụng
+          qua SpaceService.
+        </p>
+      </header>
+      <main>
+        <div class="formula">
+          T = 15 × √(24 / h) × f(V) × f(thông gió) × f(CO₂)
+        </div>
+        <div class="threshold-layout">
+          <div>
+            <table class="factor-table">
+              <thead>
+                <tr>
+                  <th>Thành phần</th>
+                  <th>Cách tính hiện tại</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>h · giờ/ngày</td>
+                  <td>
+                    Suy ra từ loại phòng: phòng ngủ 8 h, lớp học 6 h, phòng
+                    khách 4 h, bếp 2 h.
+                  </td>
+                </tr>
+                <tr>
+                  <td>f(V)</td>
+                  <td>
+                    ∛(V / 20), giới hạn trong [0,7; 1,6]. Thiếu thể tích: hệ số
+                    1.
+                  </td>
+                </tr>
+                <tr>
+                  <td>f(thông gió)</td>
+                  <td>Thấp 0,75 · trung bình 1,0 · cao 1,35.</td>
+                </tr>
+                <tr>
+                  <td>f(CO₂)</td>
+                  <td>
+                    Giảm từ 1,0 đến 0,75 trong khoảng 420–1220 ppm. Chưa có CO₂:
+                    hệ số 1.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            <div class="note">
+              Kết quả tính được giới hạn trong 10–60 µg/m³. Đây là quy tắc cấu
+              hình của dự án.
+            </div>
+          </div>
+          <div class="threshold-actions">
+            <article class="detail">
+              <h2>Xem trước → Áp dụng</h2>
+              <p>
+                Preview dùng hồ sơ phòng và CO₂ mới nhất để trả về ngưỡng cùng
+                các hệ số. POST lưu kết quả với
+                <code>threshold_source: profile</code>.
+              </p>
+            </article>
+            <article class="detail">
+              <h2>Ngưỡng do người dùng chọn</h2>
+              <p>
+                Cài đặt có các mức 25 / 35 / 50 µg/m³. Khi lưu, nguồn ngưỡng
+                được đánh dấu <code>manual</code>.
+              </p>
+            </article>
+            <article class="detail">
+              <h2>Thời điểm tính lại</h2>
+              <p>
+                Ngưỡng được tính khi tạo phòng hoặc khi người dùng áp dụng kết
+                quả preview. Vòng điều khiển dùng giá trị đã lưu.
+              </p>
+            </article>
+          </div>
+        </div>
+      </main>
+      <footer>
+        <span>Air Quality Supervision System · Ngưỡng PM2.5</span
+        ><span>08 / 13</span>
+      </footer>
+    </section>
+
+    <section class="slide">
+      <header>
+        <div class="eyebrow">Điều khiển tự động</div>
+        <h1>Quy tắc bật và tắt quạt trong ControlLoop</h1>
+        <p class="lead">
+          Vòng điều khiển áp dụng cho thiết bị đã ghép phòng, ở chế độ AUTO và
+          có số đo còn hiệu lực.
+        </p>
+      </header>
+      <main>
+        <table class="control-table">
+          <thead>
+            <tr>
+              <th>Điều kiện</th>
+              <th>Thao tác</th>
+              <th>Lý do ghi nhận</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Quạt tắt và PM2.5 ≥ ngưỡng phòng</td>
+              <td>Bật mức 3 · duty 90%</td>
+              <td><code>threshold_breach</code></td>
+            </tr>
+            <tr>
+              <td>Quạt đã chạy ≥ 120 phút</td>
+              <td>Tắt quạt</td>
+              <td><code>max_on</code></td>
+            </tr>
+            <tr>
+              <td>PM2.5 &lt; 70% ngưỡng và đã chạy ≥ 5 phút</td>
+              <td>Tắt quạt</td>
+              <td><code>hysteresis_off</code></td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="three control-notes">
+          <article class="detail">
+            <h2>Kích hoạt theo bản tin</h2>
+            <p>
+              Telemetry mới gọi <code>onReading()</code>. Nếu quạt đang tắt và
+              bụi vượt ngưỡng, backend đánh giá ngay.
+            </p>
+          </article>
+          <article class="detail">
+            <h2>Kiểm tra định kỳ</h2>
+            <p>
+              Timer 60 giây kiểm tra điều kiện tắt và gia hạn lệnh mỗi 5 phút
+              khi quạt AUTO đang chạy.
+            </p>
+          </article>
+          <article class="detail">
+            <h2>Dữ liệu và kết nối</h2>
+            <p>
+              Bỏ qua số đo cũ hơn 5 phút. Node tắt quạt AUTO nếu không nhận lệnh
+              trong 10 phút.
+            </p>
+          </article>
+        </div>
+        <div class="note">
+          ControlLoop so sánh PM2.5 với ngưỡng đã lưu trong phòng. Chế độ MANUAL
+          do người dùng chọn mức quạt, không áp dụng bảng quyết định AUTO.
+        </div>
+      </main>
+      <footer>
+        <span>Air Quality Supervision System · Điều khiển tự động</span
+        ><span>09 / 13</span>
+      </footer>
+    </section>
+
+    <section class="slide">
+      <header>
+        <div class="eyebrow">Firmware · Cơ cấu chấp hành</div>
+        <h1>Điều khiển quạt bằng PWM và đếm giờ lọc</h1>
+        <p class="lead">
+          LEDC trên GPIO 5 phát PWM 25 kHz, độ phân giải 8 bit; quạt nhận nguồn
+          12 V liên tục.
+        </p>
+      </header>
+      <main>
+        <div class="two">
+          <article class="panel">
+            <h2>Ánh xạ mức quạt</h2>
+            <table>
+              <thead>
+                <tr>
+                  <th>Level</th>
+                  <th>Duty danh định</th>
+                  <th>Giá trị LEDC</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>0</td>
+                  <td>0%</td>
+                  <td>0</td>
+                </tr>
+                <tr>
+                  <td>1</td>
+                  <td>35%</td>
+                  <td>89 / 255</td>
+                </tr>
+                <tr>
+                  <td>2</td>
+                  <td>60%</td>
+                  <td>153 / 255</td>
+                </tr>
+                <tr>
+                  <td>3</td>
+                  <td>90%</td>
+                  <td>230 / 255</td>
+                </tr>
+              </tbody>
+            </table>
+          </article>
+          <article class="panel">
+            <h2>Trình tự áp lệnh</h2>
+            <pre class="technical-code"><code>Nhận FanCommand_t qua snapshot
+  ↓
+Chuẩn hóa mức 0…3 và trạng thái ON
+  ↓
+OFF → ON: kickstart 100% trong 250 ms
+  ↓
+Áp duty; cập nhật trạng thái dùng chung</code></pre>
+          </article>
+        </div>
+        <div class="three">
+          <article class="detail">
+            <h2>Nút điều khiển tại node</h2>
+            <p>
+              Nhấn ngắn chuyển OFF → 1 → 2 → 3 ở MANUAL. Giữ nút chuyển về AUTO.
+            </p>
+          </article>
+          <article class="detail">
+            <h2>Bộ đếm giờ quạt</h2>
+            <p>
+              Task chu kỳ 50 ms tích lũy runtime khi quạt chạy; lưu NVS mỗi 5
+              phút.
+            </p>
+          </article>
+          <article class="detail">
+            <h2>Phản hồi trạng thái</h2>
+            <p>
+              Node gửi mức, duty và runtime_h về backend; dashboard đọc trạng
+              thái đã cập nhật.
+            </p>
+          </article>
+        </div>
+        <p class="code-source">
+          Mã nguồn: embedded/src/fan_control.cpp · sensor_data.cpp ·
+          mqtt_network.cpp
+        </p>
+      </main>
+      <footer>
+        <span>Air Quality Supervision System · Firmware · Cơ cấu chấp hành</span
+        ><span>10 / 13</span>
+      </footer>
+    </section>
+
+    <section class="slide">
+      <header>
+        <div class="eyebrow">Đồng bộ cấu hình và phục hồi</div>
+        <h1>Ghép nối, NVS và xử lý mất kết nối</h1>
+        <p class="lead">
+          Liên kết phòng được quản lý ở backend; node lưu bản sao phục vụ OLED
+          và vận hành sau khởi động.
+        </p>
+      </header>
+      <main>
+        <table class="lifecycle-table">
+          <thead>
+            <tr>
+              <th>Sự kiện</th>
+              <th>Backend</th>
+              <th>Node</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Telemetry từ node mới</td>
+              <td>Tạo device chưa ghép; lưu pairing_code</td>
+              <td>Hiển thị mã 6 ký tự trên OLED</td>
+            </tr>
+            <tr>
+              <td><code>POST /devices/pair</code></td>
+              <td>Gắn phòng; đặt paired_at; gửi set_space</td>
+              <td>Lưu space_id và paired trong NVS</td>
+            </tr>
+            <tr>
+              <td><code>POST /devices/{id}/unpair</code></td>
+              <td>Xóa liên kết; gửi set_space rỗng</td>
+              <td>Xóa phòng trong NVS; hiện mã ghép lại</td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="three">
+          <article class="detail">
+            <h2>Bộ đệm khi mất MQTT</h2>
+            <p>
+              RAM giữ 60 bản ghi có timestamp gốc, tương đương 5 phút ở chu kỳ 5
+              giây. Đầy bộ đệm thì ghi đè mẫu cũ nhất.
+            </p>
+          </article>
+          <article class="detail">
+            <h2>Gửi bù khi kết nối lại</h2>
+            <p>
+              <code>flushOffline()</code> gửi mẫu đầu hàng đợi; chỉ bỏ mẫu khi
+              publish thành công. Dữ liệu RAM mất khi khởi động lại.
+            </p>
+          </article>
+          <article class="detail">
+            <h2>Gia hạn lệnh AUTO</h2>
+            <p>
+              Backend gửi lại lệnh mỗi 5 phút khi đang chạy. Quá 10 phút không
+              có lệnh, firmware chuyển quạt OFF.
+            </p>
+          </article>
+        </div>
+        <div class="note">
+          ensure() không dùng space_id trong telemetry để tự ghép lại. Quy tắc
+          này ngăn bản sao NVS cũ khôi phục một liên kết đã bị hủy ở backend.
+        </div>
+        <p class="code-source">
+          Mã nguồn: backend/…/DeviceService.java · embedded/src/config_store.cpp
+          · mqtt_network.cpp
+        </p>
+      </main>
+      <footer>
+        <span
+          >Air Quality Supervision System · Đồng bộ cấu hình và phục hồi</span
+        ><span>11 / 13</span>
+      </footer>
+    </section>
+
+    <section class="slide">
+      <header>
+        <div class="eyebrow">Dashboard</div>
+        <h1>Tích hợp REST và quản lý trạng thái React</h1>
+        <p class="lead">
+          TanStack Query quản lý cache và polling; các thao tác thay đổi thiết
+          bị dùng mutation.
+        </p>
+      </header>
+      <main>
+        <div class="product-layout">
+          <figure class="screen">
+            <svg
+              class="screen-detail"
+              viewBox="480 0 640 670"
+              role="img"
+              aria-label="Chi tiết số đo và bộ chọn chế độ quạt trên trang phòng"
+            >
+              <image href="img/03-room.png" width="1600" height="1151" />
+            </svg>
+            <figcaption>
+              Ảnh giao diện đã lưu · số đo trong ảnh không phải dữ liệu trực
+              tiếp
+            </figcaption>
+          </figure>
+          <div class="product-notes">
+            <article class="detail">
+              <h2>Polling theo loại dữ liệu</h2>
+              <p>
+                <code>useDevices/useLatest</code>: 5 giây.
+                <code>useHistory/useSpaces</code>: 60 giây. Các query theo thiết
+                bị chỉ chạy khi có deviceId.
+              </p>
+            </article>
+            <article class="detail">
+              <h2>Gửi lệnh và làm mới cache</h2>
+              <p>
+                <code>useFanCommand</code> POST đến
+                <code>/devices/{id}/command</code>. Khi thành công, invalidate
+                dữ liệu thiết bị, mẫu mới nhất và lịch sử.
+              </p>
+            </article>
+            <article class="detail">
+              <h2>Truy vấn và vẽ lịch sử</h2>
+              <p>
+                API nhận from/to, mặc định 24 giờ; backend giảm mẫu khi chuỗi
+                dài. HistoryChart ánh xạ thời gian và PM2.5 thành đường SVG, có
+                đường ngưỡng và tooltip.
+              </p>
+            </article>
+            <article class="detail">
+              <h2>Trạng thái chưa có dữ liệu</h2>
+              <p>
+                Latest trả 404 khi node chưa có mẫu; query không retry. UI phân
+                biệt null, dữ liệu cũ và thiết bị mất kết nối.
+              </p>
+            </article>
+          </div>
+        </div>
+        <p class="code-source">
+          Mã nguồn: frontend/src/hooks/useAqss.ts · api/client.ts ·
+          components/HistoryChart.tsx
+        </p>
+      </main>
+      <footer>
+        <span>Air Quality Supervision System · Dashboard</span
+        ><span>12 / 13</span>
+      </footer>
+    </section>
+    <section class="slide closing">
+      <div class="brand">Air Quality Supervision System</div>
+      <div class="closing-content">
+        <p class="eyebrow">Báo cáo cuối kỳ · IoT</p>
+        <h1>Cảm ơn thầy cô<br />đã lắng nghe.</h1>
+      </div>
+    </section>
+  </body>
+</html>

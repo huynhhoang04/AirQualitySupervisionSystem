@@ -1,0 +1,3759 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Air Quality Supervision System — Học cách hoạt động</title>
+    <link rel="stylesheet" href="study.css" />
+  </head>
+  <body>
+    <nav>
+      <b>Air Quality Supervision System</b><a href="deck.html">Báo cáo chính</a
+      ><a href="../kien-thuc-van-dap.md">Bản học Markdown</a
+      ><span
+        >Mở “Giải thích” dưới từng trang để học sâu · Ctrl+P xuất slide</span
+      >
+    </nav>
+    <section class="slide" id="s1">
+      <header>
+        <div class="eyebrow">
+          Air Quality Supervision System · Học chi tiết · 01/26
+        </div>
+        <h1>Đọc toàn bộ vòng hoạt động</h1>
+        <p>
+          Air Quality Supervision System · Bộ học kỹ thuật và chuẩn bị vấn đáp
+        </p>
+      </header>
+      <div class="diagram">
+        <svg
+          viewBox="0 0 1160 210"
+          role="img"
+          aria-label="Đọc toàn bộ vòng hoạt động"
+        >
+          <defs>
+            <marker
+              id="arrow"
+              markerWidth="8"
+              markerHeight="8"
+              refX="7"
+              refY="4"
+              orient="auto"
+            >
+              <path d="M0 0L8 4L0 8Z" fill="#7dd3fc" />
+            </marker>
+          </defs>
+          <rect
+            x="10"
+            y="55"
+            width="258"
+            height="90"
+            rx="9"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="139" y="91" text-anchor="middle">Cảm biến</text>
+          <text x="139" y="118" text-anchor="middle" class="sub">
+            PWM / I²C
+          </text>
+          <path
+            d="M268 100H295"
+            stroke="#7dd3fc"
+            stroke-width="2"
+            marker-end="url(#arrow)"
+          />
+          <rect
+            x="300"
+            y="55"
+            width="258"
+            height="90"
+            rx="9"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="429" y="91" text-anchor="middle">ESP32-S3</text>
+          <text x="429" y="118" text-anchor="middle" class="sub">
+            Snapshot → JSON
+          </text>
+          <path
+            d="M558 100H585"
+            stroke="#7dd3fc"
+            stroke-width="2"
+            marker-end="url(#arrow)"
+          />
+          <rect
+            x="590"
+            y="55"
+            width="258"
+            height="90"
+            rx="9"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="719" y="91" text-anchor="middle">Backend</text>
+          <text x="719" y="118" text-anchor="middle" class="sub">
+            Lưu → quyết định
+          </text>
+          <path
+            d="M848 100H875"
+            stroke="#7dd3fc"
+            stroke-width="2"
+            marker-end="url(#arrow)"
+          />
+          <rect
+            x="880"
+            y="55"
+            width="258"
+            height="90"
+            rx="9"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="1009" y="91" text-anchor="middle">Quạt + UI</text>
+          <text x="1009" y="118" text-anchor="middle" class="sub">
+            PWM / REST
+          </text>
+        </svg>
+      </div>
+      <div class="content">
+        <div class="source">
+          <div class="ref">embedded/src/mqtt_network.cpp : 185</div>
+          <pre>
+static void publishActuatorState() {
+    const SensorData_t d = dataSnapshot();
+
+    JsonDocument doc;
+    doc[&quot;device_id&quot;] = AQSS_DEVICE_ID;
+    doc[&quot;timestamp&quot;] = d.timestamp;
+    doc[&quot;state&quot;] = d.fan_state ? &quot;ON&quot; : &quot;OFF&quot;;
+    doc[&quot;level&quot;] = d.fan_level;
+    doc[&quot;duty_pct&quot;] = d.fan_duty_pct;
+    doc[&quot;mode&quot;] = d.fan_mode == FAN_MODE_AUTO ? &quot;AUTO&quot; : &quot;MANUAL&quot;;</pre>
+        </div>
+        <ul>
+          <li>
+            Học theo một mẫu đo: nguồn dữ liệu → truyền → lưu → quyết định →
+            phản hồi.
+          </li>
+          <li>Mỗi trang có sơ đồ, trích đoạn source và câu hỏi tự kiểm tra.</li>
+          <li>Tên hàm và số dòng lấy từ source khi dựng bộ slide.</li>
+        </ul>
+      </div>
+      <div class="question">
+        <b>Tự trả lời:</b> Backend gửi lệnh xong có biết quạt thực sự quay chưa?
+      </div>
+    </section>
+    <details>
+      <summary>Giải thích và đáp án · trang 01</summary>
+      <h2>Backend gửi lệnh xong có biết quạt thực sự quay chưa?</h2>
+      <p>
+        Chưa. Node phản hồi duty đã áp dụng, nhưng code chưa đọc tachometer/RPM
+        hoặc cảm biến lưu lượng. Lệnh và phản hồi phần mềm chưa chứng minh quạt
+        quay hay hiệu quả lọc.
+      </p>
+      <p>
+        Bộ này phục vụ học sâu, tách khỏi bài báo cáo 12 phút. Nhận xét về hạn
+        chế là kết luận từ luồng source, chưa phải kết quả đo trên thiết bị. Mở
+        phần giải thích dưới từng slide hoặc đọc tài liệu Markdown đi kèm.
+      </p>
+      <p>
+        Trích đoạn có số dòng ở trên; mở file nguồn để xem toàn bộ ngữ cảnh.
+      </p>
+      <a href="../../embedded/src/mqtt_network.cpp"
+        >embedded/src/mqtt_network.cpp · từ dòng 185</a
+      ><br />
+    </details>
+    <section class="slide" id="s2">
+      <header>
+        <div class="eyebrow">
+          Air Quality Supervision System · Học chi tiết · 02/26
+        </div>
+        <h1>Khởi động: thứ tự nào quyết định an toàn?</h1>
+        <p>Theo setup() trong main.cpp; bắt đầu bằng đặt PWM quạt về 0.</p>
+      </header>
+      <div class="diagram">
+        <svg
+          viewBox="0 0 1160 210"
+          role="img"
+          aria-label="Khởi động: thứ tự nào quyết định an toàn?"
+        >
+          <defs>
+            <marker
+              id="arrow"
+              markerWidth="8"
+              markerHeight="8"
+              refX="7"
+              refY="4"
+              orient="auto"
+            >
+              <path d="M0 0L8 4L0 8Z" fill="#7dd3fc" />
+            </marker>
+          </defs>
+          <rect
+            x="10"
+            y="55"
+            width="258"
+            height="90"
+            rx="9"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="139" y="91" text-anchor="middle">fanBegin</text>
+          <text x="139" y="118" text-anchor="middle" class="sub">LEDC = 0</text>
+          <path
+            d="M268 100H295"
+            stroke="#7dd3fc"
+            stroke-width="2"
+            marker-end="url(#arrow)"
+          />
+          <rect
+            x="300"
+            y="55"
+            width="258"
+            height="90"
+            rx="9"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="429" y="91" text-anchor="middle">NVS + dataInit</text>
+          <text x="429" y="118" text-anchor="middle" class="sub">
+            Khôi phục cấu hình
+          </text>
+          <path
+            d="M558 100H585"
+            stroke="#7dd3fc"
+            stroke-width="2"
+            marker-end="url(#arrow)"
+          />
+          <rect
+            x="590"
+            y="55"
+            width="258"
+            height="90"
+            rx="9"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="719" y="91" text-anchor="middle">Wire + OLED</text>
+          <text x="719" y="118" text-anchor="middle" class="sub">
+            Khởi tạo bus
+          </text>
+          <path
+            d="M848 100H875"
+            stroke="#7dd3fc"
+            stroke-width="2"
+            marker-end="url(#arrow)"
+          />
+          <rect
+            x="880"
+            y="55"
+            width="258"
+            height="90"
+            rx="9"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="1009" y="91" text-anchor="middle">WDT + 5 task</text>
+          <text x="1009" y="118" text-anchor="middle" class="sub">
+            Chạy hai lõi
+          </text>
+        </svg>
+      </div>
+      <div class="content">
+        <div class="source">
+          <div class="ref">embedded/src/main.cpp : 38</div>
+          <pre>
+fanBegin();
+
+configBegin();
+const RuntimeConfig cfg = configSnapshot();
+dataInit(cfg.space_id, cfg.dust_baseline_us, cfg.filter_runtime_s);
+
+// Button held on power-up (3 s) re-opens the Wi-Fi setup portal.
+pinMode(PIN_BTN, INPUT_PULLUP);
+if (digitalRead(PIN_BTN) == LOW) {
+    const uint32_t held = millis();</pre>
+        </div>
+        <ul>
+          <li>
+            fanBegin() chạy trước cấu hình mạng để sớm điều khiển chân PWM.
+          </li>
+          <li>Wire.begin() chỉ được gọi một lần trong setup.</li>
+          <li>Giữ nút lúc khởi động 3 giây đặt cờ mở portal.</li>
+        </ul>
+      </div>
+      <div class="question">
+        <b>Tự trả lời:</b> Vì sao không chờ Wi-Fi rồi mới khởi tạo quạt?
+      </div>
+    </section>
+    <details>
+      <summary>Giải thích và đáp án · trang 02</summary>
+      <h2>Vì sao không chờ Wi-Fi rồi mới khởi tạo quạt?</h2>
+      <p>
+        Đầu vào PWM quạt có pull-up; cần chủ động đưa PWM về 0 sớm. Kết nối mạng
+        có thể chậm hoặc thất bại, nên không để việc khởi tạo quạt phụ thuộc
+        mạng.
+      </p>
+      <p>
+        Không suy ra rằng PWM 0 bảo đảm mọi mẫu quạt dừng hoàn toàn: đây là lệnh
+        phần mềm, khả năng dừng phụ thuộc quạt thực tế. GPIO 33–37 dành cho
+        Octal PSRAM; pin map hiện dùng 5, 6, 7, 8, 9, 18.
+      </p>
+      <p>
+        Trích đoạn có số dòng ở trên; mở file nguồn để xem toàn bộ ngữ cảnh.
+      </p>
+      <a href="../../embedded/src/main.cpp"
+        >embedded/src/main.cpp · từ dòng 38</a
+      ><br />
+    </details>
+    <section class="slide" id="s3">
+      <header>
+        <div class="eyebrow">
+          Air Quality Supervision System · Học chi tiết · 03/26
+        </div>
+        <h1>Đường nguồn và đường tín hiệu</h1>
+        <p>
+          Nguồn quạt, nguồn logic và tín hiệu điều tốc có vai trò khác nhau.
+        </p>
+      </header>
+      <div class="diagram">
+        <svg
+          viewBox="0 0 1160 210"
+          role="img"
+          aria-label="Đường nguồn và đường tín hiệu"
+        >
+          <defs>
+            <marker
+              id="arrow"
+              markerWidth="8"
+              markerHeight="8"
+              refX="7"
+              refY="4"
+              orient="auto"
+            >
+              <path d="M0 0L8 4L0 8Z" fill="#7dd3fc" />
+            </marker>
+          </defs>
+          <rect
+            x="20"
+            y="70"
+            width="190"
+            height="65"
+            rx="8"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="115" y="110" text-anchor="middle">Nguồn 12 V</text>
+          <rect
+            x="430"
+            y="15"
+            width="220"
+            height="65"
+            rx="8"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="540" y="55" text-anchor="middle">Quạt pin 2: +12 V</text>
+          <rect
+            x="430"
+            y="125"
+            width="220"
+            height="65"
+            rx="8"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="540" y="165" text-anchor="middle">LM2596 → 5 V</text>
+          <rect
+            x="880"
+            y="125"
+            width="260"
+            height="65"
+            rx="8"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="1010" y="165" text-anchor="middle">ESP32-S3</text>
+          <path
+            d="M210 95H300V48H425M300 95V155H425M650 155H875"
+            stroke="#7dd3fc"
+            fill="none"
+            marker-end="url(#arrow)"
+          />
+          <path
+            d="M1010 125V48H655"
+            stroke="#fbbf24"
+            fill="none"
+            marker-end="url(#arrow)"
+          />
+          <text x="820" y="30" text-anchor="middle">GPIO 5 → pin 4 PWM</text>
+          <text x="840" y="205" class="sub">Các nhánh dùng chung GND.</text>
+        </svg>
+      </div>
+      <div class="content">
+        <div class="source">
+          <div class="ref">embedded/include/config.h : 19</div>
+          <pre>
+#define PIN_I2C_SDA 8
+#define PIN_I2C_SCL 9
+#define PIN_DUST_PWM 18
+#define PIN_FAN_PWM 5
+#define PIN_BTN 6
+#define PIN_STATUS_LED 7
+
+// ─── I2C bus (SCD40 + SSD1306 share it; lock at 400 kHz) ─────────────────────
+#define I2C_CLOCK_HZ 400000
+#define I2C_ADDR_OLED 0x3C
+#define I2C_ADDR_SCD40 0x62
+</pre>
+        </div>
+        <ul>
+          <li>
+            Quạt dùng +12 V liên tục và GND chung; tốc độ qua chân PWM riêng.
+          </li>
+          <li>SCD40 0x62 và OLED 0x3C cùng bus I²C 400 kHz.</li>
+          <li>Ảnh Fritzing còn nhãn GP2Y1010; firmware viết cho GP2Y1023.</li>
+        </ul>
+      </div>
+      <div class="question">
+        <b>Tự trả lời:</b> Hai cảm biến Sharp có thay thế thuật toán cho nhau
+        được không?
+      </div>
+    </section>
+    <details>
+      <summary>Giải thích và đáp án · trang 03</summary>
+      <h2>Hai cảm biến Sharp có thay thế thuật toán cho nhau được không?</h2>
+      <p>
+        Không. Firmware hiện đọc xung kỹ thuật số của GP2Y1023. GP2Y1010 có cách
+        kích LED và đọc analog khác; không được dùng hình minh họa để kết luận
+        hai loại tương đương.
+      </p>
+      <p>
+        Cầu chia áp bụi 1 kΩ / 2 kΩ giảm mức điện áp đầu ra trước GPIO. Sơ đồ
+        kết nối là minh họa; cần đối chiếu đúng linh kiện lắp thực tế trước khi
+        bảo vệ. Không có đường tachometer trong pin map hiện tại.
+      </p>
+      <p>
+        Trích đoạn có số dòng ở trên; mở file nguồn để xem toàn bộ ngữ cảnh.
+      </p>
+      <a href="../../embedded/include/config.h"
+        >embedded/include/config.h · từ dòng 19</a
+      ><br />
+    </details>
+    <section class="slide" id="s4">
+      <header>
+        <div class="eyebrow">
+          Air Quality Supervision System · Học chi tiết · 04/26
+        </div>
+        <h1>GP2Y1023: đo độ rộng xung LOW</h1>
+        <p>
+          Ngắt CHANGE ghi thời điểm hai cạnh; chu kỳ danh định khoảng 10 ms.
+        </p>
+      </header>
+      <div class="diagram">
+        <svg
+          viewBox="0 0 1160 210"
+          role="img"
+          aria-label="GP2Y1023: đo độ rộng xung LOW"
+        >
+          <defs>
+            <marker
+              id="arrow"
+              markerWidth="8"
+              markerHeight="8"
+              refX="7"
+              refY="4"
+              orient="auto"
+            >
+              <path d="M0 0L8 4L0 8Z" fill="#7dd3fc" />
+            </marker>
+          </defs>
+          <path
+            d="M30 40H150V105H320V40H670V105H840V40H1130"
+            fill="none"
+            stroke="#7dd3fc"
+            stroke-width="3"
+          />
+          <text x="154" y="27">cạnh xuống t₀</text>
+          <text x="324" y="27">cạnh lên t₁</text>
+          <path d="M150 123H320" stroke="#fbbf24" marker-end="url(#arrow)" />
+          <text x="165" y="150">W = t₁ − t₀ (µs)</text>
+          <text x="650" y="150">Khung tiếp theo khoảng 10 ms</text>
+        </svg>
+      </div>
+      <div class="content">
+        <div class="source">
+          <div class="ref">embedded/src/dust_sensor.cpp : 25</div>
+          <pre>
+static void IRAM_ATTR dustIsr() {
+    const uint32_t now = (uint32_t)esp_timer_get_time();
+    s_edgeCount = s_edgeCount + 1;
+</pre>
+          <div class="ref">embedded/src/dust_sensor.cpp : 38</div>
+          <pre>
+} else if (s_lowValid) {
+    const uint32_t width = now - s_lowStartUs;
+    s_lowValid = false;
+
+    if (width &gt;= DUST_PULSE_MIN_US &amp;&amp; width &lt;= DUST_PULSE_ACCEPT_MAX_US) {
+        s_widthUs = width;
+        s_widthSeq = s_widthSeq + 1;
+    } else {
+        s_glitchCount = s_glitchCount + 1;</pre>
+        </div>
+        <ul>
+          <li>
+            ISR có IRAM_ATTR; đồng hồ dùng esp_timer_get_time(), không
+            analogRead().
+          </li>
+          <li>Cạnh xuống phải cách khung đã nhận ít nhất 8000 µs.</li>
+          <li>
+            Code chấp nhận W từ 7 đến 8000 µs; tài liệu dự án quy định trần 7000
+            µs.
+          </li>
+        </ul>
+      </div>
+      <div class="question">
+        <b>Tự trả lời:</b> Tại sao không đo bằng delay trong loop?
+      </div>
+    </section>
+    <details>
+      <summary>Giải thích và đáp án · trang 04</summary>
+      <h2>Tại sao không đo bằng delay trong loop?</h2>
+      <p>
+        Đợi theo vòng lặp dễ bỏ cạnh khi task khác hoặc mạng chiếm thời gian.
+        Ngắt ghi dấu thời gian ở cạnh; phần trung bình và quy đổi chuyển ra task
+        để tránh làm ISR dài.
+      </p>
+      <p>
+        Vo nhàn rỗi HIGH, xung cần đo là phần LOW. Khi cạnh xuống quá gần khung
+        trước, s_lowValid bị xóa. Cạnh lên chỉ được chấp nhận khi có một cạnh
+        xuống hợp lệ. Kiểm tra 8 ms là lọc nhiễu theo khung, không chứng minh đo
+        đúng mọi nhiễu.
+      </p>
+      <p>
+        Trích đoạn có số dòng ở trên; mở file nguồn để xem toàn bộ ngữ cảnh.
+      </p>
+      <a href="../../embedded/src/dust_sensor.cpp"
+        >embedded/src/dust_sensor.cpp · từ dòng 25</a
+      ><br /><a href="../../embedded/src/dust_sensor.cpp"
+        >embedded/src/dust_sensor.cpp · từ dòng 38</a
+      ><br />
+    </details>
+    <section class="slide" id="s5">
+      <header>
+        <div class="eyebrow">
+          Air Quality Supervision System · Học chi tiết · 05/26
+        </div>
+        <h1>Từ xung đến nồng độ bụi</h1>
+        <p>W̄ → trừ baseline → chia độ nhạy → giới hạn dải.</p>
+      </header>
+      <div class="diagram">
+        <svg
+          viewBox="0 0 1160 210"
+          role="img"
+          aria-label="Từ xung đến nồng độ bụi"
+        >
+          <defs>
+            <marker
+              id="arrow"
+              markerWidth="8"
+              markerHeight="8"
+              refX="7"
+              refY="4"
+              orient="auto"
+            >
+              <path d="M0 0L8 4L0 8Z" fill="#7dd3fc" />
+            </marker>
+          </defs>
+          <rect
+            x="10"
+            y="55"
+            width="258"
+            height="90"
+            rx="9"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="139" y="91" text-anchor="middle">s_widthSeq</text>
+          <text x="139" y="118" text-anchor="middle" class="sub">
+            Phát hiện dữ liệu mới
+          </text>
+          <path
+            d="M268 100H295"
+            stroke="#7dd3fc"
+            stroke-width="2"
+            marker-end="url(#arrow)"
+          />
+          <rect
+            x="300"
+            y="55"
+            width="258"
+            height="90"
+            rx="9"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="429" y="91" text-anchor="middle">Cửa sổ 1 s</text>
+          <text x="429" y="118" text-anchor="middle" class="sub">
+            Tổng W / số mẫu
+          </text>
+          <path
+            d="M558 100H585"
+            stroke="#7dd3fc"
+            stroke-width="2"
+            marker-end="url(#arrow)"
+          />
+          <rect
+            x="590"
+            y="55"
+            width="258"
+            height="90"
+            rx="9"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="719" y="91" text-anchor="middle">(W̄ − W₀) / 14</text>
+          <text x="719" y="118" text-anchor="middle" class="sub">
+            W₀ mặc định 1400 µs
+          </text>
+          <path
+            d="M848 100H875"
+            stroke="#7dd3fc"
+            stroke-width="2"
+            marker-end="url(#arrow)"
+          />
+          <rect
+            x="880"
+            y="55"
+            width="258"
+            height="90"
+            rx="9"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="1009" y="91" text-anchor="middle">clamp 0…500</text>
+          <text x="1009" y="118" text-anchor="middle" class="sub">
+            Ghi snapshot
+          </text>
+        </svg>
+      </div>
+      <div class="content">
+        <div class="source">
+          <div class="ref">embedded/src/dust_sensor.cpp : 83</div>
+          <pre>
+if (haveSamples) {
+    float pm25 = (avgUs - g_sensorData.dust_baseline_us) / DUST_SENSITIVITY_US_PER_UGM3;
+    if (pm25 &lt; 0.0f) {
+        pm25 = 0.0f;
+    }
+    if (pm25 &gt; PM25_MAX_UGM3) {
+        pm25 = PM25_MAX_UGM3;
+    }
+    g_sensorData.pm25_ugm3 = pm25;
+    g_sensorData.dust_pulse_us = avgUs;</pre>
+          <div class="ref">embedded/src/mqtt_network.cpp : 145</div>
+          <pre>
+sample.pm25_valid = d.dust_ready;
+sample.co2_valid = d.scd40_ready;
+sample.pm25_saturated = d.dust_saturated;</pre>
+        </div>
+        <ul>
+          <li>Ví dụ tính toán: W̄ = 1680 µs → (1680 − 1400)/14 = 20 µg/m³.</li>
+          <li>Task thăm dò mỗi 5 ms; không có queue giữ toàn bộ các xung.</li>
+          <li>
+            dust_saturated đặt từ W̄ ≥ 6900 µs; mất xung &gt;3 s đặt dust_fault.
+          </li>
+        </ul>
+      </div>
+      <div class="question">
+        <b>Tự trả lời:</b> dust_fault có khiến PM2.5 gửi thành null ngay không?
+      </div>
+    </section>
+    <details>
+      <summary>Giải thích và đáp án · trang 05</summary>
+      <h2>dust_fault có khiến PM2.5 gửi thành null ngay không?</h2>
+      <p>
+        Không trong code hiện tại. Khi thiếu mẫu, giá trị cũ và dust_ready vẫn
+        giữ. currentSample() dùng dust_ready làm cờ hợp lệ, nên có thể gửi lại
+        PM cũ với timestamp mới.
+      </p>
+      <p>
+        Cửa sổ 1 s tổng hợp các giá trị mà task nhìn thấy qua biến volatile; đó
+        không phải trung bình được bảo đảm của mọi xung. Volatile không khóa cặp
+        width/seq thành một snapshot nguyên tử. Cần critical section hoặc queue
+        nếu muốn bảo đảm đọc nhất quán và không mất mẫu.
+      </p>
+      <p>
+        Trích đoạn có số dòng ở trên; mở file nguồn để xem toàn bộ ngữ cảnh.
+      </p>
+      <a href="../../embedded/src/dust_sensor.cpp"
+        >embedded/src/dust_sensor.cpp · từ dòng 83</a
+      ><br /><a href="../../embedded/src/mqtt_network.cpp"
+        >embedded/src/mqtt_network.cpp · từ dòng 145</a
+      ><br />
+    </details>
+    <section class="slide" id="s6">
+      <header>
+        <div class="eyebrow">
+          Air Quality Supervision System · Học chi tiết · 06/26
+        </div>
+        <h1>SCD40: periodic, data-ready, trung bình</h1>
+        <p>Chu kỳ cảm biến 5 s khác với chu kỳ task kiểm tra 1 s.</p>
+      </header>
+      <div class="diagram">
+        <svg
+          viewBox="0 0 1160 210"
+          role="img"
+          aria-label="SCD40: periodic, data-ready, trung bình"
+        >
+          <defs>
+            <marker
+              id="arrow"
+              markerWidth="8"
+              markerHeight="8"
+              refX="7"
+              refY="4"
+              orient="auto"
+            >
+              <path d="M0 0L8 4L0 8Z" fill="#7dd3fc" />
+            </marker>
+          </defs>
+          <rect
+            x="10"
+            y="55"
+            width="258"
+            height="90"
+            rx="9"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="139" y="91" text-anchor="middle">startPeriodic</text>
+          <text x="139" y="118" text-anchor="middle" class="sub">
+            Bắt đầu đo
+          </text>
+          <path
+            d="M268 100H295"
+            stroke="#7dd3fc"
+            stroke-width="2"
+            marker-end="url(#arrow)"
+          />
+          <rect
+            x="300"
+            y="55"
+            width="258"
+            height="90"
+            rx="9"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="429" y="91" text-anchor="middle">Poll mỗi 1 s</text>
+          <text x="429" y="118" text-anchor="middle" class="sub">
+            Data ready?
+          </text>
+          <path
+            d="M558 100H585"
+            stroke="#7dd3fc"
+            stroke-width="2"
+            marker-end="url(#arrow)"
+          />
+          <rect
+            x="590"
+            y="55"
+            width="258"
+            height="90"
+            rx="9"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="719" y="91" text-anchor="middle">Kiểm tra số đo</text>
+          <text x="719" y="118" text-anchor="middle" class="sub">
+            Đưa vào ring 5 mẫu
+          </text>
+          <path
+            d="M848 100H875"
+            stroke="#7dd3fc"
+            stroke-width="2"
+            marker-end="url(#arrow)"
+          />
+          <rect
+            x="880"
+            y="55"
+            width="258"
+            height="90"
+            rx="9"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="1009" y="91" text-anchor="middle">Trung bình</text>
+          <text x="1009" y="118" text-anchor="middle" class="sub">
+            Ghi CO₂ / T / RH
+          </text>
+        </svg>
+      </div>
+      <div class="content">
+        <div class="source">
+          <div class="ref">embedded/src/scd40_sensor.cpp : 96</div>
+          <pre>
+co2Ring[ringIndex] = (float)co2;
+tempRing[ringIndex] = temperature;
+humRing[ringIndex] = humidity;
+ringIndex = (uint8_t)((ringIndex + 1) % SCD40_RING_SIZE);
+if (ringCount &lt; SCD40_RING_SIZE) {
+    ringCount++;
+}
+
+float co2Avg = 0.0f;
+float tempAvg = 0.0f;</pre>
+        </div>
+        <ul>
+          <li>Chưa ready → tiếp tục đợi, không tạo mẫu giả.</li>
+          <li>Trung bình số mẫu hiện có n ≤ 5; không chờ đủ 5 mới hiển thị.</li>
+          <li>Sau 5 lỗi giao tiếp liên tiếp, restartMeasurement() được gọi.</li>
+        </ul>
+      </div>
+      <div class="question">
+        <b>Tự trả lời:</b> Lấy trung bình 5 mẫu có giá phải trả gì?
+      </div>
+    </section>
+    <details>
+      <summary>Giải thích và đáp án · trang 06</summary>
+      <h2>Lấy trung bình 5 mẫu có giá phải trả gì?</h2>
+      <p>
+        Giảm dao động nhưng làm phản ứng hiển thị chậm hơn. Với mẫu cách nhau
+        khoảng 5 s, năm mẫu có tuổi trải khoảng 20 s; không nên mô tả giá trị
+        trung bình là số đo tức thời chưa lọc.
+      </p>
+      <p>
+        Các mảng CO₂/T/RH dùng cùng ringIndex, nên một bộ số đo cập nhật cùng
+        nhau. scd40_ready không tự xóa sau lỗi kéo dài; cần phân biệt sensor
+        freshness với timestamp đóng gói telemetry.
+      </p>
+      <p>
+        Trích đoạn có số dòng ở trên; mở file nguồn để xem toàn bộ ngữ cảnh.
+      </p>
+      <a href="../../embedded/src/scd40_sensor.cpp"
+        >embedded/src/scd40_sensor.cpp · từ dòng 96</a
+      ><br />
+    </details>
+    <section class="slide" id="s7">
+      <header>
+        <div class="eyebrow">
+          Air Quality Supervision System · Học chi tiết · 07/26
+        </div>
+        <h1>FreeRTOS: tác vụ, ưu tiên và mutex</h1>
+        <p>Core 0: mqtt. Core 1: scd40, dust, fan, oled.</p>
+      </header>
+      <div class="diagram">
+        <svg
+          viewBox="0 0 1160 210"
+          role="img"
+          aria-label="FreeRTOS: tác vụ, ưu tiên và mutex"
+        >
+          <defs>
+            <marker
+              id="arrow"
+              markerWidth="8"
+              markerHeight="8"
+              refX="7"
+              refY="4"
+              orient="auto"
+            >
+              <path d="M0 0L8 4L0 8Z" fill="#7dd3fc" />
+            </marker>
+          </defs>
+          <rect
+            x="10"
+            y="55"
+            width="258"
+            height="90"
+            rx="9"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="139" y="91" text-anchor="middle">Task cảm biến</text>
+          <text x="139" y="118" text-anchor="middle" class="sub">
+            Ghi SensorData_t
+          </text>
+          <path
+            d="M268 100H295"
+            stroke="#7dd3fc"
+            stroke-width="2"
+            marker-end="url(#arrow)"
+          />
+          <rect
+            x="300"
+            y="55"
+            width="258"
+            height="90"
+            rx="9"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="429" y="91" text-anchor="middle">g_dataMutex</text>
+          <text x="429" y="118" text-anchor="middle" class="sub">
+            Bảo vệ trạng thái
+          </text>
+          <path
+            d="M558 100H585"
+            stroke="#7dd3fc"
+            stroke-width="2"
+            marker-end="url(#arrow)"
+          />
+          <rect
+            x="590"
+            y="55"
+            width="258"
+            height="90"
+            rx="9"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="719" y="91" text-anchor="middle">dataSnapshot</text>
+          <text x="719" y="118" text-anchor="middle" class="sub">
+            Sao chép rồi nhả
+          </text>
+          <path
+            d="M848 100H875"
+            stroke="#7dd3fc"
+            stroke-width="2"
+            marker-end="url(#arrow)"
+          />
+          <rect
+            x="880"
+            y="55"
+            width="258"
+            height="90"
+            rx="9"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="1009" y="91" text-anchor="middle">MQTT / OLED</text>
+          <text x="1009" y="118" text-anchor="middle" class="sub">
+            Dùng bản sao
+          </text>
+        </svg>
+      </div>
+      <div class="content">
+        <div class="source">
+          <div class="ref">embedded/src/main.cpp : 71</div>
+          <pre>
+xTaskCreatePinnedToCore(Task_ReadSCD40, &quot;scd40&quot;, 4096, nullptr, 2, nullptr, 1);
+xTaskCreatePinnedToCore(Task_ReadDustPWM, &quot;dust&quot;, 3072, nullptr, 3, nullptr, 1);
+xTaskCreatePinnedToCore(Task_FanControl, &quot;fan&quot;, 3072, nullptr, 3, nullptr, 1);
+xTaskCreatePinnedToCore(Task_UpdateOLED, &quot;oled&quot;, 4096, nullptr, 1, nullptr, 1);
+xTaskCreatePinnedToCore(Task_MQTT_Network, &quot;mqtt&quot;, 8192, nullptr, 2, nullptr, 0);</pre>
+          <div class="ref">embedded/src/sensor_data.cpp : 42</div>
+          <pre>
+SensorData_t dataSnapshot() {
+    SensorData_t copy;
+    dataLock();
+    copy = g_sensorData;
+    dataUnlock();
+    return copy;
+}
+</pre>
+        </div>
+        <ul>
+          <li>dust/fan ưu tiên 3; scd40/mqtt 2; oled 1.</li>
+          <li>
+            Mutex chỉ bảo vệ vùng dữ liệu được khóa; không tự bảo vệ mọi tài
+            nguyên.
+          </li>
+          <li>
+            dataSnapshot tránh giữ mutex trong lúc serialize hoặc gửi mạng.
+          </li>
+        </ul>
+      </div>
+      <div class="question">
+        <b>Tự trả lời:</b> Pin hai core có biến hệ thống thành hard real-time
+        không?
+      </div>
+    </section>
+    <details>
+      <summary>Giải thích và đáp án · trang 07</summary>
+      <h2>Pin hai core có biến hệ thống thành hard real-time không?</h2>
+      <p>
+        Không. Còn lịch FreeRTOS, Wi-Fi, ngắt, vTaskDelay và I/O có thể chặn.
+        ISR bắt cạnh và phân tác vụ giúp tổ chức thời gian, nhưng muốn tuyên bố
+        deadline phải có đo latency/jitter.
+      </p>
+      <p>
+        Các số stack truyền vào lần lượt 4096, 3072, 3072, 4096, 8192; không
+        cộng chúng để kết luận bộ nhớ toàn chương trình. Data mutex không bao
+        quanh giao dịch Wire giữa SCD40 và OLED; một lần Wire.begin không đồng
+        nghĩa đã chứng minh tránh tranh chấp I²C.
+      </p>
+      <p>
+        Trích đoạn có số dòng ở trên; mở file nguồn để xem toàn bộ ngữ cảnh.
+      </p>
+      <a href="../../embedded/src/main.cpp"
+        >embedded/src/main.cpp · từ dòng 71</a
+      ><br /><a href="../../embedded/src/sensor_data.cpp"
+        >embedded/src/sensor_data.cpp · từ dòng 42</a
+      ><br />
+    </details>
+    <section class="slide" id="s8">
+      <header>
+        <div class="eyebrow">
+          Air Quality Supervision System · Học chi tiết · 08/26
+        </div>
+        <h1>Wi-Fi, portal, NTP và MQTT</h1>
+        <p>Bốn trạng thái kết nối cần phân biệt khi chẩn đoán.</p>
+      </header>
+      <div class="diagram">
+        <svg
+          viewBox="0 0 1160 210"
+          role="img"
+          aria-label="Wi-Fi, portal, NTP và MQTT"
+        >
+          <defs>
+            <marker
+              id="arrow"
+              markerWidth="8"
+              markerHeight="8"
+              refX="7"
+              refY="4"
+              orient="auto"
+            >
+              <path d="M0 0L8 4L0 8Z" fill="#7dd3fc" />
+            </marker>
+          </defs>
+          <rect
+            x="10"
+            y="55"
+            width="258"
+            height="90"
+            rx="9"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="139" y="91" text-anchor="middle">NVS mạng</text>
+          <text x="139" y="118" text-anchor="middle" class="sub">
+            SSID / thông số
+          </text>
+          <path
+            d="M268 100H295"
+            stroke="#7dd3fc"
+            stroke-width="2"
+            marker-end="url(#arrow)"
+          />
+          <rect
+            x="300"
+            y="55"
+            width="258"
+            height="90"
+            rx="9"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="429" y="91" text-anchor="middle">SoftAP + STA</text>
+          <text x="429" y="118" text-anchor="middle" class="sub">
+            Portal nếu cần
+          </text>
+          <path
+            d="M558 100H585"
+            stroke="#7dd3fc"
+            stroke-width="2"
+            marker-end="url(#arrow)"
+          />
+          <rect
+            x="590"
+            y="55"
+            width="258"
+            height="90"
+            rx="9"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="719" y="91" text-anchor="middle">NTP hợp lệ</text>
+          <text x="719" y="118" text-anchor="middle" class="sub">
+            Cho gửi telemetry
+          </text>
+          <path
+            d="M848 100H875"
+            stroke="#7dd3fc"
+            stroke-width="2"
+            marker-end="url(#arrow)"
+          />
+          <rect
+            x="880"
+            y="55"
+            width="258"
+            height="90"
+            rx="9"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="1009" y="91" text-anchor="middle">MQTT TLS</text>
+          <text x="1009" y="118" text-anchor="middle" class="sub">
+            Poll + publish
+          </text>
+        </svg>
+      </div>
+      <div class="content">
+        <div class="source">
+          <div class="ref">embedded/src/mqtt_network.cpp : 60</div>
+          <pre>
+static bool timeIsValid() {
+    return (uint32_t)time(nullptr) &gt; TIME_VALID_EPOCH;
+}
+</pre>
+          <div class="ref">embedded/src/mqtt_network.cpp : 538</div>
+          <pre>
+if (!s_mqtt.connected()) {
+    // Still sample while offline: otherwise the buffer only ever fills when a publish
+    // fails on a live connection, which is the one case that rarely happens.
+    const RuntimeConfig offlineCfg = configSnapshot();
+    if ((uint32_t)(now - lastTelemetryMs) &gt;= offlineCfg.telemetry_interval_ms) {
+        lastTelemetryMs = now;
+        bufferCurrentReading();
+    }</pre>
+        </div>
+        <ul>
+          <li>Thiếu cấu hình hoặc join thất bại → portal cấu hình.</li>
+          <li>
+            Wi-Fi mất lâu hơn 60 s → quay về portal; MQTT có nhịp retry riêng 5
+            s.
+          </li>
+          <li>Telemetry không gửi hoặc buffer khi chưa có thời gian hợp lệ.</li>
+        </ul>
+      </div>
+      <div class="question">
+        <b>Tự trả lời:</b> Wi-Fi kết nối được có nghĩa hệ thống đã hoạt động đầy
+        đủ?
+      </div>
+    </section>
+    <details>
+      <summary>Giải thích và đáp án · trang 08</summary>
+      <h2>Wi-Fi kết nối được có nghĩa hệ thống đã hoạt động đầy đủ?</h2>
+      <p>
+        Chưa. Cần DNS/Internet và NTP; sau đó MQTT cần TLS, tài khoản và
+        subscribe thành công. Khi chẩn đoán phải tách Wi-Fi, NTP, MQTT, ghép
+        phòng và số đo.
+      </p>
+      <p>
+        Đồng bộ NTP được yêu cầu lần đầu, mỗi giờ, hoặc bằng force_ntp_sync.
+        Backend kết nối Paho ở thread khởi tạo riêng để không chặn Spring
+        startup. Portal dùng DNS và HTTP nội bộ trên AP; không phải trang
+        dashboard React.
+      </p>
+      <p>
+        Trích đoạn có số dòng ở trên; mở file nguồn để xem toàn bộ ngữ cảnh.
+      </p>
+      <a href="../../embedded/src/mqtt_network.cpp"
+        >embedded/src/mqtt_network.cpp · từ dòng 60</a
+      ><br /><a href="../../embedded/src/mqtt_network.cpp"
+        >embedded/src/mqtt_network.cpp · từ dòng 538</a
+      ><br />
+    </details>
+    <section class="slide" id="s9">
+      <header>
+        <div class="eyebrow">
+          Air Quality Supervision System · Học chi tiết · 09/26
+        </div>
+        <h1>MQTT: QoS, retained và LWT</h1>
+        <p>Các bản tin hiện tại dùng QoS 1; không suy ra exactly-once.</p>
+      </header>
+      <div class="diagram">
+        <svg
+          viewBox="0 0 1160 210"
+          role="img"
+          aria-label="MQTT: QoS, retained và LWT"
+        >
+          <defs>
+            <marker
+              id="arrow"
+              markerWidth="8"
+              markerHeight="8"
+              refX="7"
+              refY="4"
+              orient="auto"
+            >
+              <path d="M0 0L8 4L0 8Z" fill="#7dd3fc" />
+            </marker>
+          </defs>
+          <rect
+            x="10"
+            y="55"
+            width="258"
+            height="90"
+            rx="9"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="139" y="91" text-anchor="middle">Node</text>
+          <text x="139" y="118" text-anchor="middle" class="sub">
+            publish telemetry
+          </text>
+          <path
+            d="M268 100H295"
+            stroke="#7dd3fc"
+            stroke-width="2"
+            marker-end="url(#arrow)"
+          />
+          <rect
+            x="300"
+            y="55"
+            width="258"
+            height="90"
+            rx="9"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="429" y="91" text-anchor="middle">Broker</text>
+          <text x="429" y="118" text-anchor="middle" class="sub">
+            QoS 1 / retained
+          </text>
+          <path
+            d="M558 100H585"
+            stroke="#7dd3fc"
+            stroke-width="2"
+            marker-end="url(#arrow)"
+          />
+          <rect
+            x="590"
+            y="55"
+            width="258"
+            height="90"
+            rx="9"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="719" y="91" text-anchor="middle">Paho</text>
+          <text x="719" y="118" text-anchor="middle" class="sub">
+            Subscribe wildcard
+          </text>
+          <path
+            d="M848 100H875"
+            stroke="#7dd3fc"
+            stroke-width="2"
+            marker-end="url(#arrow)"
+          />
+          <rect
+            x="880"
+            y="55"
+            width="258"
+            height="90"
+            rx="9"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="1009" y="91" text-anchor="middle">Spring event</text>
+          <text x="1009" y="118" text-anchor="middle" class="sub">
+            Telemetry / state / status
+          </text>
+        </svg>
+      </div>
+      <div class="content">
+        <div class="source">
+          <div class="ref">embedded/src/mqtt_network.cpp : 179</div>
+          <pre>
+if (!publishPayload(kTopicTelemetry, payload, false, 1)) {
+    AQSS_LOG(&quot;mqtt: telemetry publish failed, buffering offline&quot;);
+    bufferOffline(sample);
+}</pre>
+          <div class="ref">embedded/src/mqtt_network.cpp : 422</div>
+          <pre>
+s_mqtt.beginWill(kTopicStatus, (unsigned short)strlen(will), true, 1);
+s_mqtt.write((const uint8_t*)will, strlen(will));
+if (!s_mqtt.endWill()) {
+    AQSS_LOG(&quot;mqtt: endWill failed&quot;);
+    return false;
+}
+</pre>
+        </div>
+        <ul>
+          <li>telemetry và actuator/state không retained; status retained.</li>
+          <li>
+            LWT OFFLINE do broker phát khi nhận diện mất kết nối bất thường.
+          </li>
+          <li>Keepalive 30 s không có nghĩa UI thấy OFFLINE tức thì.</li>
+        </ul>
+      </div>
+      <div class="question">
+        <b>Tự trả lời:</b> QoS 1 có ngăn số đo trùng trong DB không?
+      </div>
+    </section>
+    <details>
+      <summary>Giải thích và đáp án · trang 09</summary>
+      <h2>QoS 1 có ngăn số đo trùng trong DB không?</h2>
+      <p>
+        Không. QoS 1 cho phép giao lại; schema telemetry không có
+        unique(device_id, recorded_at) hay id bản tin để khử trùng. Một mẫu có
+        thể có nhiều hàng nếu được giao lại.
+      </p>
+      <p>
+        QoS là bảo đảm truyền giữa các phía MQTT, không chứng minh transaction
+        DB đã commit hoặc quạt đã thực thi. Backend cleanSession=true và
+        subscribe lại khi connectComplete; không nên hứa hàng đợi lệnh bền vững
+        xuyên mọi lần ngắt.
+      </p>
+      <p>
+        Trích đoạn có số dòng ở trên; mở file nguồn để xem toàn bộ ngữ cảnh.
+      </p>
+      <a href="../../embedded/src/mqtt_network.cpp"
+        >embedded/src/mqtt_network.cpp · từ dòng 179</a
+      ><br /><a href="../../embedded/src/mqtt_network.cpp"
+        >embedded/src/mqtt_network.cpp · từ dòng 422</a
+      ><br />
+    </details>
+    <section class="slide" id="s10">
+      <header>
+        <div class="eyebrow">
+          Air Quality Supervision System · Học chi tiết · 10/26
+        </div>
+        <h1>Một mẫu telemetry đi vào backend</h1>
+        <p>JSON snake_case → record Java → event → service.</p>
+      </header>
+      <div class="diagram">
+        <svg
+          viewBox="0 0 1160 210"
+          role="img"
+          aria-label="Một mẫu telemetry đi vào backend"
+        >
+          <defs>
+            <marker
+              id="arrow"
+              markerWidth="8"
+              markerHeight="8"
+              refX="7"
+              refY="4"
+              orient="auto"
+            >
+              <path d="M0 0L8 4L0 8Z" fill="#7dd3fc" />
+            </marker>
+          </defs>
+          <rect
+            x="10"
+            y="55"
+            width="258"
+            height="90"
+            rx="9"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="139" y="91" text-anchor="middle">MQTT callback</text>
+          <text x="139" y="118" text-anchor="middle" class="sub">
+            messageArrived
+          </text>
+          <path
+            d="M268 100H295"
+            stroke="#7dd3fc"
+            stroke-width="2"
+            marker-end="url(#arrow)"
+          />
+          <rect
+            x="300"
+            y="55"
+            width="258"
+            height="90"
+            rx="9"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="429" y="91" text-anchor="middle">ObjectMapper</text>
+          <text x="429" y="118" text-anchor="middle" class="sub">
+            TelemetryEvent
+          </text>
+          <path
+            d="M558 100H585"
+            stroke="#7dd3fc"
+            stroke-width="2"
+            marker-end="url(#arrow)"
+          />
+          <rect
+            x="590"
+            y="55"
+            width="258"
+            height="90"
+            rx="9"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="719" y="91" text-anchor="middle">@EventListener</text>
+          <text x="719" y="118" text-anchor="middle" class="sub">
+            TelemetryService
+          </text>
+          <path
+            d="M848 100H875"
+            stroke="#7dd3fc"
+            stroke-width="2"
+            marker-end="url(#arrow)"
+          />
+          <rect
+            x="880"
+            y="55"
+            width="258"
+            height="90"
+            rx="9"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="1009" y="91" text-anchor="middle">@Transactional</text>
+          <text x="1009" y="118" text-anchor="middle" class="sub">
+            Lưu + onReading
+          </text>
+        </svg>
+      </div>
+      <div class="content">
+        <div class="source">
+          <div class="ref">
+            backend/src/main/java/com/aqss/backend/mqtt/MqttLink.java : 104
+          </div>
+          <pre>
+public void messageArrived(String topic, MqttMessage message) {
+    String payload = new String(message.getPayload(), StandardCharsets.UTF_8);
+    try {
+        if (topic.endsWith(&quot;/actuator/state&quot;)) {
+            events.publishEvent(mapper.readValue(payload, ActuatorStateEvent.class));
+        } else if (topic.endsWith(&quot;/telemetry&quot;)) {
+            events.publishEvent(mapper.readValue(payload, TelemetryEvent.class));
+        } else if (topic.endsWith(&quot;/status&quot;)) {
+            events.publishEvent(mapper.readValue(payload, StatusEvent.class));
+        }</pre>
+        </div>
+        <ul>
+          <li>ObjectMapper dùng SNAKE_CASE nên device_id ánh xạ deviceId.</li>
+          <li>
+            Event mặc định chạy đồng bộ nếu không cấu hình multicaster/async
+            khác.
+          </li>
+          <li>Code không có @Async ở luồng tiếp nhận này.</li>
+        </ul>
+      </div>
+      <div class="question">
+        <b>Tự trả lời:</b> Spring event ở đây có phải message queue bền vững?
+      </div>
+    </section>
+    <details>
+      <summary>Giải thích và đáp án · trang 10</summary>
+      <h2>Spring event ở đây có phải message queue bền vững?</h2>
+      <p>
+        Không. Đây là event trong tiến trình. Mặc định listener chạy cùng luồng
+        phát; không có hàng đợi durable để phát lại sau khi tiến trình chết.
+      </p>
+      <p>
+        Callback catch exception và log Dropped MQTT message. Không thấy cơ chế
+        retry nghiệp vụ hoặc dead-letter trong code này. Phân biệt exception bị
+        log với việc đã có backpressure hoặc retry được bảo đảm.
+      </p>
+      <p>
+        Trích đoạn có số dòng ở trên; mở file nguồn để xem toàn bộ ngữ cảnh.
+      </p>
+      <a href="../../backend/src/main/java/com/aqss/backend/mqtt/MqttLink.java"
+        >backend/src/main/java/com/aqss/backend/mqtt/MqttLink.java · từ dòng
+        104</a
+      ><br />
+    </details>
+    <section class="slide" id="s11">
+      <header>
+        <div class="eyebrow">
+          Air Quality Supervision System · Học chi tiết · 11/26
+        </div>
+        <h1>Validation: null, zero và dải hợp lệ</h1>
+        <p>Kiểm tra code hai phía thay vì chỉ học bảng trong tài liệu.</p>
+      </header>
+      <div class="diagram">
+        <svg
+          viewBox="0 0 1160 210"
+          role="img"
+          aria-label="Validation: null, zero và dải hợp lệ"
+        >
+          <defs>
+            <marker
+              id="arrow"
+              markerWidth="8"
+              markerHeight="8"
+              refX="7"
+              refY="4"
+              orient="auto"
+            >
+              <path d="M0 0L8 4L0 8Z" fill="#7dd3fc" />
+            </marker>
+          </defs>
+          <rect
+            x="10"
+            y="55"
+            width="258"
+            height="90"
+            rx="9"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="139" y="91" text-anchor="middle">Firmware</text>
+          <text x="139" y="118" text-anchor="middle" class="sub">
+            Chấp nhận rộng hơn
+          </text>
+          <path
+            d="M268 100H295"
+            stroke="#7dd3fc"
+            stroke-width="2"
+            marker-end="url(#arrow)"
+          />
+          <rect
+            x="300"
+            y="55"
+            width="258"
+            height="90"
+            rx="9"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="429" y="91" text-anchor="middle">JSON</text>
+          <text x="429" y="118" text-anchor="middle" class="sub">
+            null nếu chưa ready
+          </text>
+          <path
+            d="M558 100H585"
+            stroke="#7dd3fc"
+            stroke-width="2"
+            marker-end="url(#arrow)"
+          />
+          <rect
+            x="590"
+            y="55"
+            width="258"
+            height="90"
+            rx="9"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="719" y="91" text-anchor="middle">Backend</text>
+          <text x="719" y="118" text-anchor="middle" class="sub">
+            Kiểm tra bốn sensor
+          </text>
+          <path
+            d="M848 100H875"
+            stroke="#7dd3fc"
+            stroke-width="2"
+            marker-end="url(#arrow)"
+          />
+          <rect
+            x="880"
+            y="55"
+            width="258"
+            height="90"
+            rx="9"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="1009" y="91" text-anchor="middle">DB</text>
+          <text x="1009" y="118" text-anchor="middle" class="sub">
+            NULL hoặc lưu cả mẫu
+          </text>
+        </svg>
+      </div>
+      <div class="content">
+        <div class="source">
+          <div class="ref">
+            backend/src/main/java/com/aqss/backend/service/TelemetryService.java
+            : 46
+          </div>
+          <pre>
+if (!inRange(sensors.pm25(), 0f, 500f)
+        || !inRange(sensors.co2(), 400f, 5000f)
+        || !inRange(sensors.temperature(), -10f, 60f)
+        || !inRange(sensors.humidity(), 0f, 100f)) {
+    log.warn(&quot;Rejected out-of-range telemetry from {}: {}&quot;, event.deviceId(), sensors);
+    return;
+}
+</pre>
+          <div class="ref">embedded/include/config.h : 49</div>
+          <pre>
+#define CO2_MIN_PPM 300
+#define CO2_MAX_PPM 10000
+#define TEMP_MIN_C (-40.0f)
+#define TEMP_MAX_C 85.0f
+#define HUM_MIN_PCT 0.0f</pre>
+        </div>
+        <ul>
+          <li>Backend: PM 0…500; CO₂ 400…5000; T −10…60; RH 0…100.</li>
+          <li>Firmware config: CO₂ 300…10000; T −40…85; hai phía đang lệch.</li>
+          <li>
+            Một giá trị ngoài dải backend → loại cả bản tin, không chỉ trường
+            đó.
+          </li>
+        </ul>
+      </div>
+      <div class="question">
+        <b>Tự trả lời:</b> CO₂ = null và CO₂ = 0 xử lý giống nhau không?
+      </div>
+    </section>
+    <details>
+      <summary>Giải thích và đáp án · trang 11</summary>
+      <h2>CO₂ = null và CO₂ = 0 xử lý giống nhau không?</h2>
+      <p>
+        Khác. inRange(null) trả true và lưu NULL. Giá trị 0 ppm ngoài dải
+        backend nên bị loại cả bản tin. PM2.5 = 0 lại hợp lệ.
+      </p>
+      <p>
+        Không được nói “mọi lớp đã dùng cùng bảng validation” vì config hiện tại
+        không khớp hợp đồng. Cờ dust_fault có trong event nhưng TelemetryService
+        hiện không lưu cờ đó; chỉ pm25_saturated được lưu vào telemetry.
+      </p>
+      <p>
+        Trích đoạn có số dòng ở trên; mở file nguồn để xem toàn bộ ngữ cảnh.
+      </p>
+      <a
+        href="../../backend/src/main/java/com/aqss/backend/service/TelemetryService.java"
+        >backend/src/main/java/com/aqss/backend/service/TelemetryService.java ·
+        từ dòng 46</a
+      ><br /><a href="../../embedded/include/config.h"
+        >embedded/include/config.h · từ dòng 49</a
+      ><br />
+    </details>
+    <section class="slide" id="s12">
+      <header>
+        <div class="eyebrow">
+          Air Quality Supervision System · Học chi tiết · 12/26
+        </div>
+        <h1>PostgreSQL: quan hệ và truy vấn</h1>
+        <p>
+          Sơ đồ quan hệ theo migrations V1–V4; audit.device_id không có ràng
+          buộc FK.
+        </p>
+      </header>
+      <div class="diagram">
+        <svg
+          viewBox="0 0 1160 210"
+          role="img"
+          aria-label="PostgreSQL: quan hệ và truy vấn"
+        >
+          <defs>
+            <marker
+              id="arrow"
+              markerWidth="8"
+              markerHeight="8"
+              refX="7"
+              refY="4"
+              orient="auto"
+            >
+              <path d="M0 0L8 4L0 8Z" fill="#7dd3fc" />
+            </marker>
+          </defs>
+          <rect
+            x="20"
+            y="20"
+            width="260"
+            height="75"
+            rx="8"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="150" y="49" text-anchor="middle">spaces</text>
+          <text x="150" y="75" text-anchor="middle" class="sub">PK code</text>
+          <rect
+            x="420"
+            y="20"
+            width="260"
+            height="75"
+            rx="8"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="550" y="49" text-anchor="middle">devices</text>
+          <text x="550" y="75" text-anchor="middle" class="sub">
+            FK space_code
+          </text>
+          <rect
+            x="820"
+            y="20"
+            width="260"
+            height="75"
+            rx="8"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="950" y="49" text-anchor="middle">telemetry</text>
+          <text x="950" y="75" text-anchor="middle" class="sub">
+            FK device_id
+          </text>
+          <path
+            d="M280 58H415M680 58H815"
+            stroke="#7dd3fc"
+            marker-end="url(#arrow)"
+          />
+          <text x="315" y="46">1 → N</text>
+          <text x="715" y="46">1 → N</text>
+          <rect
+            x="420"
+            y="126"
+            width="260"
+            height="63"
+            rx="8"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="550" y="152" text-anchor="middle">audit_log</text>
+          <text x="550" y="178" text-anchor="middle" class="sub">
+            device_id: không có FK
+          </text>
+        </svg>
+      </div>
+      <div class="content">
+        <div class="source">
+          <div class="ref">
+            backend/src/main/resources/db/migration/V1__init.sql : 31
+          </div>
+          <pre>
+CREATE TABLE telemetry (
+    id          BIGSERIAL PRIMARY KEY,
+    device_id   VARCHAR(32) NOT NULL REFERENCES devices (device_id) ON DELETE CASCADE,
+    recorded_at TIMESTAMPTZ NOT NULL,
+    pm25        REAL,
+    co2         REAL,
+    temperature REAL,
+    humidity    REAL,
+    wifi_rssi   SMALLINT
+);
+
+CREATE INDEX idx_telemetry_device_time ON telemetry (device_id, recorded_at DESC);</pre>
+        </div>
+        <ul>
+          <li>spaces 1–N devices; devices 1–N telemetry.</li>
+          <li>
+            ON DELETE SET NULL cho liên kết phòng; xóa device CASCADE telemetry.
+          </li>
+          <li>Index(device_id, recorded_at DESC) hỗ trợ latest/history.</li>
+        </ul>
+      </div>
+      <div class="question">
+        <b>Tự trả lời:</b> Xóa thiết bị có giữ nguyên lịch sử telemetry không?
+      </div>
+    </section>
+    <details>
+      <summary>Giải thích và đáp án · trang 12</summary>
+      <h2>Xóa thiết bị có giữ nguyên lịch sử telemetry không?</h2>
+      <p>
+        Không theo schema hiện tại: telemetry.device_id tham chiếu devices với
+        ON DELETE CASCADE. Audit log không có FK nên có thể còn giữ sự kiện cũ.
+      </p>
+      <p>
+        Flyway V4 xóa predictions; còn bốn bảng ứng dụng. Hibernate ddl-auto:
+        validate không tự cập nhật schema. Một phòng có thể có nhiều node theo
+        DB; thuật toán chọn CO₂ phòng hiện chọn device đầu tiên, không gộp CO₂
+        toàn phòng.
+      </p>
+      <p>
+        Trích đoạn có số dòng ở trên; mở file nguồn để xem toàn bộ ngữ cảnh.
+      </p>
+      <a href="../../backend/src/main/resources/db/migration/V1__init.sql"
+        >backend/src/main/resources/db/migration/V1__init.sql · từ dòng 31</a
+      ><br />
+    </details>
+    <section class="slide" id="s13">
+      <header>
+        <div class="eyebrow">
+          Air Quality Supervision System · Học chi tiết · 13/26
+        </div>
+        <h1>Ngưỡng: công thức đang tính những gì?</h1>
+        <p>T = clamp(15 × √(24/h) × f(V) × f(vent) × f(CO₂), 10, 60).</p>
+      </header>
+      <div class="diagram">
+        <svg
+          viewBox="0 0 1160 210"
+          role="img"
+          aria-label="Ngưỡng: công thức đang tính những gì?"
+        >
+          <defs>
+            <marker
+              id="arrow"
+              markerWidth="8"
+              markerHeight="8"
+              refX="7"
+              refY="4"
+              orient="auto"
+            >
+              <path d="M0 0L8 4L0 8Z" fill="#7dd3fc" />
+            </marker>
+          </defs>
+          <rect
+            x="10"
+            y="55"
+            width="258"
+            height="90"
+            rx="9"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="139" y="91" text-anchor="middle">purpose</text>
+          <text x="139" y="118" text-anchor="middle" class="sub">Suy ra h</text>
+          <path
+            d="M268 100H295"
+            stroke="#7dd3fc"
+            stroke-width="2"
+            marker-end="url(#arrow)"
+          />
+          <rect
+            x="300"
+            y="55"
+            width="258"
+            height="90"
+            rx="9"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="429" y="91" text-anchor="middle">Thể tích / 20</text>
+          <text x="429" y="118" text-anchor="middle" class="sub">
+            Căn bậc ba, clamp
+          </text>
+          <path
+            d="M558 100H585"
+            stroke="#7dd3fc"
+            stroke-width="2"
+            marker-end="url(#arrow)"
+          />
+          <rect
+            x="590"
+            y="55"
+            width="258"
+            height="90"
+            rx="9"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="719" y="91" text-anchor="middle">Thông gió + CO₂</text>
+          <text x="719" y="118" text-anchor="middle" class="sub">
+            Nhân hệ số
+          </text>
+          <path
+            d="M848 100H875"
+            stroke="#7dd3fc"
+            stroke-width="2"
+            marker-end="url(#arrow)"
+          />
+          <rect
+            x="880"
+            y="55"
+            width="258"
+            height="90"
+            rx="9"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="1009" y="91" text-anchor="middle">Làm tròn</text>
+          <text x="1009" y="118" text-anchor="middle" class="sub">
+            Một chữ số thập phân
+          </text>
+        </svg>
+      </div>
+      <div class="content">
+        <div class="source">
+          <div class="ref">
+            backend/src/main/java/com/aqss/backend/service/ThresholdService.java
+            : 84
+          </div>
+          <pre>
+double dose = DAILY_TARGET_UGM3 * Math.sqrt(24.0 / occupancyHours);
+// The room&#x27;s own dilution capacity matters before the fan ever runs: a large, well-ventilated
+// room reaches the same concentration more slowly and clears sooner.
+double threshold = dose * ventilation * volume * co2Factor;
+threshold = Math.max(MIN_THRESHOLD, Math.min(MAX_THRESHOLD, threshold));
+
+return new Result(
+        round(threshold),</pre>
+        </div>
+        <ul>
+          <li>Phòng ngủ/văn phòng 8 h, lớp học 6 h, khách 4 h, bếp 2 h.</li>
+          <li>f(V): 0,7…1,6; thông gió: 0,75 / 1 / 1,35.</li>
+          <li>
+            Đây là chính sách công thức của dự án; không phải mô hình đã huấn
+            luyện.
+          </li>
+        </ul>
+      </div>
+      <div class="question">
+        <b>Tự trả lời:</b> Ví dụ V=20 m³, phòng ngủ, thông gió medium, chưa có
+        CO₂?
+      </div>
+    </section>
+    <details>
+      <summary>Giải thích và đáp án · trang 13</summary>
+      <h2>Ví dụ V=20 m³, phòng ngủ, thông gió medium, chưa có CO₂?</h2>
+      <p>
+        h=8; các hệ số còn lại bằng 1; 15×√3≈25,98 và kết quả trả về 26,0 µg/m³.
+        Không suy ra toàn bộ công thức đã được kiểm định sức khỏe.
+      </p>
+      <p>
+        Các bước nhân dùng giá trị đầy đủ, kết quả và hệ số được làm tròn khi
+        trả Result. Nhân lại các hệ số đã làm tròn trên UI có thể không khớp
+        tuyệt đối số cuối. Thiếu thể tích hoặc V≤0 thì volume factor=1.
+      </p>
+      <p>
+        Trích đoạn có số dòng ở trên; mở file nguồn để xem toàn bộ ngữ cảnh.
+      </p>
+      <a
+        href="../../backend/src/main/java/com/aqss/backend/service/ThresholdService.java"
+        >backend/src/main/java/com/aqss/backend/service/ThresholdService.java ·
+        từ dòng 84</a
+      ><br />
+    </details>
+    <section class="slide" id="s14">
+      <header>
+        <div class="eyebrow">
+          Air Quality Supervision System · Học chi tiết · 14/26
+        </div>
+        <h1>CO₂ tham gia ở đâu? Ngưỡng có tự đổi?</h1>
+        <p>
+          Preview dùng mẫu CO₂ hiện có; control loop so sánh với ngưỡng đã lưu.
+        </p>
+      </header>
+      <div class="diagram">
+        <svg
+          viewBox="0 0 1160 210"
+          role="img"
+          aria-label="CO₂ tham gia ở đâu? Ngưỡng có tự đổi?"
+        >
+          <defs>
+            <marker
+              id="arrow"
+              markerWidth="8"
+              markerHeight="8"
+              refX="7"
+              refY="4"
+              orient="auto"
+            >
+              <path d="M0 0L8 4L0 8Z" fill="#7dd3fc" />
+            </marker>
+          </defs>
+          <rect
+            x="10"
+            y="55"
+            width="258"
+            height="90"
+            rx="9"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="139" y="91" text-anchor="middle">GET preview</text>
+          <text x="139" y="118" text-anchor="middle" class="sub">
+            Đọc profile + CO₂
+          </text>
+          <path
+            d="M268 100H295"
+            stroke="#7dd3fc"
+            stroke-width="2"
+            marker-end="url(#arrow)"
+          />
+          <rect
+            x="300"
+            y="55"
+            width="258"
+            height="90"
+            rx="9"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="429" y="91" text-anchor="middle">compute</text>
+          <text x="429" y="118" text-anchor="middle" class="sub">
+            Trả T và hệ số
+          </text>
+          <path
+            d="M558 100H585"
+            stroke="#7dd3fc"
+            stroke-width="2"
+            marker-end="url(#arrow)"
+          />
+          <rect
+            x="590"
+            y="55"
+            width="258"
+            height="90"
+            rx="9"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="719" y="91" text-anchor="middle">POST threshold</text>
+          <text x="719" y="118" text-anchor="middle" class="sub">
+            Lưu source=profile
+          </text>
+          <path
+            d="M848 100H875"
+            stroke="#7dd3fc"
+            stroke-width="2"
+            marker-end="url(#arrow)"
+          />
+          <rect
+            x="880"
+            y="55"
+            width="258"
+            height="90"
+            rx="9"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="1009" y="91" text-anchor="middle">ControlLoop</text>
+          <text x="1009" y="118" text-anchor="middle" class="sub">
+            Dùng thresholdPm25
+          </text>
+        </svg>
+      </div>
+      <div class="content">
+        <div class="source">
+          <div class="ref">
+            backend/src/main/java/com/aqss/backend/service/SpaceService.java :
+            98
+          </div>
+          <pre>
+public ThresholdPreview applyComputedThreshold(String code) {
+    Space space = require(code);
+    ThresholdService.Result result = thresholds.compute(space, currentCo2(space));
+    space.setThresholdPm25(validateThreshold((float) result.thresholdPm25()));
+    space.setThresholdSource(&quot;profile&quot;);
+    space.setUpdatedAt(Instant.now());
+    spaces.save(space);
+    audit.log(&quot;BACKEND&quot;, &quot;THRESHOLD&quot;, null, java.util.Map.of(
+            &quot;space&quot;, space.getCode(),</pre>
+          <div class="ref">
+            backend/src/main/java/com/aqss/backend/service/ThresholdService.java
+            : 151
+          </div>
+          <pre>
+    double delta = Math.max(0.0, co2Ppm - CO2_BASELINE_PPM);
+    double sealed = Math.min(1.0, delta / CO2_SEALED_DELTA);
+    return 1.0 - CO2_MAX_CORRECTION * sealed;
+}</pre>
+        </div>
+        <ul>
+          <li>fCO₂ = 1 − 0,25 × clamp((CO₂ − 420)/800, 0, 1).</li>
+          <li>CO₂=820 → f=0,875; không có CO₂ → f=1.</li>
+          <li>
+            Nhập ngưỡng trực tiếp qua PUT cho phép 1…500; clamp 10…60 chỉ cho
+            ngưỡng tính.
+          </li>
+        </ul>
+      </div>
+      <div class="question">
+        <b>Tự trả lời:</b> CO₂ vừa tăng có tự làm quạt bật không?
+      </div>
+    </section>
+    <details>
+      <summary>Giải thích và đáp án · trang 14</summary>
+      <h2>CO₂ vừa tăng có tự làm quạt bật không?</h2>
+      <p>
+        Không trực tiếp. Ngưỡng chỉ tính khi tạo phòng hoặc áp dụng kết quả
+        tính. CO₂ mới không tự ghi đè threshold mỗi telemetry; control loop
+        không gọi compute.
+      </p>
+      <p>
+        currentCo2() lấy mẫu mới nhất của thiết bị đầu tiên thuộc phòng, không
+        kiểm tra tuổi mẫu. POST tính lại, không gửi lại đúng con số preview cũ.
+        Giá trị h hiện lấy từ purpose; occupancy_hours gửi trong pair chưa được
+        dùng để lưu/compute.
+      </p>
+      <p>
+        Trích đoạn có số dòng ở trên; mở file nguồn để xem toàn bộ ngữ cảnh.
+      </p>
+      <a
+        href="../../backend/src/main/java/com/aqss/backend/service/SpaceService.java"
+        >backend/src/main/java/com/aqss/backend/service/SpaceService.java · từ
+        dòng 98</a
+      ><br /><a
+        href="../../backend/src/main/java/com/aqss/backend/service/ThresholdService.java"
+        >backend/src/main/java/com/aqss/backend/service/ThresholdService.java ·
+        từ dòng 151</a
+      ><br />
+    </details>
+    <section class="slide" id="s15">
+      <header>
+        <div class="eyebrow">
+          Air Quality Supervision System · Học chi tiết · 15/26
+        </div>
+        <h1>ControlLoop: hai cửa vào, cùng bộ đánh giá</h1>
+        <p>
+          onReading kích hoạt khi đang OFF; tick kiểm tra định kỳ bằng
+          fixedDelay.
+        </p>
+      </header>
+      <div class="diagram">
+        <svg
+          viewBox="0 0 1160 210"
+          role="img"
+          aria-label="ControlLoop: hai cửa vào, cùng bộ đánh giá"
+        >
+          <defs>
+            <marker
+              id="arrow"
+              markerWidth="8"
+              markerHeight="8"
+              refX="7"
+              refY="4"
+              orient="auto"
+            >
+              <path d="M0 0L8 4L0 8Z" fill="#7dd3fc" />
+            </marker>
+          </defs>
+          <rect
+            x="10"
+            y="20"
+            width="220"
+            height="55"
+            rx="8"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="120" y="54" text-anchor="middle">onReading: fan OFF</text>
+          <rect
+            x="10"
+            y="130"
+            width="220"
+            height="55"
+            rx="8"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="120" y="164" text-anchor="middle">tick: mỗi lượt 60 s</text>
+          <rect
+            x="400"
+            y="70"
+            width="250"
+            height="70"
+            rx="8"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="525" y="98" text-anchor="middle">Paired + AUTO + room?</text>
+          <text x="525" y="123" text-anchor="middle" class="sub">
+            Sai: return
+          </text>
+          <rect
+            x="875"
+            y="70"
+            width="270"
+            height="70"
+            rx="8"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="1010" y="98" text-anchor="middle">
+            PM còn mới và khác null?
+          </text>
+          <text x="1010" y="123" text-anchor="middle" class="sub">
+            Đúng: decide; sai: return
+          </text>
+          <path
+            d="M230 48H300V105H395M230 157H300V105M650 105H870"
+            fill="none"
+            stroke="#7dd3fc"
+            marker-end="url(#arrow)"
+          />
+          <text x="730" y="88">Đúng</text>
+        </svg>
+      </div>
+      <div class="content">
+        <div class="source">
+          <div class="ref">
+            backend/src/main/java/com/aqss/backend/service/ControlLoop.java : 52
+          </div>
+          <pre>
+public void onReading(Device device) {
+    // Only the trigger is immediate. Stopping still waits for the timer, because hysteresis and
+    // the minimum run time are deliberately slow.
+    if (device.getPairedAt() == null
+            || !&quot;AUTO&quot;.equals(device.getFanMode())
+            || device.getSpaceCode() == null
+            || &quot;ON&quot;.equals(device.getFanState())) {
+        return;
+    }
+    evaluate(device, settings.control());</pre>
+          <div class="ref">
+            backend/src/main/java/com/aqss/backend/service/ControlLoop.java : 82
+          </div>
+          <pre>
+if (pm25 == null || stale) {
+    return;   // a stale reading must not drive the fan
+}</pre>
+        </div>
+        <ul>
+          <li>tick dùng fixedDelay 60000: chờ sau khi lượt trước kết thúc.</li>
+          <li>onReading bỏ qua fan ON, nên tắt theo hysteresis chờ tick.</li>
+          <li>
+            MAX_ON cũng nằm sau guard stale: số đo cũ làm bỏ qua cả decide.
+          </li>
+        </ul>
+      </div>
+      <div class="question">
+        <b>Tự trả lời:</b> Đủ 120 phút có chắc backend luôn gửi OFF?
+      </div>
+    </section>
+    <details>
+      <summary>Giải thích và đáp án · trang 15</summary>
+      <h2>Đủ 120 phút có chắc backend luôn gửi OFF?</h2>
+      <p>
+        Không tuyệt đối. Phải qua các guard hợp lệ, và tick có độ trễ. Nếu
+        reading cũ/null thì evaluate return trước max_on; khi không gia hạn
+        được, firmware AUTO có timeout riêng.
+      </p>
+      <p>
+        Activation “ngay” nghĩa là không chờ timer 60 s; vẫn có độ trễ đo, lọc,
+        telemetry, mạng và xử lý. Không nên nói phản ứng bằng 0 giây.
+        elapsed(null) trả true, nên thiếu onSince cũng ảnh hưởng quyết định.
+      </p>
+      <p>
+        Trích đoạn có số dòng ở trên; mở file nguồn để xem toàn bộ ngữ cảnh.
+      </p>
+      <a
+        href="../../backend/src/main/java/com/aqss/backend/service/ControlLoop.java"
+        >backend/src/main/java/com/aqss/backend/service/ControlLoop.java · từ
+        dòng 52</a
+      ><br /><a
+        href="../../backend/src/main/java/com/aqss/backend/service/ControlLoop.java"
+        >backend/src/main/java/com/aqss/backend/service/ControlLoop.java · từ
+        dòng 82</a
+      ><br />
+    </details>
+    <section class="slide" id="s16">
+      <header>
+        <div class="eyebrow">
+          Air Quality Supervision System · Học chi tiết · 16/26
+        </div>
+        <h1>State machine AUTO và hysteresis</h1>
+        <p>Quy tắc theo decide(); min_off hiện không được dùng để chặn bật.</p>
+      </header>
+      <div class="diagram">
+        <svg
+          viewBox="0 0 1160 210"
+          role="img"
+          aria-label="State machine AUTO và hysteresis"
+        >
+          <defs>
+            <marker
+              id="arrow"
+              markerWidth="8"
+              markerHeight="8"
+              refX="7"
+              refY="4"
+              orient="auto"
+            >
+              <path d="M0 0L8 4L0 8Z" fill="#7dd3fc" />
+            </marker>
+          </defs>
+          <rect
+            x="130"
+            y="60"
+            width="200"
+            height="80"
+            rx="30"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="230" y="106" text-anchor="middle">OFF</text>
+          <rect
+            x="830"
+            y="60"
+            width="200"
+            height="80"
+            rx="30"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="930" y="106" text-anchor="middle">ON · level 3</text>
+          <path d="M330 80H825" stroke="#7dd3fc" marker-end="url(#arrow)" />
+          <text x="560" y="65" text-anchor="middle">
+            PM ≥ T (không chặn min_off)
+          </text>
+          <path d="M830 130H335" stroke="#fbbf24" marker-end="url(#arrow)" />
+          <text x="580" y="157" text-anchor="middle">
+            ON ≥ 120 phút, hoặc [ON ≥ 5 phút và PM &lt; 0,7T]
+          </text>
+          <text x="580" y="195" text-anchor="middle" class="sub">
+            Chỉ tới decide sau guard AUTO, ghép phòng và reading còn hiệu lực.
+          </text>
+        </svg>
+      </div>
+      <div class="content">
+        <div class="source">
+          <div class="ref">
+            backend/src/main/java/com/aqss/backend/service/ControlLoop.java :
+            142
+          </div>
+          <pre>
+public static Decision decide(Inputs in) {
+    if (!in.fanOn()) {
+        return in.pm25() &gt;= in.threshold() ? Decision.ACTIVATE : Decision.NONE;
+    }
+    if (elapsed(in.onSince(), in.now(), in.maxOnMinutes())) {
+        return Decision.DEACTIVATE;   // max ON protects the motor
+    }
+    boolean minOnElapsed = elapsed(in.onSince(), in.now(), in.minOnMinutes());
+    return in.pm25() &lt; in.threshold() * in.hysteresisRatio() &amp;&amp; minOnElapsed
+            ? Decision.DEACTIVATE : Decision.NONE;
+}
+</pre>
+        </div>
+        <ul>
+          <li>T=30: bật khi PM≥30, tắt khi PM&lt;21 và đủ 5 phút.</li>
+          <li>PM=21 đúng ngưỡng tắt chưa thỏa vì code dùng dấu &lt;.</li>
+          <li>Sau max_on, tick sau có thể bật lại ngay nếu PM vẫn≥T.</li>
+        </ul>
+      </div>
+      <div class="question">
+        <b>Tự trả lời:</b> Có nghỉ tối thiểu 3 phút trước khi bật lại không?
+      </div>
+    </section>
+    <details>
+      <summary>Giải thích và đáp án · trang 16</summary>
+      <h2>Có nghỉ tối thiểu 3 phút trước khi bật lại không?</h2>
+      <p>
+        Không trong decide hiện tại. min-off-minutes có trong cấu hình, offSince
+        có trong Inputs, nhưng nhánh fan OFF chỉ so PM với T. Nội dung UI nhắc
+        nghỉ 3 phút đang lệch code.
+      </p>
+      <p>
+        Hysteresis là hai mốc ON/OFF, kết hợp minimum ON để giảm chập chờn.
+        Không có PID, không điều chỉnh duty theo sai số. Đây là điều khiển theo
+        ngưỡng với state và điều kiện thời gian.
+      </p>
+      <p>
+        Trích đoạn có số dòng ở trên; mở file nguồn để xem toàn bộ ngữ cảnh.
+      </p>
+      <a
+        href="../../backend/src/main/java/com/aqss/backend/service/ControlLoop.java"
+        >backend/src/main/java/com/aqss/backend/service/ControlLoop.java · từ
+        dòng 142</a
+      ><br />
+    </details>
+    <section class="slide" id="s17">
+      <header>
+        <div class="eyebrow">
+          Air Quality Supervision System · Học chi tiết · 17/26
+        </div>
+        <h1>Ví dụ thời gian để tự tính quyết định</h1>
+        <p>Ví dụ giả định T=30; không phải dữ liệu đo hiệu suất.</p>
+      </header>
+      <div class="diagram">
+        <svg
+          viewBox="0 0 1160 210"
+          role="img"
+          aria-label="Ví dụ thời gian để tự tính quyết định"
+        >
+          <defs>
+            <marker
+              id="arrow"
+              markerWidth="8"
+              markerHeight="8"
+              refX="7"
+              refY="4"
+              orient="auto"
+            >
+              <path d="M0 0L8 4L0 8Z" fill="#7dd3fc" />
+            </marker>
+          </defs>
+          <rect
+            x="10"
+            y="55"
+            width="258"
+            height="90"
+            rx="9"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="139" y="91" text-anchor="middle">t=0: PM=32</text>
+          <text x="139" y="118" text-anchor="middle" class="sub">
+            OFF → ON L3
+          </text>
+          <path
+            d="M268 100H295"
+            stroke="#7dd3fc"
+            stroke-width="2"
+            marker-end="url(#arrow)"
+          />
+          <rect
+            x="300"
+            y="55"
+            width="258"
+            height="90"
+            rx="9"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="429" y="91" text-anchor="middle">t=2 phút: PM=18</text>
+          <text x="429" y="118" text-anchor="middle" class="sub">
+            Chưa đủ min ON
+          </text>
+          <path
+            d="M558 100H585"
+            stroke="#7dd3fc"
+            stroke-width="2"
+            marker-end="url(#arrow)"
+          />
+          <rect
+            x="590"
+            y="55"
+            width="258"
+            height="90"
+            rx="9"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="719" y="91" text-anchor="middle">t=6 phút: PM=20</text>
+          <text x="719" y="118" text-anchor="middle" class="sub">
+            Tick → OFF
+          </text>
+          <path
+            d="M848 100H875"
+            stroke="#7dd3fc"
+            stroke-width="2"
+            marker-end="url(#arrow)"
+          />
+          <rect
+            x="880"
+            y="55"
+            width="258"
+            height="90"
+            rx="9"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="1009" y="91" text-anchor="middle">Mẫu sau: PM=31</text>
+          <text x="1009" y="118" text-anchor="middle" class="sub">
+            Bật lại ngay
+          </text>
+        </svg>
+      </div>
+      <div class="content">
+        <div class="source">
+          <div class="ref">
+            backend/src/main/java/com/aqss/backend/service/ControlLoop.java :
+            149
+          </div>
+          <pre>
+boolean minOnElapsed = elapsed(in.onSince(), in.now(), in.minOnMinutes());
+return in.pm25() &lt; in.threshold() * in.hysteresisRatio() &amp;&amp; minOnElapsed
+        ? Decision.DEACTIVATE : Decision.NONE;</pre>
+        </div>
+        <ul>
+          <li>Đủ min ON không tự tắt nếu PM vẫn ≥21.</li>
+          <li>
+            Mẫu thấp đến khi fan ON không trực tiếp kích hoạt tắt qua onReading.
+          </li>
+          <li>Giới hạn max_on ưu tiên trước hysteresis trong decide.</li>
+        </ul>
+      </div>
+      <div class="question">
+        <b>Tự trả lời:</b> Nếu PM thấp ngay sau bật, có tắt ngay không?
+      </div>
+    </section>
+    <details>
+      <summary>Giải thích và đáp án · trang 17</summary>
+      <h2>Nếu PM thấp ngay sau bật, có tắt ngay không?</h2>
+      <p>
+        Không theo hysteresis bình thường: cần ≥5 phút ON, PM&lt;0,7T và tới
+        lượt đánh giá timer. Nếu mất backend, timeout firmware là một nhánh OFF
+        độc lập.
+      </p>
+      <p>
+        Hãy tự thay PM=21, PM=20, thời gian 4 phút, 5 phút, rồi xét mode MANUAL.
+        Lời giải: PM=21 không thỏa &lt;21; PM=20 và 4 phút chưa đủ; PM=20 và 5
+        phút đủ nếu evaluate được gọi và các guard đều hợp lệ.
+      </p>
+      <p>
+        Trích đoạn có số dòng ở trên; mở file nguồn để xem toàn bộ ngữ cảnh.
+      </p>
+      <a
+        href="../../backend/src/main/java/com/aqss/backend/service/ControlLoop.java"
+        >backend/src/main/java/com/aqss/backend/service/ControlLoop.java · từ
+        dòng 149</a
+      ><br />
+    </details>
+    <section class="slide" id="s18">
+      <header>
+        <div class="eyebrow">
+          Air Quality Supervision System · Học chi tiết · 18/26
+        </div>
+        <h1>Lệnh quạt: ý định → broker → node</h1>
+        <p>HTTP thành công không phải chứng chỉ quạt đã quay.</p>
+      </header>
+      <div class="diagram">
+        <svg
+          viewBox="0 0 1160 210"
+          role="img"
+          aria-label="Lệnh quạt: ý định → broker → node"
+        >
+          <defs>
+            <marker
+              id="arrow"
+              markerWidth="8"
+              markerHeight="8"
+              refX="7"
+              refY="4"
+              orient="auto"
+            >
+              <path d="M0 0L8 4L0 8Z" fill="#7dd3fc" />
+            </marker>
+          </defs>
+          <text x="120" y="20" text-anchor="middle">React</text>
+          <path d="M120 30V200" stroke="#435264" stroke-dasharray="4 4" />
+          <text x="420" y="20" text-anchor="middle">Backend</text>
+          <path d="M420 30V200" stroke="#435264" stroke-dasharray="4 4" />
+          <text x="720" y="20" text-anchor="middle">Broker</text>
+          <path d="M720 30V200" stroke="#435264" stroke-dasharray="4 4" />
+          <text x="1020" y="20" text-anchor="middle">Node</text>
+          <path d="M1020 30V200" stroke="#435264" stroke-dasharray="4 4" />
+          <path d="M120 60H420" stroke="#7dd3fc" marker-end="url(#arrow)" />
+          <text x="270.0" y="52" text-anchor="middle">POST command</text>
+          <path d="M420 100H720" stroke="#7dd3fc" marker-end="url(#arrow)" />
+          <text x="570.0" y="92" text-anchor="middle">publish</text>
+          <path d="M720 140H1020" stroke="#7dd3fc" marker-end="url(#arrow)" />
+          <text x="870.0" y="132" text-anchor="middle">set_actuator</text>
+          <path d="M1020 185H420" stroke="#7dd3fc" marker-end="url(#arrow)" />
+          <text x="720.0" y="177" text-anchor="middle">
+            actuator/state (qua broker)
+          </text>
+        </svg>
+      </div>
+      <div class="content">
+        <div class="source">
+          <div class="ref">
+            backend/src/main/java/com/aqss/backend/service/DeviceService.java :
+            275
+          </div>
+          <pre>
+boolean published = mqtt.publishCommand(deviceId, &quot;set_actuator&quot;, params);
+
+boolean wasOn = &quot;ON&quot;.equals(device.getFanState());
+Instant now = Instant.now();
+device.setFanState(on ? &quot;ON&quot; : &quot;OFF&quot;);
+device.setFanLevel((short) (on ? clamped : 0));
+device.setFanMode(manual ? &quot;MANUAL&quot; : &quot;AUTO&quot;);
+if (published) {
+    device.setLastCommandAt(now);
+}</pre>
+        </div>
+        <ul>
+          <li>
+            level được clamp 0…3; yêu cầu ON level 0 được backend nâng lên 2.
+          </li>
+          <li>
+            Backend ghi ý định vào Device; node phản hồi qua actuator/state.
+          </li>
+          <li>Không có command_id hoặc ACK nghiệp vụ khớp từng lệnh.</li>
+        </ul>
+      </div>
+      <div class="question">
+        <b>Tự trả lời:</b> Broker lỗi lúc AUTO activate thì DB có thể vẫn ghi ON
+        không?
+      </div>
+    </section>
+    <details>
+      <summary>Giải thích và đáp án · trang 18</summary>
+      <h2>Broker lỗi lúc AUTO activate thì DB có thể vẫn ghi ON không?</h2>
+      <p>
+        Có thể: applyActuator cập nhật trạng thái và audit cả khi
+        published=false; ControlLoop không kiểm tra boolean trả về. Đây là đường
+        AUTO, khác lệnh USER ném 503 và có transaction bao ngoài.
+      </p>
+      <p>
+        Phản hồi actuator/state có thể điều chỉnh lại trạng thái dự kiến. Không
+        được đồng nhất “publish thành công” với “node nhận”, “PWM đã áp”, hoặc
+        “có lưu lượng”. Đó là bốn mức xác nhận khác nhau.
+      </p>
+      <p>
+        Trích đoạn có số dòng ở trên; mở file nguồn để xem toàn bộ ngữ cảnh.
+      </p>
+      <a
+        href="../../backend/src/main/java/com/aqss/backend/service/DeviceService.java"
+        >backend/src/main/java/com/aqss/backend/service/DeviceService.java · từ
+        dòng 275</a
+      ><br />
+    </details>
+    <section class="slide" id="s19">
+      <header>
+        <div class="eyebrow">
+          Air Quality Supervision System · Học chi tiết · 19/26
+        </div>
+        <h1>PWM, kickstart và nút MANUAL</h1>
+        <p>LEDC 8 bit · 25 kHz · GPIO 5; task quạt lặp khoảng 50 ms.</p>
+      </header>
+      <div class="diagram">
+        <svg
+          viewBox="0 0 1160 210"
+          role="img"
+          aria-label="PWM, kickstart và nút MANUAL"
+        >
+          <defs>
+            <marker
+              id="arrow"
+              markerWidth="8"
+              markerHeight="8"
+              refX="7"
+              refY="4"
+              orient="auto"
+            >
+              <path d="M0 0L8 4L0 8Z" fill="#7dd3fc" />
+            </marker>
+          </defs>
+          <rect
+            x="10"
+            y="55"
+            width="258"
+            height="90"
+            rx="9"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="139" y="91" text-anchor="middle">FanCommand snapshot</text>
+          <text x="139" y="118" text-anchor="middle" class="sub">
+            on + level + mode
+          </text>
+          <path
+            d="M268 100H295"
+            stroke="#7dd3fc"
+            stroke-width="2"
+            marker-end="url(#arrow)"
+          />
+          <rect
+            x="300"
+            y="55"
+            width="258"
+            height="90"
+            rx="9"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="429" y="91" text-anchor="middle">OFF → ON</text>
+          <text x="429" y="118" text-anchor="middle" class="sub">
+            255 trong 250 ms
+          </text>
+          <path
+            d="M558 100H585"
+            stroke="#7dd3fc"
+            stroke-width="2"
+            marker-end="url(#arrow)"
+          />
+          <rect
+            x="590"
+            y="55"
+            width="258"
+            height="90"
+            rx="9"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="719" y="91" text-anchor="middle">Duty yêu cầu</text>
+          <text x="719" y="118" text-anchor="middle" class="sub">
+            0 / 89 / 153 / 230
+          </text>
+          <path
+            d="M848 100H875"
+            stroke="#7dd3fc"
+            stroke-width="2"
+            marker-end="url(#arrow)"
+          />
+          <rect
+            x="880"
+            y="55"
+            width="258"
+            height="90"
+            rx="9"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="1009" y="91" text-anchor="middle">Shared state</text>
+          <text x="1009" y="118" text-anchor="middle" class="sub">
+            state / duty / mode
+          </text>
+        </svg>
+      </div>
+      <div class="content">
+        <div class="source">
+          <div class="ref">embedded/src/fan_control.cpp : 29</div>
+          <pre>
+if (duty &gt; 0 &amp;&amp; !s_appliedOn) {
+    ledcWrite(PIN_FAN_PWM, 255);  // kickstart a stalled BLDC
+    vTaskDelay(pdMS_TO_TICKS(FAN_KICKSTART_MS));
+}
+ledcWrite(PIN_FAN_PWM, duty);
+
+s_appliedOn = duty &gt; 0;
+s_appliedDuty = duty;</pre>
+        </div>
+        <ul>
+          <li>Duty danh định 0/35/60/90%; giá trị 8 bit có làm tròn.</li>
+          <li>Nút debounce 30 ms; nhấn ngắn vòng mức ở MANUAL.</li>
+          <li>Giữ 3 s trả AUTO và gia hạn timestamp lệnh tại node.</li>
+        </ul>
+      </div>
+      <div class="question">
+        <b>Tự trả lời:</b> Mức duty thấp nhất 20% có đang tác động các level 1–3
+        không?
+      </div>
+    </section>
+    <details>
+      <summary>Giải thích và đáp án · trang 19</summary>
+      <h2>Mức duty thấp nhất 20% có đang tác động các level 1–3 không?</h2>
+      <p>
+        Các level hiện đều ≥35%, nên phép clamp FAN_MIN_DUTY=51 chủ yếu là bảo
+        vệ nếu bổ sung duty thấp. Kickstart chỉ thực hiện khi chuyển từ không
+        chạy sang chạy.
+      </p>
+      <p>
+        Task ưu tiên không thể chạy vượt một lời gọi blocking bên trong nó. Xung
+        kickstart dùng vTaskDelay nên task quạt nhường lịch trong 250 ms. Nút
+        MANUAL chỉ ưu tiên bằng cập nhật mode/state; một lệnh AUTO đã bay trên
+        mạng vẫn có thể đến sau thao tác nút.
+      </p>
+      <p>
+        Trích đoạn có số dòng ở trên; mở file nguồn để xem toàn bộ ngữ cảnh.
+      </p>
+      <a href="../../embedded/src/fan_control.cpp"
+        >embedded/src/fan_control.cpp · từ dòng 29</a
+      ><br />
+    </details>
+    <section class="slide" id="s20">
+      <header>
+        <div class="eyebrow">
+          Air Quality Supervision System · Học chi tiết · 20/26
+        </div>
+        <h1>Phản hồi trạng thái và giới hạn bộ đếm</h1>
+        <p>
+          Đọc code runtimeS trong task trước khi hứa chức năng thay lõi đã đồng
+          bộ.
+        </p>
+      </header>
+      <div class="diagram">
+        <svg
+          viewBox="0 0 1160 210"
+          role="img"
+          aria-label="Phản hồi trạng thái và giới hạn bộ đếm"
+        >
+          <defs>
+            <marker
+              id="arrow"
+              markerWidth="8"
+              markerHeight="8"
+              refX="7"
+              refY="4"
+              orient="auto"
+            >
+              <path d="M0 0L8 4L0 8Z" fill="#7dd3fc" />
+            </marker>
+          </defs>
+          <rect
+            x="10"
+            y="55"
+            width="258"
+            height="90"
+            rx="9"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="139" y="91" text-anchor="middle">fan task</text>
+          <text x="139" y="118" text-anchor="middle" class="sub">
+            runtimeS cục bộ
+          </text>
+          <path
+            d="M268 100H295"
+            stroke="#7dd3fc"
+            stroke-width="2"
+            marker-end="url(#arrow)"
+          />
+          <rect
+            x="300"
+            y="55"
+            width="258"
+            height="90"
+            rx="9"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="429" y="91" text-anchor="middle">Cộng FAN_TICK_MS</text>
+          <text x="429" y="118" text-anchor="middle" class="sub">
+            Tích lũy thành giây
+          </text>
+          <path
+            d="M558 100H585"
+            stroke="#7dd3fc"
+            stroke-width="2"
+            marker-end="url(#arrow)"
+          />
+          <rect
+            x="590"
+            y="55"
+            width="258"
+            height="90"
+            rx="9"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="719" y="91" text-anchor="middle">NVS mỗi 5 phút</text>
+          <text x="719" y="118" text-anchor="middle" class="sub">
+            Snapshot runtime
+          </text>
+          <path
+            d="M848 100H875"
+            stroke="#7dd3fc"
+            stroke-width="2"
+            marker-end="url(#arrow)"
+          />
+          <rect
+            x="880"
+            y="55"
+            width="258"
+            height="90"
+            rx="9"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="1009" y="91" text-anchor="middle">state MQTT</text>
+          <text x="1009" y="118" text-anchor="middle" class="sub">
+            Giờ làm tròn 0,1 h
+          </text>
+        </svg>
+      </div>
+      <div class="content">
+        <div class="source">
+          <div class="ref">embedded/src/fan_control.cpp : 65</div>
+          <pre>
+uint32_t runtimeS = configSnapshot().filter_runtime_s;
+uint32_t runtimeAccumMs = 0;
+uint32_t lastPersistMs = millis();</pre>
+          <div class="ref">embedded/src/mqtt_network.cpp : 307</div>
+          <pre>
+} else if (strcmp(command, &quot;reset_filter&quot;) == 0) {
+    configSetFilterRuntime(0);
+    configPersistFilterRuntime();
+    dataLock();
+    g_sensorData.filter_runtime_s = 0;
+    dataUnlock();
+    AQSS_LOG(&quot;cmd: reset_filter — fan hours counter cleared&quot;);
+</pre>
+        </div>
+        <ul>
+          <li>
+            Thời gian cộng theo tick giả định, không theo millis chênh lệch
+            thực.
+          </li>
+          <li>filter_runtime_h làm tròn 0,1 h → độ phân giải khoảng 6 phút.</li>
+          <li>
+            reset_filter đặt shared/config về 0 nhưng task còn runtimeS cũ.
+          </li>
+        </ul>
+      </div>
+      <div class="question">
+        <b>Tự trả lời:</b> Vì sao reset có thể lại hiện số giờ cũ?
+      </div>
+    </section>
+    <details>
+      <summary>Giải thích và đáp án · trang 20</summary>
+      <h2>Vì sao reset có thể lại hiện số giờ cũ?</h2>
+      <p>
+        runtimeS khởi tạo một lần trước for(;;), sau đó task ghi ngược lại
+        config và shared state. Handler MQTT không gán runtimeS cục bộ nên giá
+        trị 0 có thể bị ghi đè. Đây là suy luận từ source, cần tái hiện trên
+        thiết bị.
+      </p>
+      <p>
+        Muốn sửa: task quạt cần sở hữu thao tác reset qua flag/event hoặc đọc bộ
+        đếm từ một nguồn chung có đồng bộ. Không sửa firmware trong công việc
+        làm tài liệu này. Không gọi runtime là đo thời gian chính xác khi cộng
+        hằng 50 ms bỏ qua overhead.
+      </p>
+      <p>
+        Trích đoạn có số dòng ở trên; mở file nguồn để xem toàn bộ ngữ cảnh.
+      </p>
+      <a href="../../embedded/src/fan_control.cpp"
+        >embedded/src/fan_control.cpp · từ dòng 65</a
+      ><br /><a href="../../embedded/src/mqtt_network.cpp"
+        >embedded/src/mqtt_network.cpp · từ dòng 307</a
+      ><br />
+    </details>
+    <section class="slide" id="s21">
+      <header>
+        <div class="eyebrow">
+          Air Quality Supervision System · Học chi tiết · 21/26
+        </div>
+        <h1>Mất mạng: bộ đệm thực sự nằm ở nhánh nào?</h1>
+        <p>Vòng đệm 60 slot; NTP phải hợp lệ mới nhận mẫu vào buffer.</p>
+      </header>
+      <div class="diagram">
+        <svg
+          viewBox="0 0 1160 210"
+          role="img"
+          aria-label="Mất mạng: bộ đệm thực sự nằm ở nhánh nào?"
+        >
+          <defs>
+            <marker
+              id="arrow"
+              markerWidth="8"
+              markerHeight="8"
+              refX="7"
+              refY="4"
+              orient="auto"
+            >
+              <path d="M0 0L8 4L0 8Z" fill="#7dd3fc" />
+            </marker>
+          </defs>
+          <rect
+            x="20"
+            y="70"
+            width="220"
+            height="70"
+            rx="8"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="130" y="110" text-anchor="middle">Wi-Fi connected?</text>
+          <rect
+            x="460"
+            y="10"
+            width="280"
+            height="70"
+            rx="8"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="600" y="39" text-anchor="middle">Không: retry / portal</text>
+          <text x="600" y="64" text-anchor="middle" class="sub">
+            continue; không buffer mẫu ở đây
+          </text>
+          <rect
+            x="460"
+            y="125"
+            width="280"
+            height="70"
+            rx="8"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="600" y="154" text-anchor="middle">Có: MQTT connected?</text>
+          <text x="600" y="179" text-anchor="middle" class="sub">
+            Không: buffer + reconnect
+          </text>
+          <rect
+            x="910"
+            y="125"
+            width="230"
+            height="70"
+            rx="8"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="1025" y="154" text-anchor="middle">Có: publish live</text>
+          <text x="1025" y="179" text-anchor="middle" class="sub">
+            và flushOffline
+          </text>
+          <path
+            d="M240 90H330V45H455M240 120H330V160H455M740 160H905"
+            fill="none"
+            stroke="#7dd3fc"
+            marker-end="url(#arrow)"
+          />
+        </svg>
+      </div>
+      <div class="content">
+        <div class="source">
+          <div class="ref">embedded/src/mqtt_network.cpp : 511</div>
+          <pre>
+g_sensorData.wifi_rssi = 0;
+g_sensorData.wifi_connected = false;
+g_sensorData.mqtt_connected = false;
+dataUnlock();
+vTaskDelay(pdMS_TO_TICKS(200));
+continue;</pre>
+          <div class="ref">embedded/src/mqtt_network.cpp : 541</div>
+          <pre>
+const RuntimeConfig offlineCfg = configSnapshot();
+if ((uint32_t)(now - lastTelemetryMs) &gt;= offlineCfg.telemetry_interval_ms) {
+    lastTelemetryMs = now;
+    bufferCurrentReading();
+}
+dataLock();</pre>
+        </div>
+        <ul>
+          <li>Ở chu kỳ 5 s, 60 slot giữ tối đa khoảng 5 phút.</li>
+          <li>flush chỉ tăng head sau khi publish thành công.</li>
+          <li>Nhánh !WiFi.isConnected() continue trước đoạn buffer MQTT.</li>
+        </ul>
+      </div>
+      <div class="question">
+        <b>Tự trả lời:</b> Có thể nói mất Wi-Fi vẫn buffer đầy đủ 5 phút không?
+      </div>
+    </section>
+    <details>
+      <summary>Giải thích và đáp án · trang 21</summary>
+      <h2>Có thể nói mất Wi-Fi vẫn buffer đầy đủ 5 phút không?</h2>
+      <p>
+        Không với luồng hiện tại. Nhánh Wi-Fi down bỏ qua bufferCurrentReading.
+        Bộ đệm được gọi khi Wi-Fi vẫn có nhưng MQTT mất, hoặc khi publish live
+        thất bại.
+      </p>
+      <p>
+        Buffer nằm trong RAM nên reboot mất mẫu. Khi Wi-Fi mất lâu, portal có
+        thể giữ luồng mạng trong provisioningRun. Các task cảm biến vẫn chạy
+        nhưng điều đó không đồng nghĩa task mạng đã lưu chuỗi telemetry theo
+        thời gian.
+      </p>
+      <p>
+        Trích đoạn có số dòng ở trên; mở file nguồn để xem toàn bộ ngữ cảnh.
+      </p>
+      <a href="../../embedded/src/mqtt_network.cpp"
+        >embedded/src/mqtt_network.cpp · từ dòng 511</a
+      ><br /><a href="../../embedded/src/mqtt_network.cpp"
+        >embedded/src/mqtt_network.cpp · từ dòng 541</a
+      ><br />
+    </details>
+    <section class="slide" id="s22">
+      <header>
+        <div class="eyebrow">
+          Air Quality Supervision System · Học chi tiết · 22/26
+        </div>
+        <h1>Lease AUTO và fail-safe của firmware</h1>
+        <p>5 phút gửi lại lệnh; 10 phút không có lệnh thì node tắt AUTO.</p>
+      </header>
+      <div class="diagram">
+        <svg
+          viewBox="0 0 1160 210"
+          role="img"
+          aria-label="Lease AUTO và fail-safe của firmware"
+        >
+          <defs>
+            <marker
+              id="arrow"
+              markerWidth="8"
+              markerHeight="8"
+              refX="7"
+              refY="4"
+              orient="auto"
+            >
+              <path d="M0 0L8 4L0 8Z" fill="#7dd3fc" />
+            </marker>
+          </defs>
+          <rect
+            x="10"
+            y="55"
+            width="258"
+            height="90"
+            rx="9"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="139" y="91" text-anchor="middle">Backend ON</text>
+          <text x="139" y="118" text-anchor="middle" class="sub">
+            NONE → xem lease
+          </text>
+          <path
+            d="M268 100H295"
+            stroke="#7dd3fc"
+            stroke-width="2"
+            marker-end="url(#arrow)"
+          />
+          <rect
+            x="300"
+            y="55"
+            width="258"
+            height="90"
+            rx="9"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="429" y="91" text-anchor="middle">≥5 phút</text>
+          <text x="429" y="118" text-anchor="middle" class="sub">
+            Gửi lại set_actuator
+          </text>
+          <path
+            d="M558 100H585"
+            stroke="#7dd3fc"
+            stroke-width="2"
+            marker-end="url(#arrow)"
+          />
+          <rect
+            x="590"
+            y="55"
+            width="258"
+            height="90"
+            rx="9"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="719" y="91" text-anchor="middle">Node nhận lệnh</text>
+          <text x="719" y="118" text-anchor="middle" class="sub">
+            last_command_ms mới
+          </text>
+          <path
+            d="M848 100H875"
+            stroke="#7dd3fc"
+            stroke-width="2"
+            marker-end="url(#arrow)"
+          />
+          <rect
+            x="880"
+            y="55"
+            width="258"
+            height="90"
+            rx="9"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="1009" y="91" text-anchor="middle">&gt;10 phút im lặng</text>
+          <text x="1009" y="118" text-anchor="middle" class="sub">
+            AUTO ON → OFF
+          </text>
+        </svg>
+      </div>
+      <div class="content">
+        <div class="source">
+          <div class="ref">
+            backend/src/main/java/com/aqss/backend/service/DeviceService.java :
+            338
+          </div>
+          <pre>
+mqtt.publishCommand(device.getDeviceId(), &quot;set_actuator&quot;, params);
+device.setLastCommandAt(Instant.now());
+devices.save(device);</pre>
+          <div class="ref">embedded/src/fan_control.cpp : 99</div>
+          <pre>
+if (cmd.mode == FAN_MODE_AUTO &amp;&amp; cmd.on &amp;&amp;
+    (uint32_t)(now - cmd.last_command_ms) &gt; FAN_FAILSAFE_MS) {
+    fanCmdFailSafeOff();
+    cmd = fanCmdSnapshot();
+    AQSS_LOG(&quot;failsafe: no backend command for %lus -&gt; fan OFF&quot;,
+             (unsigned long)(FAN_FAILSAFE_MS / 1000));
+}</pre>
+        </div>
+        <ul>
+          <li>Lease là timeout ứng dụng; khác MQTT keepalive và watchdog.</li>
+          <li>
+            Không có reading còn mới → evaluate return, không renew lease.
+          </li>
+          <li>MANUAL không bị điều kiện timeout AUTO này tắt.</li>
+        </ul>
+      </div>
+      <div class="question">
+        <b>Tự trả lời:</b> Có bảo đảm đồng hồ lease backend khớp node khi
+        publish lỗi?
+      </div>
+    </section>
+    <details>
+      <summary>Giải thích và đáp án · trang 22</summary>
+      <h2>Có bảo đảm đồng hồ lease backend khớp node khi publish lỗi?</h2>
+      <p>
+        Không. renewLease vẫn cập nhật lastCommandAt ngay cả khi publishCommand
+        trả false. Node chỉ cập nhật last_command_ms khi thực sự xử lý lệnh, nên
+        node có thể timeout trong khi DB vừa ghi đã renew.
+      </p>
+      <p>
+        Đây là fail-safe của ứng dụng cho liên lạc bị gián đoạn; không có nghĩa
+        firmware vẫn lọc tự động theo cảm biến khi backend chết. Node không chứa
+        công thức ngưỡng hoặc thuật toán AUTO dự phòng.
+      </p>
+      <p>
+        Trích đoạn có số dòng ở trên; mở file nguồn để xem toàn bộ ngữ cảnh.
+      </p>
+      <a
+        href="../../backend/src/main/java/com/aqss/backend/service/DeviceService.java"
+        >backend/src/main/java/com/aqss/backend/service/DeviceService.java · từ
+        dòng 338</a
+      ><br /><a href="../../embedded/src/fan_control.cpp"
+        >embedded/src/fan_control.cpp · từ dòng 99</a
+      ><br />
+    </details>
+    <section class="slide" id="s23">
+      <header>
+        <div class="eyebrow">
+          Air Quality Supervision System · Học chi tiết · 23/26
+        </div>
+        <h1>Ghép nối và hủy liên kết hai phía</h1>
+        <p>
+          Pairing liên kết device với phòng; không phải cơ chế xác thực người
+          dùng.
+        </p>
+      </header>
+      <div class="diagram">
+        <svg
+          viewBox="0 0 1160 210"
+          role="img"
+          aria-label="Ghép nối và hủy liên kết hai phía"
+        >
+          <defs>
+            <marker
+              id="arrow"
+              markerWidth="8"
+              markerHeight="8"
+              refX="7"
+              refY="4"
+              orient="auto"
+            >
+              <path d="M0 0L8 4L0 8Z" fill="#7dd3fc" />
+            </marker>
+          </defs>
+          <rect
+            x="10"
+            y="55"
+            width="258"
+            height="90"
+            rx="9"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="139" y="91" text-anchor="middle">OLED pairing</text>
+          <text x="139" y="118" text-anchor="middle" class="sub">
+            Mã 6 ký tự
+          </text>
+          <path
+            d="M268 100H295"
+            stroke="#7dd3fc"
+            stroke-width="2"
+            marker-end="url(#arrow)"
+          />
+          <rect
+            x="300"
+            y="55"
+            width="258"
+            height="90"
+            rx="9"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="429" y="91" text-anchor="middle">POST pair</text>
+          <text x="429" y="118" text-anchor="middle" class="sub">
+            Tìm node theo mã
+          </text>
+          <path
+            d="M558 100H585"
+            stroke="#7dd3fc"
+            stroke-width="2"
+            marker-end="url(#arrow)"
+          />
+          <rect
+            x="590"
+            y="55"
+            width="258"
+            height="90"
+            rx="9"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="719" y="91" text-anchor="middle">DB binding</text>
+          <text x="719" y="118" text-anchor="middle" class="sub">
+            paired_at + space
+          </text>
+          <path
+            d="M848 100H875"
+            stroke="#7dd3fc"
+            stroke-width="2"
+            marker-end="url(#arrow)"
+          />
+          <rect
+            x="880"
+            y="55"
+            width="258"
+            height="90"
+            rx="9"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="1009" y="91" text-anchor="middle">set_space</text>
+          <text x="1009" y="118" text-anchor="middle" class="sub">
+            NVS + OLED
+          </text>
+        </svg>
+      </div>
+      <div class="content">
+        <div class="source">
+          <div class="ref">embedded/src/config_store.cpp : 127</div>
+          <pre>
+uint32_t hash = (uint32_t)(ESP.getEfuseMac() &amp; 0xFFFFFFFFULL) ^ 0x5A17C3E9UL;
+size_t written = 0;
+for (int i = 0; i &lt; PAIRING_CODE_LEN &amp;&amp; written &lt; len - 1; i++) {
+    out[written++] = kPairingAlphabet[hash &amp; 0x1F];
+    hash = (hash &gt;&gt; 5) ^ (hash * 2654435761UL);
+    if (hash == 0) {
+        hash = 0x9E3779B9UL;
+    }
+}</pre>
+          <div class="ref">
+            backend/src/main/java/com/aqss/backend/service/DeviceService.java :
+            178
+          </div>
+          <pre>
+boolean notified = notifyNode(deviceId, &quot;set_space&quot;, Map.of(&quot;space_id&quot;, &quot;&quot;));
+audit.log(&quot;USER&quot;, &quot;UNPAIR&quot;, deviceId, Map.of(
+        &quot;previous_space_code&quot;, String.valueOf(previous),
+        &quot;node_notified&quot;, notified));</pre>
+        </div>
+        <ul>
+          <li>Mã suy ra từ eFuse MAC bằng phép biến đổi xác định.</li>
+          <li>
+            ensure() chỉ tạo node chưa ghép; không tin space_id telemetry để
+            bind.
+          </li>
+          <li>Unpair xóa DB binding và gửi set_space rỗng để xóa NVS.</li>
+        </ul>
+      </div>
+      <div class="question">
+        <b>Tự trả lời:</b> Mã pairing có phải mật khẩu bảo mật hoặc OTP không?
+      </div>
+    </section>
+    <details>
+      <summary>Giải thích và đáp án · trang 23</summary>
+      <h2>Mã pairing có phải mật khẩu bảo mật hoặc OTP không?</h2>
+      <p>
+        Không. Mã có tính xác định từ định danh thiết bị, không có thời hạn OTP
+        trong code, và REST chưa có authentication. Chức năng chính là chọn node
+        để gắn phòng.
+      </p>
+      <p>
+        Pair/unpair gửi lệnh best-effort. Nếu broker down, DB có thể đã đổi
+        nhưng node chưa nhận; không thấy cơ chế reconcile tự động mọi lần
+        reconnect. Do ensure không tự bind, telemetry cũ không phục hồi liên kết
+        DB đã xóa.
+      </p>
+      <p>
+        Trích đoạn có số dòng ở trên; mở file nguồn để xem toàn bộ ngữ cảnh.
+      </p>
+      <a href="../../embedded/src/config_store.cpp"
+        >embedded/src/config_store.cpp · từ dòng 127</a
+      ><br /><a
+        href="../../backend/src/main/java/com/aqss/backend/service/DeviceService.java"
+        >backend/src/main/java/com/aqss/backend/service/DeviceService.java · từ
+        dòng 178</a
+      ><br />
+    </details>
+    <section class="slide" id="s24">
+      <header>
+        <div class="eyebrow">
+          Air Quality Supervision System · Học chi tiết · 24/26
+        </div>
+        <h1>Dashboard: polling và cache sau thao tác</h1>
+        <p>Không có WebSocket/SSE trong luồng đang dùng.</p>
+      </header>
+      <div class="diagram">
+        <svg
+          viewBox="0 0 1160 210"
+          role="img"
+          aria-label="Dashboard: polling và cache sau thao tác"
+        >
+          <defs>
+            <marker
+              id="arrow"
+              markerWidth="8"
+              markerHeight="8"
+              refX="7"
+              refY="4"
+              orient="auto"
+            >
+              <path d="M0 0L8 4L0 8Z" fill="#7dd3fc" />
+            </marker>
+          </defs>
+          <rect
+            x="10"
+            y="55"
+            width="258"
+            height="90"
+            rx="9"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="139" y="91" text-anchor="middle">useQuery</text>
+          <text x="139" y="118" text-anchor="middle" class="sub">GET REST</text>
+          <path
+            d="M268 100H295"
+            stroke="#7dd3fc"
+            stroke-width="2"
+            marker-end="url(#arrow)"
+          />
+          <rect
+            x="300"
+            y="55"
+            width="258"
+            height="90"
+            rx="9"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="429" y="91" text-anchor="middle">Cache theo key</text>
+          <text x="429" y="118" text-anchor="middle" class="sub">
+            deviceId / hours
+          </text>
+          <path
+            d="M558 100H585"
+            stroke="#7dd3fc"
+            stroke-width="2"
+            marker-end="url(#arrow)"
+          />
+          <rect
+            x="590"
+            y="55"
+            width="258"
+            height="90"
+            rx="9"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="719" y="91" text-anchor="middle">useMutation</text>
+          <text x="719" y="118" text-anchor="middle" class="sub">
+            POST command
+          </text>
+          <path
+            d="M848 100H875"
+            stroke="#7dd3fc"
+            stroke-width="2"
+            marker-end="url(#arrow)"
+          />
+          <rect
+            x="880"
+            y="55"
+            width="258"
+            height="90"
+            rx="9"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="1009" y="91" text-anchor="middle">onSuccess</text>
+          <text x="1009" y="118" text-anchor="middle" class="sub">
+            Invalidate → refetch
+          </text>
+        </svg>
+      </div>
+      <div class="content">
+        <div class="source">
+          <div class="ref">frontend/src/hooks/useAqss.ts : 41</div>
+          <pre>
+export function useFanCommand(deviceId?: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: FanCommand) =&gt; api.command(deviceId!, body),
+    onSuccess: () =&gt; invalidate(queryClient, deviceId),
+  });
+}
+</pre>
+        </div>
+        <ul>
+          <li>Latest/devices: 5 s; history/spaces: 60 s.</li>
+          <li>
+            enabled ngăn query chạy khi thiếu deviceId; latest retry=false.
+          </li>
+          <li>Lỗi 404 chưa có mẫu khác PM2.5=0; UI có trạng thái chờ.</li>
+        </ul>
+      </div>
+      <div class="question">
+        <b>Tự trả lời:</b> Số đo gửi 5 s có đồng nghĩa màn hình luôn trễ đúng 5
+        s?
+      </div>
+    </section>
+    <details>
+      <summary>Giải thích và đáp án · trang 24</summary>
+      <h2>Số đo gửi 5 s có đồng nghĩa màn hình luôn trễ đúng 5 s?</h2>
+      <p>
+        Không. Hai nhịp sensor/telemetry/polling không đồng bộ; còn trễ mạng, xử
+        lý và cache. Sau thao tác, invalidate yêu cầu refetch thay vì chờ hết
+        chu kỳ bình thường.
+      </p>
+      <p>
+        isOnline dùng last_seen trong cửa sổ 30 s. Last_seen có thể cập nhật bởi
+        telemetry và actuator/state; nó biểu thị liên lạc, không chứng minh từng
+        sensor còn tạo mẫu mới. Settings ngưỡng preview không có polling 5 s mặc
+        định.
+      </p>
+      <p>
+        Trích đoạn có số dòng ở trên; mở file nguồn để xem toàn bộ ngữ cảnh.
+      </p>
+      <a href="../../frontend/src/hooks/useAqss.ts"
+        >frontend/src/hooks/useAqss.ts · từ dòng 41</a
+      ><br />
+    </details>
+    <section class="slide" id="s25">
+      <header>
+        <div class="eyebrow">
+          Air Quality Supervision System · Học chi tiết · 25/26
+        </div>
+        <h1>Biểu đồ: dữ liệu vẽ khác dữ liệu điều khiển</h1>
+        <p>
+          Hai bước giảm lượng dữ liệu: backend thưa mẫu, frontend median mỗi 5
+          phút.
+        </p>
+      </header>
+      <div class="diagram">
+        <svg
+          viewBox="0 0 1160 210"
+          role="img"
+          aria-label="Biểu đồ: dữ liệu vẽ khác dữ liệu điều khiển"
+        >
+          <defs>
+            <marker
+              id="arrow"
+              markerWidth="8"
+              markerHeight="8"
+              refX="7"
+              refY="4"
+              orient="auto"
+            >
+              <path d="M0 0L8 4L0 8Z" fill="#7dd3fc" />
+            </marker>
+          </defs>
+          <rect
+            x="10"
+            y="55"
+            width="258"
+            height="90"
+            rx="9"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="139" y="91" text-anchor="middle">DB history</text>
+          <text x="139" y="118" text-anchor="middle" class="sub">
+            Khoảng from/to
+          </text>
+          <path
+            d="M268 100H295"
+            stroke="#7dd3fc"
+            stroke-width="2"
+            marker-end="url(#arrow)"
+          />
+          <rect
+            x="300"
+            y="55"
+            width="258"
+            height="90"
+            rx="9"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="429" y="91" text-anchor="middle">Backend step</text>
+          <text x="429" y="118" text-anchor="middle" class="sub">
+            size / 800
+          </text>
+          <path
+            d="M558 100H585"
+            stroke="#7dd3fc"
+            stroke-width="2"
+            marker-end="url(#arrow)"
+          />
+          <rect
+            x="590"
+            y="55"
+            width="258"
+            height="90"
+            rx="9"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="719" y="91" text-anchor="middle">Bucket 300000 ms</text>
+          <text x="719" y="118" text-anchor="middle" class="sub">
+            Median mỗi ô
+          </text>
+          <path
+            d="M848 100H875"
+            stroke="#7dd3fc"
+            stroke-width="2"
+            marker-end="url(#arrow)"
+          />
+          <rect
+            x="880"
+            y="55"
+            width="258"
+            height="90"
+            rx="9"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="1009" y="91" text-anchor="middle">SVG + spike</text>
+          <text x="1009" y="118" text-anchor="middle" class="sub">
+            Đường + tooltip
+          </text>
+        </svg>
+      </div>
+      <div class="content">
+        <div class="source">
+          <div class="ref">frontend/src/components/HistoryChart.tsx : 29</div>
+          <pre>
+  const cell = Math.floor(t / 300_000) * 300_000;
+  const list = buckets.get(cell) ?? [];
+  list.push(row.pm25 as number);
+  buckets.set(cell, list);
+}</pre>
+          <div class="ref">frontend/src/components/HistoryChart.tsx : 38</div>
+          <pre>
+  return { t, v: sorted[Math.floor(sorted.length / 2)] };
+});</pre>
+        </div>
+        <ul>
+          <li>Frontend loại PM null, gom theo floor(time/300000).</li>
+          <li>Median là phần tử sorted[floor(n/2)] kể cả n chẵn.</li>
+          <li>Bucket cao hơn cả hai hàng xóm được vẽ riêng nếu vượt 0,8T.</li>
+        </ul>
+      </div>
+      <div class="question">
+        <b>Tự trả lời:</b> Làm mượt biểu đồ có trì hoãn bật quạt không?
+      </div>
+    </section>
+    <details>
+      <summary>Giải thích và đáp án · trang 25</summary>
+      <h2>Làm mượt biểu đồ có trì hoãn bật quạt không?</h2>
+      <p>
+        Không: ControlLoop đọc telemetry mới nhất từ DB, không dùng đường SVG
+        hay median bucket của frontend. Biểu đồ để xem lịch sử; quyết định dựa
+        vào luồng backend riêng.
+      </p>
+      <p>
+        Backend step=max(1,size/800) dùng chia nguyên nên “~800 điểm” không phải
+        giới hạn cứng 800. Ví dụ 1599 hàng thì step=1 vẫn trả 1599. Tooltip tìm
+        mẫu gần nhất trong history, không bắt buộc đúng giá trị median trên
+        đường.
+      </p>
+      <p>
+        Trích đoạn có số dòng ở trên; mở file nguồn để xem toàn bộ ngữ cảnh.
+      </p>
+      <a href="../../frontend/src/components/HistoryChart.tsx"
+        >frontend/src/components/HistoryChart.tsx · từ dòng 29</a
+      ><br /><a href="../../frontend/src/components/HistoryChart.tsx"
+        >frontend/src/components/HistoryChart.tsx · từ dòng 38</a
+      ><br />
+    </details>
+    <section class="slide" id="s26">
+      <header>
+        <div class="eyebrow">
+          Air Quality Supervision System · Học chi tiết · 26/26
+        </div>
+        <h1>Tổng hợp các chỗ phải trả lời đúng giới hạn</h1>
+        <p>
+          Các nhận xét dưới đây là đọc source; không coi là kết quả kiểm thử
+          phần cứng.
+        </p>
+      </header>
+      <div class="diagram">
+        <svg
+          viewBox="0 0 1160 210"
+          role="img"
+          aria-label="Tổng hợp các chỗ phải trả lời đúng giới hạn"
+        >
+          <defs>
+            <marker
+              id="arrow"
+              markerWidth="8"
+              markerHeight="8"
+              refX="7"
+              refY="4"
+              orient="auto"
+            >
+              <path d="M0 0L8 4L0 8Z" fill="#7dd3fc" />
+            </marker>
+          </defs>
+          <rect
+            x="10"
+            y="55"
+            width="258"
+            height="90"
+            rx="9"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="139" y="91" text-anchor="middle">Đã triển khai</text>
+          <text x="139" y="118" text-anchor="middle" class="sub">
+            Có luồng / có code
+          </text>
+          <path
+            d="M268 100H295"
+            stroke="#7dd3fc"
+            stroke-width="2"
+            marker-end="url(#arrow)"
+          />
+          <rect
+            x="300"
+            y="55"
+            width="258"
+            height="90"
+            rx="9"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="429" y="91" text-anchor="middle">Đã gửi</text>
+          <text x="429" y="118" text-anchor="middle" class="sub">
+            Không chứng minh đã quay
+          </text>
+          <path
+            d="M558 100H585"
+            stroke="#7dd3fc"
+            stroke-width="2"
+            marker-end="url(#arrow)"
+          />
+          <rect
+            x="590"
+            y="55"
+            width="258"
+            height="90"
+            rx="9"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="719" y="91" text-anchor="middle">Đã tính ngưỡng</text>
+          <text x="719" y="118" text-anchor="middle" class="sub">
+            Không phải kiểm định y tế
+          </text>
+          <path
+            d="M848 100H875"
+            stroke="#7dd3fc"
+            stroke-width="2"
+            marker-end="url(#arrow)"
+          />
+          <rect
+            x="880"
+            y="55"
+            width="258"
+            height="90"
+            rx="9"
+            fill="#162332"
+            stroke="#496177"
+          />
+          <text x="1009" y="91" text-anchor="middle">Cần đo / tái hiện</text>
+          <text x="1009" y="118" text-anchor="middle" class="sub">
+            Tách khỏi điều suy ra
+          </text>
+        </svg>
+      </div>
+      <div class="content">
+        <div class="source">
+          <div class="ref">
+            backend/src/main/java/com/aqss/backend/service/ControlLoop.java :
+            144
+          </div>
+          <pre>
+    return in.pm25() &gt;= in.threshold() ? Decision.ACTIVATE : Decision.NONE;
+}
+if (elapsed(in.onSince(), in.now(), in.maxOnMinutes())) {</pre>
+        </div>
+        <ul>
+          <li>
+            Đã thấy lệch: validation, min_off, nhãn Fritzing, occupancy_hours.
+          </li>
+          <li>Cần tái hiện: reset runtime; mẫu sensor cũ có timestamp mới.</li>
+          <li>
+            Cần hoàn thiện: ACK ứng dụng, khử trùng, reconcile binding,
+            freshness mỗi sensor.
+          </li>
+        </ul>
+      </div>
+      <div class="question">
+        <b>Tự trả lời:</b> Nếu bị hỏi “hệ thống đã hoạt động đúng hoàn toàn
+        chưa”, nên đáp thế nào?
+      </div>
+    </section>
+    <details>
+      <summary>Giải thích và đáp án · trang 26</summary>
+      <h2>
+        Nếu bị hỏi “hệ thống đã hoạt động đúng hoàn toàn chưa”, nên đáp thế nào?
+      </h2>
+      <p>
+        Nêu đường đã xây dựng, chỉ vào hàm và sơ đồ, rồi trình bày đúng giới
+        hạn. Muốn khẳng định timing, độ chính xác sensor và hiệu quả lọc cần
+        log, đo chuẩn hoặc kịch bản kiểm chứng; ảnh dashboard không thay thế các
+        phép đo đó.
+      </p>
+      <p>
+        Cách ôn: tự giải thích mỗi sơ đồ không nhìn ghi chú; chỉ được điểm
+        đọc/ghi trạng thái; đưa một ví dụ đầu vào; sau đó nêu trường hợp lỗi và
+        phần xác nhận còn thiếu. Phần code giữ đúng identifier gốc, tên dự án
+        luôn dùng đầy đủ.
+      </p>
+      <p>
+        Trích đoạn có số dòng ở trên; mở file nguồn để xem toàn bộ ngữ cảnh.
+      </p>
+      <a
+        href="../../backend/src/main/java/com/aqss/backend/service/ControlLoop.java"
+        >backend/src/main/java/com/aqss/backend/service/ControlLoop.java · từ
+        dòng 144</a
+      ><br />
+    </details>
+  </body>
+</html>
