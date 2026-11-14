@@ -1,11 +1,22 @@
 import type {
+  ActuatorHistory,
+  AiAlert,
+  AiJob,
+  AiModelStatus,
+  AiStatus,
   AuditEntry,
+  CommandLog,
   Device,
   DeviceUpdateRequest,
   FanCommand,
+  ForecastView,
   PairRequest,
+  RoomEvent,
+  SamplePage,
+  Series,
   Space,
   SpaceRequest,
+  Summary,
   Telemetry,
   ThresholdPreview,
 } from "./types";
@@ -109,4 +120,65 @@ export const api = {
     if (deviceId) query.set("device_id", deviceId);
     return request<AuditEntry[]>(`/api/v1/audit?${query.toString()}`);
   },
+
+  // ── Analytics (SQL-bucketed; spikes keep their min/max per bucket) ─────────
+  series: (id: string, hours = 24, bucket = "5m") => {
+    const to = new Date();
+    const from = new Date(to.getTime() - hours * 3600_000);
+    return request<Series>(
+      `/api/v1/devices/${encodeURIComponent(id)}/series` +
+        `?from=${from.toISOString()}&to=${to.toISOString()}&bucket=${bucket}`,
+    );
+  },
+  summary: (id: string, hours = 24) => {
+    const to = new Date();
+    const from = new Date(to.getTime() - hours * 3600_000);
+    return request<Summary>(
+      `/api/v1/devices/${encodeURIComponent(id)}/summary` +
+        `?from=${from.toISOString()}&to=${to.toISOString()}`,
+    );
+  },
+  samples: (id: string, hours = 24, limit = 200) => {
+    const to = new Date();
+    const from = new Date(to.getTime() - hours * 3600_000);
+    return request<SamplePage>(
+      `/api/v1/devices/${encodeURIComponent(id)}/samples` +
+        `?from=${from.toISOString()}&to=${to.toISOString()}&limit=${limit}`,
+    );
+  },
+
+  // ── Command lifecycle + reported state ────────────────────────────────────
+  commands: (id: string, limit = 50) =>
+    request<CommandLog[]>(`/api/v1/devices/${encodeURIComponent(id)}/commands?limit=${limit}`),
+  actuatorHistory: (id: string, limit = 50) =>
+    request<ActuatorHistory[]>(
+      `/api/v1/devices/${encodeURIComponent(id)}/actuator-history?limit=${limit}`,
+    ),
+
+  // ── AI ────────────────────────────────────────────────────────────────────
+  forecast: (id: string) =>
+    request<ForecastView>(`/api/v1/devices/${encodeURIComponent(id)}/forecast`),
+  alerts: (id: string) => request<AiAlert[]>(`/api/v1/devices/${encodeURIComponent(id)}/alerts`),
+  aiStatus: (deviceId?: string) => {
+    const query = deviceId ? `?device_id=${encodeURIComponent(deviceId)}` : "";
+    return request<AiStatus>(`/api/v1/ai/status${query}`);
+  },
+  aiModels: (deviceId: string) =>
+    request<AiModelStatus[]>(`/api/v1/ai/models?device_id=${encodeURIComponent(deviceId)}`),
+  aiJobs: (deviceId?: string, limit = 20) => {
+    const query = new URLSearchParams({ limit: String(limit) });
+    if (deviceId) query.set("device_id", deviceId);
+    return request<AiJob[]>(`/api/v1/ai/jobs?${query.toString()}`);
+  },
+  createJob: (body: { type: string; device_id: string; params?: Record<string, unknown> }) =>
+    request<AiJob>("/api/v1/ai/jobs", { method: "POST", body: JSON.stringify(body) }),
+
+  // ── Room events ───────────────────────────────────────────────────────────
+  events: (id: string) =>
+    request<RoomEvent[]>(`/api/v1/devices/${encodeURIComponent(id)}/events`),
+  recordEvent: (id: string, body: { type: string; note?: string; occurred_at?: string }) =>
+    request<RoomEvent>(`/api/v1/devices/${encodeURIComponent(id)}/events`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
 };

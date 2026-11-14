@@ -19,7 +19,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.time.Instant;
 import java.util.List;
 
-/** Everything the dashboard needs about a node: pairing, state, history, forecast, commands. */
+/** Everything the dashboard needs about a node: pairing, state, history and commands. */
 @RestController
 @RequestMapping("/api/v1/devices")
 @RequiredArgsConstructor

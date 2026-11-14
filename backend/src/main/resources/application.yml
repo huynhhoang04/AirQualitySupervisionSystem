@@ -1,4 +1,5 @@
-# AQSS Layer 2 — collect telemetry, serve the dashboard, drive the fan, call Layer 3.
+# AQSS Layer 2 — collect telemetry with provenance, serve the dashboard, drive the fan,
+# and keep the AI worker's metadata + forecast ledger.
 # Every deploy-time value is an environment variable with a working default.
 server:
   # SERVER_PORT wins; otherwise honour the platform-injected PORT (Render, Railway, Cloud Run).
@@ -35,6 +36,11 @@ management:
 aqss:
   cors:
     origin: ${CORS_ORIGIN:http://localhost:5173}
+  ai:
+    # The AI worker is optional and never on the control path. Off means the internal API is closed.
+    enabled: ${AI_ENABLED:true}
+    # Bearer token for /internal/**. Blank = local development (no auth).
+    worker-token: ${AI_WORKER_TOKEN:}
   control:
     cycle-ms: ${CONTROL_CYCLE_MS:60000}
     hysteresis-ratio: ${CONTROL_HYSTERESIS_RATIO:0.7}

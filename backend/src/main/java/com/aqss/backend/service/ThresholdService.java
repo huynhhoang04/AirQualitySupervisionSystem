@@ -73,7 +73,9 @@ public class ThresholdService {
      * @param co2Ppm  the room's current CO₂, or null when the sensor has no reading yet
      */
     public Result compute(Space space, Double co2Ppm) {
-        double occupancyHours = occupancyHours(space.getPurpose());
+        double occupancyHours = space.getOccupancyHours() != null
+                ? clampHours(space.getOccupancyHours())
+                : occupancyHours(space.getPurpose());
         double ventilation = ventilationFactor(space.getVentilationEstimate());
         double volume = volumeFactor(space.getVolumeM3());
         double co2Factor = co2Factor(co2Ppm);
@@ -127,6 +129,11 @@ public class ThresholdService {
             case "kitchen" -> 2.0;
             default -> DEFAULT_OCCUPANCY_HOURS;
         };
+    }
+
+    /** An explicit operator value wins, but must stay a plausible number of hours per day. */
+    static double clampHours(int hours) {
+        return Math.max(1, Math.min(hours, 24));
     }
 
     static double ventilationFactor(String estimate) {

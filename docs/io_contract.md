@@ -1,7 +1,28 @@
-# AQSS V5 — I/O Contract
+# AQSS V6 — I/O Contract
 
 > **Single source of truth for the data contracts between the layers.**
-> **Version 5.0** — the external AI service is gone. Three layers remain: node, backend, dashboard.
+> **Version 6.0** — the measurement/control layer is unchanged. V6 adds provenance, actuator
+> history, command lifecycle, a raw export API and an optional local AI worker.
+
+## What changed from 5.0
+
+| Added | Why |
+| :--- | :--- |
+| `telemetry.received_at`, `time_quality`, `quality_flags`, `dust_fault`, `uptime_sec`, `free_heap`, `min_free_heap`, `payload_hash` | A sample needs to say when it was measured, when it was received, and whether it is usable. Legacy rows keep `time_quality = legacy` and no invented receive time |
+| `actuator_history` | The node's reports are evidence; the device row is only the latest mirror |
+| `command_log` | Intent and observation are different facts. `REPORT_MATCHED` means a report agreed with a request, not an ACK |
+| `space_profile_versions` | A forecast must be replayable against the profile that produced it |
+| `room_events`, `experiments` | Operator context, never required by a model |
+| AI tables (`ai_workers`, `ai_jobs`, `ai_dataset_snapshots`, `ai_models`, `forecast_runs`, `forecast_points`, `ai_alerts`) | Worker queue, immutable dataset membership, model registry and a prospective forecast ledger |
+| `/internal/v1/ai/**` | Outbound-only worker API. Bearer token; the browser never calls it |
+| `/api/v1/devices/{id}/series|summary|samples` | SQL bucketing with median/min/max/coverage instead of silently dropping spikes |
+| `/api/v1/ai/**`, `/api/v1/devices/{id}/forecast|alerts|commands|actuator-history` | Read side for the desktop screens |
+| `/api/v1/devices/{id}/events`, `/api/v1/experiments` | Recording what the room was doing |
+
+The MQTT topics, payloads and firmware commands are **unchanged**. The AI worker is optional:
+`AI_ENABLED=false` closes `/internal/**` and removes nothing else.
+
+Everything else from 5.0 stands.
 
 ## What changed from 4.0
 
@@ -217,3 +238,143 @@ A manual command records `reason = manual`.
 
 CO₂ never actuates: HEPA media cannot remove it. It is stored, shown, and used only as an input to
 the threshold.
+
+
+## 10. Optional forecast demo service (frontend experiment)
+
+The standalone `forecast-demo/` service reads the existing telemetry GET endpoint. It does not
+change the Spring backend, MQTT, firmware, or control decisions. The frontend calls its
+`GET /forecast/{device_id}` endpoint (base URL: `VITE_FORECAST_API_URL`, default
+`http://localhost:8001`). The service reads 24 hours from the configured `BACKEND_URL`, aggregates
+5-minute PM2.5 medians, and fits scikit-learn Ridge regression using six lagged values.
+
+Response: `{status, message, observed: [{at, pm25}], predicted: [{at, pm25}], model,
+training_rows, window_hours, validation}`. `at` is Unix **milliseconds**. `predicted` includes
+an anchor and six 5-minute forecasts (30 minutes). Status is `ready`, `insufficient_data`, or
+`stale_data`; unavailable forecasts have an empty `predicted` list. Null, invalid, future and
+saturated readings are excluded. Latest valid input must be within 5 minutes. Missing time buckets
+are not filled across gaps. Optional `validation` is a chronological one-step (5-minute) holdout
+MAE compared with persistence; it is not a confidence interval or 30-minute accuracy guarantee.
+Upstream transport errors return 502; upstream 404 responses are forwarded. See `forecast-demo/README.md`.
+
+---
+
+# 11. V6 data foundation, export and AI service
+
+## 11.1. Ingestion and provenance
+
+| Field | Meaning |
+| :--- | :--- |
+| `telemetry.recorded_at` | Device timestamp when it is plausible, otherwise the receive time. Drives charts and control |
+| `telemetry.received_at` | Backend receive time. **Never** backfilled for legacy rows (they stay `NULL`) |
+| `telemetry.time_quality` | `device` \| `server_assigned` \| `legacy` |
+| `telemetry.quality_flags` | JSONB. Example `{"pm25_saturated": true}`; flags do not reject the row |
+| `telemetry.payload_hash` | SHA-256 of the canonical payload. A duplicate is stored once |
+
+Rules:
+
+- The device id in the MQTT topic and in the payload must agree; a mismatch is dropped.
+- A whole sample is still rejected when a present sensor value is outside the §8 window.
+- `dust_fault`, `uptime_sec`, `free_heap` and `min_free_heap` are stored, not discarded.
+- A saturated or dust-fault sample remains useful diagnostically but is **not** a valid PM target
+  or feature in the AI pipeline.
+- `devices.last_seen_at` follows the receive clock. A buffered packet delivered late does not move
+  liveness backwards, and `devices.last_telemetry_received_at` / `last_actuator_received_at` record
+  the two streams separately.
+
+## 11.2. Command lifecycle
+
+```
+REQUESTED -> PUBLISHED -> REPORT_MATCHED
+     |            |
+     |            +-> UNCONFIRMED (15 s window; a later matching report may still match)
+     +-> PUBLISH_FAILED
+PUBLISHED -> SUPERSEDED (a newer instruction replaced it)
+```
+
+- `command_log` is written before the publish. A failed publish does **not** change the reported
+  fan state; `last_command_at` moves only after a successful publish.
+- A lease renewal is a command too, and `last_command_at` moves only when it is published.
+- `REPORT_MATCHED` requires an actuator report whose state/level/mode agree with the request within
+  the 15 s window. It is not an ACK carrying a command id and says nothing about RPM.
+- `actuator_history` is append-only and is the source of truth for reported state.
+- While an AUTO command is pending, the control loop does not issue another one. Manual commands
+  are never replayed automatically.
+- `max_on` is checked before the stale-reading guard: a fan that has run its maximum stops even
+  when PM is stale.
+
+## 11.3. AI tables
+
+| Table | Key columns |
+| :--- | :--- |
+| `ai_workers` | `id`, `last_heartbeat_at`, `capabilities`, `model_artifact`, `status` |
+| `ai_jobs` | `id` UUID, `type` (train/evaluate/export), `device_id`, `status`, lease token/expiry, progress, result/error |
+| `ai_dataset_snapshots` | `id`, `device_id`, `from_at/to_at`, ordered id `manifest`, `context_manifest`, `counts`, `snapshot_hash`, `expires_at` (7 days) |
+| `ai_models` | `id`, `version`, `algorithm`, `feature_version`, `dataset_snapshot_id`, `metrics`, `artifact_hash/path`, `status` |
+| `forecast_runs` | `id`, `device_id`, `model_version`, `input_cutoff`, `issued_at`, `accepted_at`, `threshold_pm25`, `profile_version`, `data_quality` |
+| `forecast_points` | `run_id`, `horizon_minutes`, `target_at`, `pm25`, `actual_pm25`, `error`, `evaluation_status` |
+| `ai_alerts` | `id`, `device_id`, `forecast_run_id`, `type`, `threshold_snapshot`, `lifecycle`, `feedback` |
+
+A forecast is prospective only when the backend's `accepted_at` is before the target. A point whose
+target already passed is stored as `LATE_SUBMISSION` and is never scored as a forecast.
+
+## 11.4. Internal API (worker only)
+
+All under `/internal/v1/ai`, `Authorization: Bearer $AI_WORKER_TOKEN` when the token is set.
+
+| Endpoint | Purpose |
+| :--- | :--- |
+| `POST /dataset-snapshots` | Freeze ordered membership for a window (`device_id`, `from`, `to`) |
+| `GET /devices/{id}/telemetry?snapshot_id&cursor&limit` | Stable paginated telemetry (default 2000, max 5000) |
+| `GET /devices/{id}/actuator-history?snapshot_id&cursor` | Same for actuator reports |
+| `GET /devices/{id}/events?snapshot_id&cursor` | Same for room events |
+| `GET /devices/{id}/context` | Device + room profile + profile versions |
+| `GET /devices/{id}/recent?minutes=90` | Bounded recent raw rows for inference |
+| `GET /devices/{id}/recent-actuator?minutes=90` | Bounded recent actuator reports |
+| `POST /jobs/claim?worker_id` | Atomically claim one queued job (204 when none) |
+| `POST /jobs/{id}/progress?lease_token` | Progress + lease extension |
+| `POST /jobs/{id}/complete?lease_token` | Idempotent completion |
+| `POST /models` | Register model metadata |
+| `POST /forecast-runs` | Upload one run and its points in one transaction |
+| `POST /alerts` | Create an alert (one ACTIVE per device; idempotent) |
+| `POST /alerts/resolve?device_id` | Resolve the active alerts for a device |
+| `POST /workers/heartbeat` | Worker liveness and artifact availability |
+
+## 11.5. Public AI reads
+
+| Endpoint | Purpose |
+| :--- | :--- |
+| `GET /api/v1/ai/status?device_id` | Worker online/offline, current model, latest data/forecast times |
+| `POST /api/v1/ai/jobs` | Queue train/evaluate/export (202) |
+| `GET /api/v1/ai/jobs`, `/ai/jobs/{id}` | Progress and result |
+| `GET /api/v1/ai/models?device_id` | Model versions, metrics, status |
+| `GET /api/v1/devices/{id}/forecast` | Latest run and points, with timestamps |
+| `GET /api/v1/devices/{id}/alerts` | Alert episodes |
+| `POST /api/v1/alerts/{id}/feedback` | Record operator feedback (accepted / ignored / handled) |
+| `GET /api/v1/devices/{id}/commands` | Command lifecycle |
+| `GET /api/v1/devices/{id}/actuator-history` | Reported state history |
+
+## 11.6. Chart and analysis reads
+
+| Endpoint | Response |
+| :--- | :--- |
+| `GET /api/v1/devices/{id}/series?from&to&bucket=1m\|5m\|15m` | Per bucket: `bucket_start`, median, min, max, count, expected_count, coverage |
+| `GET /api/v1/devices/{id}/summary?from&to&threshold` | avg/median/max, coverage, minutes above threshold, unknown minutes |
+| `GET /api/v1/devices/{id}/samples?from&to&limit&cursor` | Raw rows, cursor-paginated |
+
+`series` never drops a spike to fit a point budget: the bucket gets larger or the request is
+rejected above 2,000 buckets.
+
+## 11.7. Configuration
+
+| Variable | Used by |
+| :--- | :--- |
+| `AI_ENABLED` | Backend: closes `/internal/**` when false |
+| `AI_WORKER_TOKEN` | Backend + worker bearer token |
+| `BACKEND_URL`, `WORKER_ID` | Worker |
+| `ARTIFACT_DIR`, `SNAPSHOT_DIR` | Worker local storage |
+| `POLL_SECONDS=10`, `INFERENCE_SECONDS=60`, `HEARTBEAT_SECONDS=15` | Worker cadence |
+| `TRAIN_INTERVAL_HOURS=6`, `MAX_HISTORY_DAYS=14` | Retraining policy |
+
+The worker is outbound-only; the backend never dials the laptop. `forecast-demo/` remains an
+optional reference until the new service reaches acceptance.

@@ -65,8 +65,16 @@ public class Device {
     @Column(name = "dust_baseline_us", nullable = false)
     private Float dustBaselineUs;
 
+    /** Liveness follows the receive clock, not a possibly replayed device timestamp. */
     @Column(name = "last_seen_at")
     private Instant lastSeenAt;
+
+    @Column(name = "last_telemetry_received_at")
+    private Instant lastTelemetryReceivedAt;
+
+    /** When the last actuator report was accepted; distinguishes "reported" from "requested". */
+    @Column(name = "last_actuator_received_at")
+    private Instant lastActuatorReceivedAt;
 
     /** Fan hours the node has counted. Published on every actuator-state message. */
     @Column(name = "filter_runtime_s", nullable = false)
@@ -76,7 +84,7 @@ public class Device {
     @Column(name = "filter_replaced_at")
     private Instant filterReplacedAt;
 
-    /** Why the loop last acted: threshold_breach, forecast_breach, hysteresis_off, max_on, manual. */
+    /** Why the loop last acted: threshold_breach, hysteresis_off, max_on, manual. */
     @Column(name = "last_reason", length = 30)
     private String lastReason;
 

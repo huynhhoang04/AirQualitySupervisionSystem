@@ -103,17 +103,33 @@ public class MqttLink implements MqttCallbackExtended {
     @Override
     public void messageArrived(String topic, MqttMessage message) {
         String payload = new String(message.getPayload(), StandardCharsets.UTF_8);
+        String topicDeviceId = topicDeviceId(topic);
         try {
             if (topic.endsWith("/actuator/state")) {
                 events.publishEvent(mapper.readValue(payload, ActuatorStateEvent.class));
             } else if (topic.endsWith("/telemetry")) {
-                events.publishEvent(mapper.readValue(payload, TelemetryEvent.class));
+                TelemetryEvent event = mapper.readValue(payload, TelemetryEvent.class);
+                // The topic identity and the payload identity must agree; otherwise one node could
+                // write under another node's name.
+                if (topicDeviceId != null && event.deviceId() != null
+                        && !topicDeviceId.equals(event.deviceId())) {
+                    log.warn("Dropped telemetry: topic device {} != payload device {}",
+                            topicDeviceId, event.deviceId());
+                    return;
+                }
+                events.publishEvent(event);
             } else if (topic.endsWith("/status")) {
                 events.publishEvent(mapper.readValue(payload, StatusEvent.class));
             }
         } catch (Exception e) {
             log.warn("Dropped MQTT message on {} ({}): {}", topic, payload, e.getMessage());
         }
+    }
+
+    /** {@code aqss/devices/{id}/...} → {@code id}, or null when the topic does not match. */
+    private static String topicDeviceId(String topic) {
+        String[] parts = topic.split("/");
+        return parts.length >= 3 ? parts[2] : null;
     }
 
     @Override
@@ -165,7 +181,7 @@ public class MqttLink implements MqttCallbackExtended {
     public record StatusEvent(String deviceId, String pairingCode, String status, Long timestamp) {
     }
 
-    public record ActuatorStateEvent(String deviceId, String state, Integer level,
+    public record ActuatorStateEvent(String deviceId, Long timestamp, String state, Integer level,
                                      Integer dutyPct, String mode, Float filterRuntimeH) {
     }
 }

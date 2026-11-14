@@ -7,9 +7,10 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public record AqssSettings(
         Control control,
         Mqtt mqtt,
-        Cors cors
+        Cors cors,
+        Ai ai
 ) {
-    /** Closed-loop tuning (io_contract §10). */
+    /** Closed-loop tuning (io_contract §9). */
     public record Control(long cycleMs,
                           double hysteresisRatio,
                           int minOnMinutes,
@@ -23,5 +24,12 @@ public record AqssSettings(
     }
 
     public record Cors(String origin) {
+    }
+
+    /**
+     * AI is optional. Turning it off must not affect telemetry, control or pairing.
+     * The worker token guards {@code /internal/**}; blank means local development mode.
+     */
+    public record Ai(boolean enabled, String workerToken) {
     }
 }

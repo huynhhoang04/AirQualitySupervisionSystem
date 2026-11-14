@@ -9,10 +9,10 @@ import org.springframework.core.env.Environment;
 import org.springframework.scheduling.annotation.EnableScheduling;
 
 /**
- * AQSS V2 — Layer 2 (the brain).
+ * AQSS V6 — Layer 2 (the brain).
  *
- * <p>Collect telemetry over MQTT, serve it to the dashboard, drive the filter fan, and call
- * Layer 3 (threshold / dosage / forecast). No auth, no partitioned telemetry.
+ * <p>Collect telemetry with provenance over MQTT, serve the dashboard, drive the filter fan, and
+ * keep the metadata + forecast ledger for an optional local AI worker.
  */
 @SpringBootApplication
 @EnableScheduling

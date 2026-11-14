@@ -73,6 +73,21 @@ public class ControlLoop {
             return;
         }
 
+        boolean fanOn = "ON".equals(device.getFanState());
+
+        // Motor protection comes before the freshness guard: a fan that has run its maximum must
+        // stop even when the newest PM sample is old and no longer allowed to drive new decisions.
+        if (fanOn && elapsed(device.getOnSince(), now, cfg.maxOnMinutes())) {
+            deactivate(device, space, null, "max_on");
+            return;
+        }
+
+        // Do not pile up commands while one is still waiting for a report. AUTO may retry after the
+        // 15 s command window; a manual command is never replayed automatically.
+        if (deviceService.hasPendingCommand(device.getDeviceId())) {
+            return;
+        }
+
         Telemetry reading = telemetry.findFirstByDeviceIdOrderByRecordedAtDesc(device.getDeviceId())
                 .orElse(null);
         Double pm25 = reading == null || reading.getPm25() == null
@@ -84,15 +99,20 @@ public class ControlLoop {
         }
 
         Decision decision = decide(new Inputs(
-                pm25, space.getThresholdPm25(), "ON".equals(device.getFanState()),
+                pm25, space.getThresholdPm25(), fanOn,
                 device.getOnSince(), device.getOffSince(), now,
                 cfg.minOnMinutes(), cfg.maxOnMinutes(), cfg.hysteresisRatio()));
 
         switch (decision) {
             case ACTIVATE -> activate(device, space, pm25);
-            case DEACTIVATE -> deactivate(device, space, pm25);
+            case DEACTIVATE -> deactivate(device, space, pm25, deactivationReason(device, cfg, now));
             case NONE -> renewLeaseIfDue(device, now, cfg);
         }
+    }
+
+    private static String deactivationReason(Device device, AqssSettings.Control cfg, Instant now) {
+        return elapsed(device.getOnSince(), now, cfg.maxOnMinutes())
+                ? "max_on" : "hysteresis_off";
     }
 
     /**
@@ -100,19 +120,17 @@ public class ControlLoop {
      * is already rated for it. There is nothing to predict here — the room is already dirty.
      */
     private void activate(Device device, Space space, double pm25) {
-        deviceService.applyActuator(device.getDeviceId(), true, FAN_LEVEL_ON_BREACH, "AUTO", "BACKEND");
-        deviceService.recordDecision(device, "threshold_breach");
+        if (deviceService.applyActuator(device.getDeviceId(), true, FAN_LEVEL_ON_BREACH, "AUTO", "BACKEND")) {
+            deviceService.recordDecision(device, "threshold_breach");
+        }
         log.info("{} PM2.5 {} vs {} -> fan ON level {}", device.getDeviceId(), pm25,
                 space.getThresholdPm25(), FAN_LEVEL_ON_BREACH);
     }
 
-    private void deactivate(Device device, Space space, double pm25) {
-        String reason = device.getOnSince() != null
-                && Duration.between(device.getOnSince(), Instant.now()).toMinutes()
-                >= settings.control().maxOnMinutes()
-                ? "max_on" : "hysteresis_off";
-        deviceService.applyActuator(device.getDeviceId(), false, 0, "AUTO", "BACKEND");
-        deviceService.recordDecision(device, reason);
+    private void deactivate(Device device, Space space, Double pm25, String reason) {
+        if (deviceService.applyActuator(device.getDeviceId(), false, 0, "AUTO", "BACKEND")) {
+            deviceService.recordDecision(device, reason);
+        }
         log.info("{} PM2.5 {} vs {} -> fan OFF ({})", device.getDeviceId(), pm25,
                 space.getThresholdPm25(), reason);
     }

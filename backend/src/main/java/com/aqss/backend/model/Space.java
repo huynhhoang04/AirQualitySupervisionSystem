@@ -12,7 +12,7 @@ import lombok.Setter;
 
 import java.time.Instant;
 
-/** A monitored room. Its PM2.5 threshold is either set by hand or by Layer 3 (ML#1). */
+/** A monitored room. Its PM2.5 threshold comes from the room profile or a manual override. */
 @Entity
 @Table(name = "spaces")
 @Getter
@@ -40,6 +40,15 @@ public class Space {
 
     @Column(name = "ventilation_estimate", length = 20)
     private String ventilationEstimate;
+
+    /** Operator override; null means "derive it from purpose". */
+    @Column(name = "occupancy_hours")
+    private Integer occupancyHours;
+
+    /** Bumped whenever the profile changes; stamped on forecasts so they can be replayed. */
+    @Builder.Default
+    @Column(name = "profile_version", nullable = false)
+    private Integer profileVersion = 1;
 
     @Column(name = "threshold_pm25", nullable = false)
     private Float thresholdPm25;

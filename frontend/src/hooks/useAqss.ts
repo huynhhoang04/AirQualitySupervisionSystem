@@ -27,14 +27,129 @@ export const useHistory = (deviceId?: string, hours = 24) =>
     refetchInterval: 60_000,
   });
 
+export const useSeries = (deviceId?: string, hours = 24, bucket: "1m" | "5m" | "15m" = "5m") =>
+  useQuery({
+    queryKey: ["series", deviceId, hours, bucket],
+    queryFn: () => api.series(deviceId!, hours, bucket),
+    enabled: Boolean(deviceId),
+    refetchInterval: 60_000,
+  });
+
+export const useSummary = (deviceId?: string, hours = 24) =>
+  useQuery({
+    queryKey: ["summary", deviceId, hours],
+    queryFn: () => api.summary(deviceId!, hours),
+    enabled: Boolean(deviceId),
+    refetchInterval: 60_000,
+  });
+
+export const useSamples = (deviceId?: string, hours = 24, limit = 200) =>
+  useQuery({
+    queryKey: ["samples", deviceId, hours, limit],
+    queryFn: () => api.samples(deviceId!, hours, limit),
+    enabled: Boolean(deviceId),
+    refetchInterval: 60_000,
+  });
+
+export const useCommands = (deviceId?: string, limit = 30) =>
+  useQuery({
+    queryKey: ["commands", deviceId, limit],
+    queryFn: () => api.commands(deviceId!, limit),
+    enabled: Boolean(deviceId),
+    refetchInterval: 5_000,
+  });
+
+export const useActuatorHistory = (deviceId?: string, limit = 30) =>
+  useQuery({
+    queryKey: ["actuator-history", deviceId, limit],
+    queryFn: () => api.actuatorHistory(deviceId!, limit),
+    enabled: Boolean(deviceId),
+    refetchInterval: 5_000,
+  });
+
+export const useForecast = (deviceId?: string) =>
+  useQuery({
+    queryKey: ["forecast", deviceId],
+    queryFn: () => api.forecast(deviceId!),
+    enabled: Boolean(deviceId),
+    refetchInterval: 60_000,
+    retry: false,
+  });
+
+export const useAlerts = (deviceId?: string) =>
+  useQuery({
+    queryKey: ["alerts", deviceId],
+    queryFn: () => api.alerts(deviceId!),
+    enabled: Boolean(deviceId),
+    refetchInterval: 60_000,
+  });
+
+export const useAiStatus = (deviceId?: string) =>
+  useQuery({
+    queryKey: ["ai-status", deviceId],
+    queryFn: () => api.aiStatus(deviceId),
+    refetchInterval: 15_000,
+  });
+
+export const useAiModels = (deviceId?: string) =>
+  useQuery({
+    queryKey: ["ai-models", deviceId],
+    queryFn: () => api.aiModels(deviceId!),
+    enabled: Boolean(deviceId),
+    refetchInterval: 60_000,
+  });
+
+export const useAiJobs = (deviceId?: string) =>
+  useQuery({
+    queryKey: ["ai-jobs", deviceId],
+    queryFn: () => api.aiJobs(deviceId),
+    refetchInterval: 5_000,
+  });
+
+export const useEvents = (deviceId?: string) =>
+  useQuery({
+    queryKey: ["events", deviceId],
+    queryFn: () => api.events(deviceId!),
+    enabled: Boolean(deviceId),
+    refetchInterval: 60_000,
+  });
+
+export function useCreateJob(deviceId?: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (type: string) => api.createJob({ type, device_id: deviceId! }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["ai-jobs", deviceId] });
+      queryClient.invalidateQueries({ queryKey: ["ai-status", deviceId] });
+    },
+  });
+}
+
+export function useRecordEvent(deviceId?: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { type: string; note?: string }) => api.recordEvent(deviceId!, body),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["events", deviceId] }),
+  });
+}
+
 export const useSpaces = () =>
   useQuery({ queryKey: ["spaces"], queryFn: api.spaces, refetchInterval: 60_000 });
+
+export const useAudit = (deviceId?: string, limit = 100) =>
+  useQuery({
+    queryKey: ["audit", deviceId ?? "all", limit],
+    queryFn: () => api.audit(deviceId, limit),
+    refetchInterval: 30_000,
+  });
 
 function invalidate(queryClient: ReturnType<typeof useQueryClient>, deviceId?: string) {
   queryClient.invalidateQueries({ queryKey: ["devices"] });
   if (deviceId) {
-    queryClient.invalidateQueries({ queryKey: ["latest", deviceId] });
-    queryClient.invalidateQueries({ queryKey: ["history", deviceId] });
+    for (const key of ["latest", "history", "series", "summary", "samples", "commands",
+      "actuator-history", "forecast", "alerts", "events"]) {
+      queryClient.invalidateQueries({ queryKey: [key, deviceId] });
+    }
   }
 }
 

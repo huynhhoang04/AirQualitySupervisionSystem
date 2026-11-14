@@ -99,6 +99,9 @@ export const FILTER_WARN_HOURS = 100;
 
 /** The loop's timing, from the same defaults the backend uses (application.yml §aqss.control). */
 export const CYCLE_SECONDS = 60;
+export const MIN_ON_MINUTES = 5;
+export const MAX_ON_MINUTES = 120;
+/** Kept for the settings copy; the current loop does not gate activation on an OFF rest. */
 export const MIN_OFF_MINUTES = 3;
 
 export function isOnline(lastSeenAt: string | null | undefined): boolean {
@@ -190,15 +193,10 @@ export function roomState(
   }
 
   if (pm25 >= threshold) {
-    const restLeft = MIN_OFF_MINUTES - (minutesSince(device?.off_since) ?? MIN_OFF_MINUTES);
-    const wait =
-      restLeft > 0
-        ? `sau ${Math.ceil(restLeft)} phút nữa (quạt đang nghỉ tối thiểu)`
-        : "trong vòng 1 phút";
     return {
       status: "watch",
       word: "Cần chú ý",
-      detail: `bụi trên ngưỡng — quạt sẽ tự bật ${wait}`,
+      detail: "bụi trên ngưỡng — quạt sẽ tự bật ở lần kiểm tra kế tiếp",
       automatic: false,
     };
   }

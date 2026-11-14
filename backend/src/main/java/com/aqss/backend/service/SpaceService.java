@@ -1,7 +1,9 @@
 package com.aqss.backend.service;
 
 import com.aqss.backend.model.Space;
+import com.aqss.backend.model.SpaceProfileVersion;
 import com.aqss.backend.repo.DeviceRepository;
+import com.aqss.backend.repo.SpaceProfileVersionRepository;
 import com.aqss.backend.repo.SpaceRepository;
 import com.aqss.backend.repo.TelemetryRepository;
 import lombok.RequiredArgsConstructor;
@@ -12,9 +14,11 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
-/** Spaces + their PM2.5 threshold. Nothing else — the threshold is stored and sent to Layer 3. */
+/** Spaces and their PM2.5 threshold: a stored policy value with its room-profile provenance. */
 @Service
 @RequiredArgsConstructor
 @Slf4j
@@ -25,6 +29,7 @@ public class SpaceService {
     private static final float THRESHOLD_MAX = 500f;
 
     private final SpaceRepository spaces;
+    private final SpaceProfileVersionRepository profiles;
     private final TelemetryRepository telemetry;
     private final DeviceRepository devices;
     private final ThresholdService thresholds;
@@ -69,6 +74,9 @@ public class SpaceService {
         if (request.ventilationEstimate() != null) {
             space.setVentilationEstimate(request.ventilationEstimate());
         }
+        if (request.occupancyHours() != null) {
+            space.setOccupancyHours((int) ThresholdService.clampHours(request.occupancyHours()));
+        }
         if (request.thresholdPm25() != null) {
             space.setThresholdPm25(validateThreshold(request.thresholdPm25()));
             space.setThresholdSource("manual");
@@ -77,6 +85,9 @@ public class SpaceService {
             space.setThresholdSource("manual");
         }
         space.setUpdatedAt(Instant.now());
+
+        ThresholdService.Result factors = thresholds.compute(space, currentCo2(space));
+        recordProfileVersion(space, factors);
         return spaces.save(space);
     }
 
@@ -101,6 +112,7 @@ public class SpaceService {
         space.setThresholdPm25(validateThreshold((float) result.thresholdPm25()));
         space.setThresholdSource("profile");
         space.setUpdatedAt(Instant.now());
+        recordProfileVersion(space, result);
         spaces.save(space);
         audit.log("BACKEND", "THRESHOLD", null, java.util.Map.of(
                 "space", space.getCode(),
@@ -109,6 +121,44 @@ public class SpaceService {
                 "ventilation_factor", result.ventilationFactor(),
                 "occupancy_hours", result.occupancyHours()));
         return new ThresholdPreview(space, result);
+    }
+
+    /**
+     * Records the profile that produced a threshold. A forecast can then be replayed against the
+     * exact volume/purpose/ventilation/occupancy it was issued under, not today's values.
+     */
+    private void recordProfileVersion(Space space, ThresholdService.Result factors) {
+        int next = profiles.findFirstBySpaceCodeOrderByVersionDesc(space.getCode())
+                .map(previous -> previous.getVersion() + 1)
+                .orElse(1);
+        space.setProfileVersion(next);
+
+        Map<String, Object> profile = new LinkedHashMap<>();
+        profile.put("code", space.getCode());
+        profile.put("name", space.getName());
+        profile.put("volume_m3", space.getVolumeM3());
+        profile.put("purpose", space.getPurpose());
+        profile.put("region", space.getRegion());
+        profile.put("ventilation_estimate", space.getVentilationEstimate());
+        profile.put("occupancy_hours", space.getOccupancyHours());
+
+        Map<String, Object> factorMap = new LinkedHashMap<>();
+        factorMap.put("daily_dose_target", factors.dailyDoseTarget());
+        factorMap.put("volume_factor", factors.volumeFactor());
+        factorMap.put("ventilation_factor", factors.ventilationFactor());
+        factorMap.put("co2_factor", factors.co2Factor());
+        factorMap.put("occupancy_hours", factors.occupancyHours());
+        factorMap.put("co2_ppm", factors.co2Ppm());
+
+        profiles.save(SpaceProfileVersion.builder()
+                .spaceCode(space.getCode())
+                .version(next)
+                .effectiveAt(Instant.now())
+                .profile(profile)
+                .thresholdPm25(space.getThresholdPm25())
+                .thresholdSource(space.getThresholdSource())
+                .factors(factorMap)
+                .build());
     }
 
     /**
@@ -144,7 +194,7 @@ public class SpaceService {
     }
 
     public record SpaceRequest(String code, String name, Float volumeM3, String purpose, String region,
-                               String ventilationEstimate, Float thresholdPm25) {
+                               String ventilationEstimate, Integer occupancyHours, Float thresholdPm25) {
     }
 
     /** The space plus the reasoning that produced its suggested threshold. */

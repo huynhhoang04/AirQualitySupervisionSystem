@@ -3,7 +3,8 @@ import { useState } from "react";
 import type { Device } from "../api/types";
 import {
   CYCLE_SECONDS,
-  MIN_OFF_MINUTES,
+  MAX_ON_MINUTES,
+  MIN_ON_MINUTES,
   fanCommand,
   fanSelection,
   isPositionActive,
@@ -74,8 +75,8 @@ export function FanSelector({ device, pending, error, onCommand }: Props) {
       </div>
 
       <p className="mt-2 text-[11px] leading-relaxed text-muted">
-        AUTO để hệ thống tự quyết định. Hệ thống kiểm tra mỗi {CYCLE_SECONDS} giây, và luôn để quạt
-        nghỉ ít nhất {MIN_OFF_MINUTES} phút trước khi bật lại — nên đôi khi phải chờ.
+        AUTO để hệ thống tự quyết định. Hệ thống kiểm tra mỗi {CYCLE_SECONDS} giây; khi đã chạy,
+        quạt giữ tối thiểu {MIN_ON_MINUTES} phút và tự dừng sau tối đa {MAX_ON_MINUTES} phút.
       </p>
 
       {error && (

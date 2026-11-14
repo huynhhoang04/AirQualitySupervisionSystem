@@ -10,12 +10,15 @@ not typed in once and forgotten.
 | Layer | Directory | Stack | Role |
 | :---: | :--- | :--- | :--- |
 | 1 | `embedded/` | ESP32-S3, C++17, FreeRTOS, PlatformIO | Sensor acquisition, OLED, fan PWM, MQTT. Measures and actuates; decides nothing |
-| 2 | `backend/` | Java 21, Spring Boot 3.3, Maven, PostgreSQL (Neon), Paho MQTT | **The brain**: ingestion, room thresholds, control loop, REST |
-| 3 | `frontend/` | React 19, TypeScript, Vite, TailwindCSS, TanStack Query | Four screens: machines, one room, room settings, connect |
+| 2 | `backend/` | Java 21, Spring Boot 3.3, Maven, PostgreSQL (Neon), Paho MQTT | **The brain**: ingestion, room thresholds, control loop, REST, AI metadata + forecast ledger |
+| 3 | `frontend/` | React 19, TypeScript, Vite, TailwindCSS, TanStack Query | Desktop dashboard: overview, room, AI centre, evaluation, devices, audit, connect |
+| 4 | `ai-service/` | Python 3.11, FastAPI, scikit-learn, pandas, httpx | **Optional local worker**: claims jobs, trains `feature-v1`, uploads forecasts. Never on the control path |
 
-There is **no external AI service**. A previous version had one (FastAPI: threshold / dosage /
-forecast); it was removed because the threshold is a formula over the room profile and the forecast
-had nothing to learn from. See `docs/io_contract.md` §7.2 for the computation that replaced it.
+There is **no hosted AI dependency** and no LLM. The optional `ai-service/` worker runs on a laptop,
+connects **outbound** to the backend's `/internal/v1/ai/**` with a bearer token, and stores artifacts
+locally. Stopping it must not affect measurement, pairing, the threshold or the fan loop. The
+threshold remains a formula (`docs/io_contract.md` §7.2); PM2.5 forecasting is the learned part.
+`forecast-demo/` is kept as a reference implementation only.
 
 ## Hardware
 
@@ -100,7 +103,17 @@ No authentication. JSON is snake_case. Full table: `docs/io_contract.md` §7.
 | `/api/v1/devices/{id}/filter` | POST | "New filter fitted" |
 | `/api/v1/devices/{id}/command` | POST | Any firmware command |
 | `/api/v1/devices/{id}/latest` | GET | Newest reading |
-| `/api/v1/devices/{id}/telemetry` | GET | Chart data (`?from&to`, default 24 h) |
+| `/api/v1/devices/{id}/telemetry` | GET | Legacy chart data (`?from&to`, default 24 h, stride-thinned) |
+| `/api/v1/devices/{id}/series` | GET | SQL buckets: median/min/max/coverage (`?bucket=1m\|5m\|15m`) |
+| `/api/v1/devices/{id}/summary` | GET | avg/median/max, coverage, minutes above threshold |
+| `/api/v1/devices/{id}/samples` | GET | Raw rows, cursor-paginated |
+| `/api/v1/devices/{id}/commands` | GET | Command lifecycle (`REQUESTED`→`PUBLISHED`→`REPORT_MATCHED`) |
+| `/api/v1/devices/{id}/actuator-history` | GET | Reported state, append-only |
+| `/api/v1/devices/{id}/forecast` | GET | Latest forecast run + points |
+| `/api/v1/devices/{id}/alerts` | GET | Alert episodes |
+| `/api/v1/ai/status`, `/ai/jobs`, `/ai/models` | GET/POST | Worker status, train jobs, model registry |
+| `/api/v1/devices/{id}/events`, `/api/v1/experiments` | GET/POST | Operator context |
+| `/internal/v1/ai/**` | — | Worker-only: snapshot export, jobs, models, forecast upload (bearer token) |
 | `/api/v1/spaces` | GET | Rooms + thresholds |
 | `/api/v1/spaces/{code}` | GET/PUT/DELETE | Room CRUD (PUT patches) |
 | `/api/v1/spaces/{code}/threshold/preview` | GET | The computed threshold, not saved |
@@ -111,16 +124,21 @@ No authentication. JSON is snake_case. Full table: `docs/io_contract.md` §7.
 ## Conventions
 
 - FreeRTOS tasks pinned to cores: Wi-Fi/MQTT on **Core 0**, sensors/OLED/fan on **Core 1**.
-- Backend: **Maven**, **Java 21**, Spring Boot 3.3, `ddl-auto: validate`, Flyway `V1`–`V4`.
+- Backend: **Maven**, **Java 21**, Spring Boot 3.3, `ddl-auto: validate`, Flyway `V1`–`V6`.
 - One MQTT connection (Paho) in `MqttLink`; inbound payloads become Spring events.
 - Frontend: **Vite** (not Next.js), React Router v7, TailwindCSS, snake_case everywhere on the wire.
+- AI worker: one training process at a time, temporal split with a 30-minute purge, promotion gate
+  (mean MAE 15/30 must improve ≥ 10 %; MAE 5 may not regress > 5 %). A model that loses is still
+  stored and shown.
 - Any cross-layer change updates `docs/io_contract.md` first.
 
 ## Documentation
 
 | Document | Purpose |
 | :--- | :--- |
-| **`docs/io_contract.md`** | **Single source of truth for every payload, table and endpoint** |
+| `docs/io_contract.md` | **Single source of truth for every payload, table and endpoint** |
+| `ai-service/README.md` | Local AI worker: features, split, promotion, configuration |
+| `docs/upgrade-plan/` | The 7-day upgrade plan this version implements |
 | `docs/aqss-concept-v2.md` | Thesis, architecture, hardware |
 | `docs/embedded-layer.md` | Firmware plan |
 | `docs/backend-layer.md` | Backend plan |

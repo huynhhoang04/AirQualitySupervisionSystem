@@ -31,15 +31,15 @@ export function RoomSettingsPage({ deviceId }: { deviceId: string }) {
 
   if (!device) {
     return (
-      <div className="mx-auto max-w-lg px-5 py-10">
+      <div className="mx-auto max-w-lg py-10">
         <p className="text-sm text-muted">Không tìm thấy phòng này.</p>
       </div>
     );
   }
 
   return (
-    <div className="mx-auto min-h-screen max-w-lg px-5 pb-20">
-      <header className="flex items-center gap-3 pt-6">
+    <div className="mx-auto max-w-3xl pb-16">
+      <header className="flex items-center gap-3">
         <button
           type="button"
           onClick={() => navigate(`/room/${encodeURIComponent(deviceId)}`)}

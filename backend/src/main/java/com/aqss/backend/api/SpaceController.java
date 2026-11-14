@@ -36,7 +36,8 @@ public class SpaceController {
     @PutMapping("/{code}")
     public Space save(@PathVariable String code, @RequestBody SpaceService.SpaceRequest request) {
         return spaces.save(new SpaceService.SpaceRequest(code, request.name(), request.volumeM3(),
-                request.purpose(), request.region(), request.ventilationEstimate(), request.thresholdPm25()));
+                request.purpose(), request.region(), request.ventilationEstimate(),
+                request.occupancyHours(), request.thresholdPm25()));
     }
 
     @DeleteMapping("/{code}")
