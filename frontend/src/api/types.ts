@@ -183,6 +183,7 @@ export interface AiWorkerStatus {
   online: boolean;
   last_heartbeat_at: string | null;
   model_artifact: string | null;
+  capabilities?: { device_status?: Record<string, { status: string; message?: string | null; model_kind?: string }> };
 }
 
 export interface AiModelStatus {
@@ -285,6 +286,7 @@ export interface SpaceRequest {
   purpose?: string;
   region?: string;
   ventilation_estimate?: string;
+  occupancy_hours?: number;
   threshold_pm25?: number;
 }
 
@@ -298,6 +300,7 @@ export interface PairRequest {
   purpose?: string;
   volume_m3?: number;
   occupancy_hours?: number;
+  ventilation_estimate?: string;
 }
 
 /**

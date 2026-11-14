@@ -28,13 +28,22 @@ export function ConnectPage() {
 
   const submit = () => {
     setError(null);
+    if (template.key === "custom" && (
+      !Number.isFinite(Number(volume)) || Number(volume) <= 0 ||
+      !Number.isInteger(Number(occupancy)) || Number(occupancy) < 1 || Number(occupancy) > 24
+    )) {
+      setError("Nhập thể tích lớn hơn 0 và số giờ có người từ 1 đến 24.");
+      setStep(2);
+      return;
+    }
     pair.mutate(
       {
         pairing_code: code,
         space_name: roomLabel,
         name: deviceName.trim() || roomLabel,
-        volume_m3: volume ? Number(volume) : undefined,
-        occupancy_hours: occupancy ? Number(occupancy) : undefined,
+        volume_m3: template.key === "custom" ? Number(volume) : template.volumeM3,
+        occupancy_hours: template.key === "custom" ? Number(occupancy) : template.occupancyHours,
+        ventilation_estimate: template.ventilation,
         purpose: template.purpose,
       },
       {
@@ -182,7 +191,7 @@ export function ConnectPage() {
             <dl className="mt-3 grid grid-cols-3 gap-2 rounded-xl border border-line/70 px-3 py-2.5">
               <Fact label="Thể tích" value={`${template.volumeM3} m³`} />
               <Fact label="Có người" value={`${template.occupancyHours} h/ngày`} />
-              <Fact label="Ngưỡng gợi ý" value={`${template.threshold}`} />
+              <Fact label="Thông gió" value={template.ventilation === "low" ? "Kín" : template.ventilation === "high" ? "Thoáng" : "Trung bình"} />
             </dl>
           ) : (
             <div className="mt-3 space-y-2 rounded-xl border border-line/70 p-3">
@@ -248,7 +257,9 @@ export function ConnectPage() {
             <Row label="Mã trên máy" value={code} mono />
             <Row label="Tên máy" value={roomLabel} />
             <Row label="Mẫu phòng" value={template.label} />
-            <Row label="Ngưỡng ban đầu" value={`${template.threshold} µg/m³`} mono />
+            <Row label="Thể tích" value={`${template.key === "custom" ? volume : template.volumeM3} m³`} mono />
+            <Row label="Giờ có người" value={`${template.key === "custom" ? occupancy : template.occupancyHours} giờ/ngày`} mono />
+            <Row label="Ngưỡng" value="Tính từ hồ sơ phòng khi lưu" />
           </dl>
 
           <label className="mt-5 block">

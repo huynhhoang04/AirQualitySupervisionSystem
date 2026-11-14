@@ -1,8 +1,9 @@
 import { Link } from "react-router-dom";
 
 import type { ForecastPoint } from "../api/types";
-import { useForecast } from "../hooks/useAqss";
+import { useAiStatus, useForecast } from "../hooks/useAqss";
 import { formatAgo } from "../lib/room";
+import { useNow } from "../hooks/useNow";
 
 interface Props {
   deviceId: string;
@@ -17,6 +18,8 @@ interface Props {
  */
 export function ForecastPanel({ deviceId, threshold, anchor }: Props) {
   const query = useForecast(deviceId);
+  const now = useNow();
+  const status = useAiStatus(deviceId);
 
   if (query.isLoading) {
     return (
@@ -27,7 +30,8 @@ export function ForecastPanel({ deviceId, threshold, anchor }: Props) {
     );
   }
 
-  if (query.isError) {
+  if (query.isError && !query.data) {
+    const readiness = status.data?.workers.find((worker) => worker.online)?.capabilities?.device_status?.[deviceId];
     return (
       <section className="card p-4">
         <div className="flex items-baseline justify-between gap-2">
@@ -35,11 +39,12 @@ export function ForecastPanel({ deviceId, threshold, anchor }: Props) {
           <span className="chip border border-line text-muted">chưa có</span>
         </div>
         <p className="mt-2 text-sm leading-relaxed text-muted">
-          Worker chưa phát hành forecast cho máy này. Dữ liệu đo và điều khiển theo ngưỡng vẫn chạy
-          bình thường.
+          {status.data?.worker_online
+            ? readiness?.message ?? "Worker đã kết nối, đang chờ một phút đo PM hợp lệ để phát hành dự báo."
+            : "Worker AI chưa kết nối backend. Kiểm tra service local và cấu hình AI_ENABLED/token trên backend."}
         </p>
-        <Link to="/ai" className="mt-3 inline-block text-[12px] text-muted underline-offset-4 hover:text-white hover:underline">
-          Mở Trung tâm AI để train
+        <Link to={`/ai?device_id=${encodeURIComponent(deviceId)}`} className="mt-3 inline-block text-sm text-info underline-offset-4 hover:underline">
+          Xem trạng thái dữ liệu và model
         </Link>
       </section>
     );
@@ -50,11 +55,18 @@ export function ForecastPanel({ deviceId, threshold, anchor }: Props) {
     return null;
   }
   const { run, points } = view;
-  const issuedMinutes = Math.max(0, Math.round((Date.now() - Date.parse(run.issued_at)) / 60_000));
-  const stale = issuedMinutes > 15;
+  const issuedMinutes = Math.max(0, Math.round((now - Date.parse(run.issued_at)) / 60_000));
+  const stale = issuedMinutes > 3 || now - Date.parse(run.input_cutoff) > 5 * 60_000;
   const quality = run.data_quality ?? {};
   const coverage = typeof quality.coverage_60m === "number" ? quality.coverage_60m : null;
   const late = run.status === "LATE_SUBMISSION";
+  const baseline = quality.model_kind === "baseline" || run.model_version.startsWith("persistence");
+  const forecastThreshold = run.threshold_pm25 ?? threshold;
+  const savedAnchor = typeof quality.pm_at_origin === "number" ? quality.pm_at_origin : null;
+  const advisories = Array.isArray(quality.recommendations) ? quality.recommendations.filter(
+    (value): value is { kind: string; severity: string; title: string; detail: string } =>
+      value != null && typeof value === "object" && typeof value.title === "string" && typeof value.detail === "string",
+  ) : [];
 
   return (
     <section className="card p-4" aria-label="Dự báo PM2.5 30 phút">
@@ -73,11 +85,13 @@ export function ForecastPanel({ deviceId, threshold, anchor }: Props) {
         </span>
       </div>
 
-      <ForecastChart points={points} threshold={threshold} anchor={anchor ?? null} />
+      {baseline && <p className="mt-3 text-sm text-muted">Đối chứng giữ nguyên giá trị cuối; chưa phải dự báo từ model đã học.</p>}
+      {typeof quality.fallback_reason === "string" && <p className="mt-2 text-xs leading-relaxed text-warn">{quality.fallback_reason}</p>}
+      <ForecastChart points={points} threshold={forecastThreshold} anchor={savedAnchor ?? (baseline ? anchor ?? null : null)} />
 
       <div className="mt-3 grid gap-2 sm:grid-cols-3">
         {points.map((point) => (
-          <ForecastCell key={point.horizon_minutes} point={point} threshold={threshold} />
+          <ForecastCell key={point.horizon_minutes} point={point} threshold={forecastThreshold} />
         ))}
       </div>
 
@@ -112,6 +126,13 @@ export function ForecastPanel({ deviceId, threshold, anchor }: Props) {
         </div>
       </dl>
 
+      {forecastThreshold !== threshold && <p className="mt-3 text-xs text-warn">Ngưỡng lúc dự báo: {forecastThreshold.toFixed(1)}; ngưỡng hiện tại: {threshold.toFixed(1)} µg/m³.</p>}
+      {!stale && !late && advisories.length > 0 && <div className="mt-4 space-y-2 border-t border-line pt-3">
+        {advisories.map((item) => <div key={item.kind} className={`rounded-lg border p-3 ${item.severity === "warning" ? "border-warn/40 bg-warn/5" : "border-line"}`}>
+          <p className="text-sm font-medium">{item.title}</p><p className="mt-1 text-xs leading-relaxed text-muted">{item.detail}</p>
+        </div>)}
+      </div>}
+      {query.isError && <p className="mt-2 text-xs text-warn">Chưa tải được bản mới. Đang giữ kết quả trước.</p>}
       {query.isFetching && (
         <p className="mt-2 text-[10px] text-muted">Đang cập nhật… vẫn hiển thị kết quả trước.</p>
       )}

@@ -127,6 +127,7 @@ public class ThresholdService {
             case "office" -> 8.0;
             case "living_room" -> 4.0;
             case "kitchen" -> 2.0;
+            case "lobby" -> 2.0;
             default -> DEFAULT_OCCUPANCY_HOURS;
         };
     }

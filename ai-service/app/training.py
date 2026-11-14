@@ -57,7 +57,7 @@ def _folds(index: pd.DatetimeIndex, folds: int = 3, min_train_hours: int = 12,
 
     boundaries = []
     for i in range(folds):
-        val_end = end - val * (folds - i)
+        val_end = end - val * (folds - i - 1)
         val_start = val_end - val
         if val_start - start >= min_train:
             boundaries.append((start, val_start, val_start, val_end))
@@ -102,9 +102,10 @@ def validate_candidate(features: pd.DataFrame, frame: pd.DataFrame, algorithm: s
 
     for _, train_end, val_start, val_end in boundaries:
         for horizon in HORIZONS:
-            purge = train_end - pd.Timedelta(minutes=horizon)
+            purge = train_end - pd.Timedelta(minutes=max(HORIZONS))
             train_mask = (features.index < purge) & frame[f"y{horizon}"].notna()
-            val_mask = ((features.index >= val_start) & (features.index <= val_end)
+            val_mask = ((features.index >= val_start) & (features.index < val_end)
+                        & (features.index + pd.Timedelta(minutes=horizon) <= val_end)
                         & frame[f"y{horizon}"].notna())
             if train_mask.sum() < 50 or val_mask.sum() == 0:
                 continue
@@ -131,7 +132,12 @@ def validate_persistence(features: pd.DataFrame, frame: pd.DataFrame, folds: int
     actuals: dict[int, list[float]] = {horizon: [] for horizon in HORIZONS}
     for _, train_end, val_start, val_end in boundaries:
         for horizon in HORIZONS:
-            val_mask = ((features.index >= val_start) & (features.index <= val_end)
+            train_mask = ((features.index < train_end - pd.Timedelta(minutes=max(HORIZONS)))
+                          & frame[f"y{horizon}"].notna())
+            if train_mask.sum() < 50:
+                continue
+            val_mask = ((features.index >= val_start) & (features.index < val_end)
+                        & (features.index + pd.Timedelta(minutes=horizon) <= val_end)
                         & frame[f"y{horizon}"].notna())
             if val_mask.sum() == 0:
                 continue
@@ -197,7 +203,13 @@ def fit_bundle(features: pd.DataFrame, frame: pd.DataFrame, algorithm: str,
         estimator = make_estimator(algorithm, params)
         estimator.fit(frame_h, target)
         estimators[horizon] = estimator
-    cutoff = usable_index.max().isoformat() if len(usable_index) else None
+    # Actual label cutoff, not just the last origin. All three horizons can have gaps.
+    cutoffs = []
+    for horizon in HORIZONS:
+        _, target = _xy(features, frame, horizon, usable_index)
+        if len(target):
+            cutoffs.append(target.index.max() + pd.Timedelta(minutes=horizon))
+    cutoff = max(cutoffs).isoformat() if cutoffs else None
     return ModelBundle(
         algorithm=algorithm,
         feature_columns=columns,
@@ -224,9 +236,13 @@ def evaluate_bundle(features: pd.DataFrame, frame: pd.DataFrame, bundle: Any,
 
 def promotion_gate(candidate: dict[str, Any], baselines: list[dict[str, Any]]) -> tuple[str, str]:
     """Return (status, reason) for the frozen candidate compared to the best baseline."""
-    usable = [baseline for baseline in baselines if baseline.get("horizons")]
-    if not candidate.get("horizons") or not usable:
-        return "REJECTED", "no comparable test horizons"
+    def complete(metrics):
+        return all(isinstance((value := metrics.get("horizons", {}).get(str(h), {}).get("mae")), (int, float))
+                   and math.isfinite(value) and value >= 0 for h in HORIZONS)
+
+    usable = [baseline for baseline in baselines if complete(baseline)]
+    if not complete(candidate) or not usable:
+        return "REJECTED", "all three comparable validation horizons are required"
 
     best_baseline = min(usable, key=lambda item: _score(item["horizons"]))
     candidate_score = _score(candidate["horizons"])
@@ -269,6 +285,14 @@ def train_and_evaluate(rows: list[dict[str, Any]], actuator_rows: list[dict[str,
     frame = build_dataset(rows, actuator_rows, interval_seconds=interval_seconds)
     if frame.empty:
         raise NotEnoughData("no minute buckets")
+    grid_buckets = len(frame)
+    valid_minutes = int(frame["pm_valid"].sum())
+    # Calendar span alone is misleading: days of gaps are not days of learning data.
+    if valid_minutes < 24 * 60 * 0.8:
+        raise NotEnoughData(
+            f"Chỉ có {valid_minutes / 60:.1f} giờ PM hợp lệ; cần ít nhất 19,2 giờ "
+            "(24 giờ quan sát với 80% phút hợp lệ). Khoảng mất dữ liệu không được tính là giờ học."
+        )
     features = build_features(frame)
     ready = ready_origins(features)
     if ready.empty:
@@ -283,7 +307,7 @@ def train_and_evaluate(rows: list[dict[str, Any]], actuator_rows: list[dict[str,
     if test_hours is None:
         test_hours = 12 if span_hours < 72 else 24
     cutoff = frame.index.max() - pd.Timedelta(hours=test_hours)
-    dev_index = features.index[features.index <= cutoff]
+    dev_index = features.index[features.index + pd.Timedelta(minutes=max(HORIZONS)) < cutoff]
     test_index = features.index[features.index > cutoff]
     if len(dev_index) < 120 or len(test_index) < 30:
         raise NotEnoughData(
@@ -298,10 +322,11 @@ def train_and_evaluate(rows: list[dict[str, Any]], actuator_rows: list[dict[str,
     ridge_test = evaluate_bundle(features, frame, ridge_bundle, test_index)
     persistence_test = evaluate_bundle(features, frame, PersistenceBundle(), test_index)
 
-    baselines = [ridge_test, persistence_test]
+    persistence_validation = validate_persistence(features.loc[dev_index], frame.loc[dev_index], folds)
+    baselines = [selection.best_ridge_validation, persistence_validation]
     if selection.algorithm == "ridge":
-        baselines = [persistence_test]
-    status, reason = promotion_gate(candidate_test, baselines)
+        baselines = [persistence_validation]
+    status, reason = promotion_gate(selection.validation, baselines)
 
     train_origins = {
         str(horizon): int(_xy(features, frame, horizon, dev_index)[1].shape[0])
@@ -318,7 +343,10 @@ def train_and_evaluate(rows: list[dict[str, Any]], actuator_rows: list[dict[str,
         "params": selection.params,
         "data": {
             "raw_rows": len(rows),
-            "minute_buckets": int(len(frame)),
+            "minute_buckets": int(grid_buckets),
+            "valid_minute_buckets": valid_minutes,
+            "valid_hours": round(valid_minutes / 60, 2),
+            "ready_origins": len(features),
             "span_hours": round(span_hours, 2),
             "test_hours": test_hours,
             "train_origins": train_origins,
@@ -330,9 +358,10 @@ def train_and_evaluate(rows: list[dict[str, Any]], actuator_rows: list[dict[str,
             "ridge": _json_horizons(ridge_test),
             "persistence": _json_horizons(persistence_test),
         },
-        "promotion": {"status": status, "reason": reason},
+        "promotion": {"status": status, "reason": reason, "based_on": "validation"},
         "validation_detail": {
             "ridge": _json_horizons(selection.best_ridge_validation),
+            "persistence": _json_horizons(persistence_validation),
             "boosting": _json_horizons(selection.best_boosting_validation)
             if selection.best_boosting_validation else None,
         },

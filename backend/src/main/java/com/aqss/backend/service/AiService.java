@@ -337,7 +337,7 @@ public class AiService {
                         worker.getLastHeartbeatAt() != null
                                 && worker.getLastHeartbeatAt().isAfter(now.minus(ONLINE_WINDOW)),
                         worker.getLastHeartbeatAt(),
-                        worker.getModelArtifact()))
+                        worker.getModelArtifact(), worker.getCapabilities()))
                 .toList();
 
         AiModel current = deviceId == null || deviceId.isBlank() ? null
@@ -393,7 +393,8 @@ public class AiService {
     public record WorkerHeartbeat(String workerId, Map<String, Object> capabilities, String modelArtifact) {
     }
 
-    public record WorkerStatus(String id, boolean online, Instant lastHeartbeatAt, String modelArtifact) {
+    public record WorkerStatus(String id, boolean online, Instant lastHeartbeatAt, String modelArtifact,
+                               Map<String, Object> capabilities) {
     }
 
     public record AlertRequest(String deviceId, String forecastRunId, String type, Float thresholdSnapshot,

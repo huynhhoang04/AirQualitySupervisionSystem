@@ -154,7 +154,7 @@ JSON is **snake_case** everywhere (platform-wide Jackson setting). No authentica
 | `GET` | `/api/v1/devices/{id}` | One device |
 | `PUT` | `/api/v1/devices/{id}` | Patch `{name, space_code, telemetry_interval_ms, dust_baseline_us}`; `null` leaves a field untouched |
 | `DELETE` | `/api/v1/devices/{id}` | Forget the device |
-| `POST` | `/api/v1/devices/pair` | `{pairing_code, space_name, name?, purpose?, volume_m3?, occupancy_hours?}` → link a node, creating the room if needed |
+| `POST` | `/api/v1/devices/pair` | `{pairing_code, space_name, name?, purpose?, volume_m3?, occupancy_hours?, ventilation_estimate?}` → link a node, creating the room if needed |
 | `POST` | `/api/v1/devices/{id}/unpair` | Drop the binding **and** tell the node to forget it |
 | `POST` | `/api/v1/devices/{id}/filter` | "New filter fitted" — resets the counter on both sides |
 | `POST` | `/api/v1/devices/{id}/command` | Any command from §5 |
@@ -162,7 +162,7 @@ JSON is **snake_case** everywhere (platform-wide Jackson setting). No authentica
 | `GET` | `/api/v1/devices/{id}/telemetry?from&to` | Chart data, default last 24 h, thinned to ~800 points |
 | `GET` | `/api/v1/spaces` | Rooms + thresholds |
 | `GET` | `/api/v1/spaces/{code}` | One room |
-| `PUT` | `/api/v1/spaces/{code}` | Patch `{name, volume_m3, purpose, region, ventilation_estimate, threshold_pm25}` |
+| `PUT` | `/api/v1/spaces/{code}` | Patch `{name, volume_m3, purpose, region, ventilation_estimate, occupancy_hours, threshold_pm25}` |
 | `DELETE` | `/api/v1/spaces/{code}` | Delete |
 | `GET` | `/api/v1/spaces/{code}/threshold/preview` | The threshold the profile implies, **without saving** |
 | `POST` | `/api/v1/spaces/{code}/threshold` | Compute and store it (`threshold_source: profile`) |
@@ -173,7 +173,8 @@ JSON is **snake_case** everywhere (platform-wide Jackson setting). No authentica
 
 ```json
 { "pairing_code": "X35AJK", "space_name": "Phòng ngủ", "name": "Máy phòng ngủ",
-  "purpose": "bedroom", "volume_m3": 15, "occupancy_hours": 8 }
+  "purpose": "bedroom", "volume_m3": 15, "occupancy_hours": 8,
+  "ventilation_estimate": "low" }
 ```
 
 * The code is normalised (uppercase, non-alphanumerics stripped) and matched against
@@ -182,6 +183,27 @@ JSON is **snake_case** everywhere (platform-wide Jackson setting). No authentica
   ASCII skeleton of the name (`Phòng ngủ tầng 2` → `PHONG_NGU_TANG_2`), and its threshold is computed
   from the profile in the same request.
 * `404` — no node has connected with that code. `400` — invalid code. `409` — already paired elsewhere.
+
+Room presets must send volume, occupancy hours and ventilation as well as purpose. Pairing accepts
+`ventilation_estimate` (`low`, `medium`, `high`). Existing rooms can patch these fields, including
+`occupancy_hours` (integer 1–24), through `PUT /spaces/{code}`. Volume must be finite and positive.
+Preset values are editable assumptions, not measured room dimensions.
+
+### Forecast pipeline revision: feature-v2
+
+Minute buckets are labelled by their exclusive end (samples in `[t-1m,t)`), and inference only
+uses complete buckets whose samples were received before issue time. Low-coverage PM buckets
+are missing features/labels, not valid measurements. Learned models from feature-v1 must be
+retrained. Training labels may not cross a validation or test boundary; production promotion
+uses validation only, with the frozen test reported independently.
+The training data gate counts valid PM minutes (minimum 19.2 hours), not elapsed calendar span.
+
+Forecast `data_quality` also carries `model_kind` (`learned` or `baseline`), `pm_at_origin`,
+`fallback_reason` when applicable, and `recommendations`: a list of `{kind, severity, title,
+detail}`. These are rule-based advisories from measured conditions and forecast, never actuator
+commands or calibrated probabilities. A persistence forecast needs a recent valid complete
+minute, not 60 minutes of lag history. Worker capabilities may include per-device inference
+status; `/api/v1/ai/status` exposes these capabilities in each worker entry.
 
 ### 7.2 Threshold computation
 

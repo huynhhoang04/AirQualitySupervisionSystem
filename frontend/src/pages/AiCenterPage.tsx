@@ -7,6 +7,7 @@ import {
   useAiStatus,
   useCreateJob,
   useDevices,
+  useForecast,
   useSpaces,
   useSummary,
 } from "../hooks/useAqss";
@@ -25,8 +26,11 @@ export function AiCenterPage() {
   const jobs = useAiJobs(deviceId);
   const summary = useSummary(deviceId, 24);
   const train = useCreateJob(deviceId);
+  const forecast = useForecast(deviceId);
 
   const current = status.data?.current_model ?? pickProduction(models.data) ?? null;
+  const inspected = current ?? models.data?.[0];
+  const readiness = deviceId ? status.data?.workers.find((worker) => worker.online)?.capabilities?.device_status?.[deviceId] : undefined;
 
   return (
     <div className="space-y-5">
@@ -83,8 +87,8 @@ export function AiCenterPage() {
         />
         <Stat
           label="Model phục vụ"
-          value={current?.algorithm ?? "persistence"}
-          note={current ? `${current.status} · ${current.feature_version ?? "feature-v1"}` : "baseline, chưa có model đạt cổng"}
+          value={forecast.data ? (forecast.data.run.data_quality?.model_kind === "baseline" ? "Baseline" : current?.algorithm ?? forecast.data.run.model_version) : "Chưa có dự báo"}
+          note={current ? `${current.status} · ${current.feature_version ?? "—"}` : "Chưa có model học được đạt tiêu chí"}
         />
         <Stat
           label="Coverage 24h"
@@ -98,27 +102,32 @@ export function AiCenterPage() {
         />
       </section>
 
+      {readiness?.message && <p className="rounded-xl border border-warn/30 bg-warn/5 px-4 py-3 text-sm text-warn" role="status">{readiness.message}</p>}
+
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
         <section className="card p-4 lg:p-5">
           <div className="label">Model card</div>
-          {current ? (
+          {inspected ? (
             <div className="mt-3 space-y-2.5 text-[13px]">
-              <Row label="Version" value={current.version} mono />
-              <Row label="Thuật toán" value={current.algorithm ?? "—"} />
-              <Row label="Feature" value={current.feature_version ?? "—"} mono />
-              <Row label="Train cutoff" value={current.train_cutoff ?? "—"} mono />
-              <Row label="Trạng thái" value={current.status} />
-              <Row label="Artifact" value={current.artifact_hash?.slice(0, 16) ?? "chưa có"} mono />
-              {current.promotion_reason && (
+              {!current && <p className="text-sm text-warn">Model gần nhất, chưa được chọn để phục vụ.</p>}
+              <Row label="Version" value={inspected.version} mono />
+              <Row label="Thuật toán" value={inspected.algorithm ?? "—"} />
+              <Row label="Cách học" value={inspected.params?.target_delta ? "Thay đổi từ PM hiện tại" : "Giá trị PM tương lai"} />
+              <Row label="Feature" value={inspected.feature_version ?? "—"} mono />
+              <Row label="Train cutoff" value={inspected.train_cutoff ?? "—"} mono />
+              <Row label="Trạng thái" value={inspected.status} />
+              <Row label="Artifact" value={inspected.artifact_hash?.slice(0, 16) ?? "chưa có"} mono />
+              {inspected.promotion_reason && (
                 <p className="rounded-lg border border-line/60 px-3 py-2 text-[11px] leading-relaxed text-muted">
-                  {current.promotion_reason}
+                  {inspected.promotion_reason}
                 </p>
               )}
             </div>
           ) : (
             <div className="mt-3 rounded-xl border border-dashed border-line px-4 py-6 text-sm leading-relaxed text-muted">
-              Chưa có model được promote. Worker vẫn phát hành forecast bằng <b>persistence</b>{" "}
-              (PM hiện tại), và mọi kết quả đánh giá vẫn được lưu — kể cả khi chưa thắng baseline.
+              Chưa có model được chọn để phục vụ. Khi có phút đo hợp lệ và worker kết nối,
+              hệ thống có thể dùng baseline giữ nguyên PM gần nhất. Model học được chỉ thay baseline
+              sau khi đạt kiểm định; kết quả chưa đạt vẫn nằm trong bảng bên dưới.
             </div>
           )}
         </section>
@@ -316,8 +325,8 @@ function BenchmarkTable({ model }: { model?: AiModelStatus }) {
         </tbody>
       </table>
       <p className="mt-2 text-[10px] leading-relaxed text-muted">
-        MAE trên test window đã đóng băng. Số càng thấp càng tốt; model chỉ được promote khi
-        mean(MAE15, MAE30) giảm ≥ 10% so với baseline tốt nhất và MAE5 không xấu hơn 5%.
+        MAE trên test window đã đóng băng, số càng thấp càng tốt. Chọn model bằng validation;
+        test chỉ báo cáo độc lập. Tiêu chí validation: MAE15/30 giảm ≥ 10%, MAE5 không xấu hơn 5%.
       </p>
     </div>
   );

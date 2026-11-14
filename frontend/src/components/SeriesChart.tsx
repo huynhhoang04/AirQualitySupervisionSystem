@@ -1,4 +1,5 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
+import { Area, CartesianGrid, ComposedChart, Line, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 import type { SeriesBucket } from "../api/types";
 
@@ -7,139 +8,80 @@ interface Props {
   threshold: number;
   height?: number;
   bucketSeconds?: number;
+  from?: string;
+  to?: string;
 }
 
-const WIDTH = 1000;
-const PAD = { top: 14, right: 12, bottom: 22, left: 40 };
+interface ChartPoint {
+  at: number;
+  median: number | null;
+  range: [number, number] | null;
+  count: number;
+  coverage: number;
+}
 
-/**
- * Median line with a min/max band. The band is the point: a spike that a stride-thinning chart
- * would drop still shows up as a vertical excursion, and a missing bucket leaves a gap.
- */
-export function SeriesChart({ items, threshold, height = 260, bucketSeconds = 300 }: Props) {
-  const model = useMemo(() => {
-    const points = items
-      .filter((item) => item.median != null)
-      .map((item) => ({
-        t: Date.parse(item.bucket_start),
-        median: item.median as number,
-        min: item.min ?? (item.median as number),
-        max: item.max ?? (item.median as number),
-        coverage: item.coverage,
-      }))
-      .sort((a, b) => a.t - b.t);
+const timeLabel = (at: number) => new Date(at).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
 
-    if (points.length === 0) {
-      return null;
+/** A regular grid keeps both the range and the median broken across missing buckets. */
+export function SeriesChart({ items, threshold, height = 320, bucketSeconds = 300, from, to }: Props) {
+  const [showRange, setShowRange] = useState(false);
+  const points = useMemo(() => {
+    const valid = items.filter((item) => Number.isFinite(Date.parse(item.bucket_start)));
+    if (!valid.length) return [];
+    const step = bucketSeconds * 1000;
+    const first = from ? Date.parse(from) : Math.min(...valid.map((item) => Date.parse(item.bucket_start)));
+    const last = to ? Date.parse(to) : Math.max(...valid.map((item) => Date.parse(item.bucket_start))) + step;
+    const lookup = new Map(valid.map((item) => [Math.floor(Date.parse(item.bucket_start) / step), item]));
+    const result: ChartPoint[] = [];
+    for (let at = Math.floor(first / step) * step; at < last && result.length < 2001; at += step) {
+      const item = lookup.get(Math.floor(at / step));
+      const median = item?.median != null && Number.isFinite(item.median) ? item.median : null;
+      result.push({ at, median, range: median == null ? null : [item?.min ?? median, item?.max ?? median], count: item?.count ?? 0, coverage: item?.coverage ?? 0 });
     }
+    return result;
+  }, [items, from, to, bucketSeconds]);
+  const measured = points.filter((point) => point.median != null);
+  const max = Math.max(threshold * 1.3, 20, ...measured.map((point) => showRange ? point.range![1] : point.median!));
+  const ceiling = Math.ceil(max * 1.12 / 10) * 10;
 
-    const start = points[0].t;
-    const end = Math.max(points[points.length - 1].t, start + bucketSeconds * 1000);
-    const top = Math.max(threshold * 1.5, ...points.map((p) => p.max), 20) * 1.08;
-    const x = (t: number) => PAD.left + ((t - start) / (end - start)) * (WIDTH - PAD.left - PAD.right);
-    const y = (v: number) => PAD.top + (1 - v / top) * (height - PAD.top - PAD.bottom);
-
-    const gapMs = bucketSeconds * 1000 * 2.5;
-    const lineParts: string[] = [];
-    const bandParts: string[] = [];
-    let previous: number | null = null;
-    for (const point of points) {
-      const move = previous == null || point.t - previous > gapMs;
-      lineParts.push(`${move ? "M" : "L"}${x(point.t).toFixed(1)},${y(point.median).toFixed(1)}`);
-      previous = point.t;
-    }
-    // Build the band as one path: upper edge forward, lower edge backward.
-    bandParts.push(
-      points.map((p, i) => `${i === 0 ? "M" : "L"}${x(p.t).toFixed(1)},${y(p.max).toFixed(1)}`).join(" "),
-    );
-    bandParts.push(
-      [...points]
-        .reverse()
-        .map((p) => `L${x(p.t).toFixed(1)},${y(p.min).toFixed(1)}`)
-        .join(" "),
-    );
-    bandParts.push("Z");
-
-    return { points, start, end, top, x, y, line: lineParts.join(" "), band: bandParts.join(" ") };
-  }, [items, threshold, height, bucketSeconds]);
-
-  if (!model) {
-    return (
-      <div
-        className="flex items-center justify-center rounded-xl border border-dashed border-line text-sm text-muted"
-        style={{ height }}
-      >
-        Chưa có dữ liệu trong khoảng này
-      </div>
-    );
-  }
-
-  const { points, start, end, x, y, line, band } = model;
-  const ticks = [0, 0.25, 0.5, 0.75, 1].map((fraction) => ({
-    at: start + fraction * (end - start),
-    x: x(start + fraction * (end - start)),
-  }));
+  if (!measured.length) return <div className="flex items-center justify-center rounded-xl border border-dashed border-line text-sm text-muted" style={{ height }}>Chưa có dữ liệu trong khoảng này</div>;
 
   return (
     <div>
-      <svg
-        viewBox={`0 0 ${WIDTH} ${height}`}
-        className="w-full"
-        style={{ height }}
-        role="img"
-        aria-label={`PM2.5, ${points.length} bucket, ngưỡng ${threshold} µg/m³`}
-      >
-        {[0, threshold, model.top].map((value) => (
-          <g key={value}>
-            <line
-              x1={PAD.left}
-              x2={WIDTH - PAD.right}
-              y1={y(value)}
-              y2={y(value)}
-              stroke="currentColor"
-              className="text-line/40"
-              strokeDasharray="3 5"
-            />
-            <text x={PAD.left - 6} y={y(value) + 3} textAnchor="end" className="fill-muted" fontSize="10">
-              {Math.round(value)}
-            </text>
-          </g>
-        ))}
-
-        <line
-          x1={PAD.left}
-          x2={WIDTH - PAD.right}
-          y1={y(threshold)}
-          y2={y(threshold)}
-          stroke="currentColor"
-          className="text-bad"
-          strokeWidth="1.4"
-          strokeDasharray="6 4"
-        />
-        <text x={PAD.left + 4} y={y(threshold) - 5} className="fill-bad" fontSize="10">
-          ngưỡng {threshold.toFixed(0)}
-        </text>
-
-        <path d={band} fill="currentColor" className="text-info/15" />
-        <path
-          d={line}
-          fill="none"
-          stroke="currentColor"
-          className="text-info"
-          strokeWidth="1.8"
-          strokeLinejoin="round"
-        />
-
-        {ticks.map((tick) => (
-          <text key={tick.at} x={tick.x} y={height - 5} textAnchor="middle" className="fill-muted" fontSize="9">
-            {new Date(tick.at).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })}
-          </text>
-        ))}
-      </svg>
-      <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-[10px] text-muted">
-        <span className="text-info">— trung vị</span>
-        <span className="text-info/60">▮ min–max theo bucket</span>
-        <span className="text-bad">- - ngưỡng</span>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-xs text-muted">
+        <span>µg/m³ · mỗi điểm {bucketSeconds / 60} phút · khoảng mất dữ liệu được để trống</span>
+        <label className="flex cursor-pointer items-center gap-2">
+          <input type="checkbox" checked={showRange} onChange={(event) => setShowRange(event.target.checked)} className="accent-cyan-300" />
+          Hiện dải thấp nhất–cao nhất
+        </label>
+      </div>
+      <div style={{ height }} role="img" aria-label={`Biểu đồ PM2.5, ${measured.length} khoảng có dữ liệu, ngưỡng ${threshold} µg/m³`}>
+        <ResponsiveContainer width="100%" height="100%" minWidth={0}>
+          <ComposedChart data={points} margin={{ top: 16, right: 24, bottom: 8, left: 4 }} accessibilityLayer>
+            <CartesianGrid stroke="#334155" strokeDasharray="3 5" vertical={false} />
+            <XAxis dataKey="at" type="number" scale="time" domain={["dataMin", "dataMax"]} tickFormatter={timeLabel} tick={{ fill: "#94a3b8", fontSize: 12 }} minTickGap={55} axisLine={false} tickLine={false} />
+            <YAxis domain={[0, ceiling]} tick={{ fill: "#cbd5e1", fontSize: 12 }} width={45} tickCount={5} axisLine={false} tickLine={false} />
+            <Tooltip content={({ active, payload }) => {
+              const point = payload?.[0]?.payload as ChartPoint | undefined;
+              if (!active || !point) return null;
+              return <div className="rounded-xl border border-line bg-canvas px-4 py-3 text-sm shadow-xl">
+                <p className="mb-1 text-muted">{new Date(point.at).toLocaleString("vi-VN")}</p>
+                {point.median == null ? <p>Không có mẫu hợp lệ</p> : <>
+                  <p className="font-semibold text-info">PM2.5: {point.median.toFixed(1)} µg/m³</p>
+                  <p className="mt-1">Thấp nhất {point.range![0].toFixed(1)} · cao nhất {point.range![1].toFixed(1)}</p>
+                  <p className="mt-1 text-muted">{point.count} mẫu · độ phủ {Math.round(point.coverage * 100)}%</p>
+                </>}
+              </div>;
+            }} />
+            <ReferenceLine y={threshold} stroke="#fb7185" strokeDasharray="6 4" label={{ value: `Ngưỡng ${threshold.toFixed(1)}`, fill: "#fda4af", position: "insideTopRight", fontSize: 12 }} />
+            {showRange && <Area dataKey="range" type="linear" fill="#67e8f9" fillOpacity={0.12} stroke="none" connectNulls={false} isAnimationActive={false} />}
+            <Line dataKey="median" name="PM2.5" type="linear" stroke="#67e8f9" strokeWidth={2.2} dot={measured.length < 50 ? { r: 2, fill: "#67e8f9" } : false} activeDot={{ r: 5 }} connectNulls={false} isAnimationActive={false} />
+          </ComposedChart>
+        </ResponsiveContainer>
+      </div>
+      <div className="mt-2 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-muted">
+        <span className="text-info">━ PM2.5 trung vị</span><span className="text-bad">┄ Ngưỡng hiện tại</span>
+        <span>{measured.length}/{points.length} khoảng có dữ liệu</span>
       </div>
     </div>
   );

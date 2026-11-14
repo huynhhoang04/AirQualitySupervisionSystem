@@ -202,6 +202,7 @@ export function useSaveSpace(code?: string) {
     mutationFn: (body: SpaceRequest) => api.saveSpace(code!, body),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["spaces"] });
+      queryClient.invalidateQueries({ queryKey: ["threshold-preview", code] });
       queryClient.invalidateQueries({ queryKey: ["devices"] });
     },
   });

@@ -18,6 +18,7 @@ import {
   useSummary,
 } from "../hooks/useAqss";
 import { filterHours, formatAgo, formatHours, isOnline, roomState, STALE_READING_MS } from "../lib/room";
+import { useNow } from "../hooks/useNow";
 
 const RANGES = [
   { hours: 1, bucket: "1m" as const, label: "1 giờ" },
@@ -31,6 +32,7 @@ const RANGES = [
  */
 export function RoomPage({ deviceId }: { deviceId: string }) {
   const devices = useDevices();
+  const now = useNow();
   const spaces = useSpaces();
   const device = devices.data?.find((item) => item.device_id === deviceId);
   const space = spaces.data?.find((item) => item.code === device?.space_code);
@@ -76,7 +78,7 @@ export function RoomPage({ deviceId }: { deviceId: string }) {
   const filter = filterHours(device);
   const online = isOnline(device.last_seen_at);
   const stale =
-    latest.data != null && Date.now() - Date.parse(latest.data.recorded_at) > STALE_READING_MS;
+    latest.data != null && now - Date.parse(latest.data.recorded_at) > STALE_READING_MS;
   const latestCommand = commands.data?.[0];
 
   return (
@@ -115,6 +117,12 @@ export function RoomPage({ deviceId }: { deviceId: string }) {
         </div>
       </header>
 
+      {space && (space.volume_m3 == null || space.occupancy_hours == null || space.ventilation_estimate == null) && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-warn/30 bg-warn/5 px-4 py-3 text-sm">
+          <p>Hồ sơ phòng còn thiếu thông số tính ngưỡng.</p>
+          <Link className="font-medium text-info hover:underline" to={`/room/${encodeURIComponent(deviceId)}/settings`}>Bổ sung hồ sơ phòng →</Link>
+        </div>
+      )}
       <div className="grid gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(340px,1fr)]">
         <div className="space-y-4">
           <section className="card p-5">
@@ -177,6 +185,8 @@ export function RoomPage({ deviceId }: { deviceId: string }) {
                 items={series.data?.items ?? []}
                 threshold={threshold}
                 bucketSeconds={series.data?.bucket_seconds ?? 300}
+                from={series.data?.from}
+                to={series.data?.to}
               />
             </div>
             <div className="mt-3 grid grid-cols-3 gap-3">

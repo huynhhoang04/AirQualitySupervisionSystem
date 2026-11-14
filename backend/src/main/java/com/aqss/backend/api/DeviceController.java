@@ -54,7 +54,8 @@ public class DeviceController {
     @PostMapping("/pair")
     public Device pair(@RequestBody DeviceService.PairRequest request) {
         return devices.pair(request.pairingCode(), request.spaceCode(), request.name(),
-                request.spaceName(), request.purpose(), request.volumeM3(), request.occupancyHours());
+                request.spaceName(), request.purpose(), request.volumeM3(), request.occupancyHours(),
+                request.ventilationEstimate());
     }
 
     @PostMapping("/{deviceId}/unpair")

@@ -103,6 +103,8 @@ export function RoomsPage() {
               items={series.data?.items ?? []}
               threshold={firstSpace?.threshold_pm25 ?? 35}
               bucketSeconds={series.data?.bucket_seconds ?? 300}
+              from={series.data?.from}
+              to={series.data?.to}
             />
           </div>
           {series.isError && (

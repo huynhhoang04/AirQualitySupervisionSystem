@@ -9,7 +9,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-FEATURE_VERSION = "feature-v1"
+FEATURE_VERSION = "feature-v2"
 
 PM_LAGS = (1, 2, 3, 5, 10, 15, 30, 60)
 ROLL_WINDOWS = (5, 15, 30, 60)
@@ -30,6 +30,7 @@ def build_features(frame: pd.DataFrame) -> pd.DataFrame:
 
     data = frame.sort_index().copy()
     pm = pd.to_numeric(data["pm25_median"], errors="coerce").astype(float)
+    pm = pm.where(data["pm_valid"].fillna(False).astype(bool))
     # Forward-fill only short gaps, and only for features. Labels never use filled values.
     pm_filled = pm.ffill(limit=2)
 
@@ -51,7 +52,8 @@ def build_features(frame: pd.DataFrame) -> pd.DataFrame:
         out[f"pm_diff_{delta}"] = pm_filled.diff(delta)
     out["pm_slope_5"] = (pm_filled - pm_filled.shift(5)) / 5.0
     out["pm_slope_15"] = (pm_filled - pm_filled.shift(15)) / 15.0
-    out["missing_pm"] = pm_filled.isna()
+    out["missing_pm"] = pm.isna()
+    out["pm_acceleration_5"] = out["pm_slope_5"] - out["pm_slope_5"].shift(5)
 
     for column in ("co2", "temperature", "humidity"):
         values = pd.to_numeric(data[column], errors="coerce").astype(float)
@@ -93,11 +95,13 @@ def ready_origins(features: pd.DataFrame) -> pd.DataFrame:
     if features.empty:
         return features
     usable = features.dropna(subset=REQUIRED_AT_ORIGIN)
+    usable = usable.loc[~usable["missing_pm"].astype(bool)]
     return usable
 
 
 def latest_origin(features: pd.DataFrame, now: pd.Timestamp, max_age_minutes: int = 5) -> pd.Timestamp | None:
-    usable = ready_origins(features)
+    usable = ready_origins(features.loc[features.index <= now])
+    usable = usable.loc[~usable["missing_pm"].astype(bool)]
     if usable.empty:
         return None
     origin = usable.index.max()

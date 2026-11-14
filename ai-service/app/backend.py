@@ -122,10 +122,12 @@ class BackendClient:
         return self._get(f"/internal/v1/ai/devices/{quote(device_id, safe='')}/recent-actuator",
                          params={"minutes": minutes})
 
-    def heartbeat(self, worker_id: str, model_artifact: str | None) -> dict[str, Any]:
+    def heartbeat(self, worker_id: str, model_artifact: str | None,
+                  device_status: dict[str, Any] | None = None) -> dict[str, Any]:
         return self._post("/internal/v1/ai/workers/heartbeat", {
             "worker_id": worker_id,
-            "capabilities": {"features": "feature-v1", "algorithms": ["persistence", "ridge", "boosting"]},
+            "capabilities": {"features": "feature-v2", "algorithms": ["persistence", "ridge", "boosting"],
+                             "device_status": dict(device_status or {})},
             "model_artifact": model_artifact,
         })
 

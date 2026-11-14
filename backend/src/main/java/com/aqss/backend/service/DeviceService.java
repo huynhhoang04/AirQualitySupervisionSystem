@@ -114,7 +114,8 @@ public class DeviceService {
      */
     @Transactional
     public Device pair(String rawCode, String spaceCode, String name, String spaceName,
-                       String purpose, Float volumeM3, Integer occupancyHours) {
+                       String purpose, Float volumeM3, Integer occupancyHours, String ventilationEstimate) {
+        SpaceService.validateProfile(volumeM3, occupancyHours, ventilationEstimate);
         String code = normalise(rawCode);
         if (code.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "pairing_code is required");
@@ -139,6 +140,7 @@ public class DeviceService {
                     .purpose(purpose)
                     .volumeM3(volumeM3)
                     .occupancyHours(occupancyHours)
+                    .ventilationEstimate(ventilationEstimate)
                     .thresholdPm25(35f)
                     .thresholdSource("manual")
                     .updatedAt(Instant.now())
@@ -580,7 +582,7 @@ public class DeviceService {
     }
 
     public record PairRequest(String pairingCode, String spaceCode, String name, String spaceName,
-                              String purpose, Float volumeM3, Integer occupancyHours) {
+                              String purpose, Float volumeM3, Integer occupancyHours, String ventilationEstimate) {
     }
 
     private static String normalise(String raw) {

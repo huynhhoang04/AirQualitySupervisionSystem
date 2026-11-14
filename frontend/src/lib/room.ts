@@ -55,7 +55,7 @@ export const ROOM_TEMPLATES: RoomTemplate[] = [
   {
     key: "lobby",
     label: "Sảnh",
-    purpose: "office",
+    purpose: "lobby",
     volumeM3: 80,
     occupancyHours: 2,
     ventilation: "high",

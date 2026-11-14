@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 
 import type { Device, Space } from "../api/types";
 import { Icon } from "../components/Icon";
+import { RoomProfileForm } from "../components/RoomProfileForm";
 import {
   useApplyThreshold,
   useDevices,
@@ -54,7 +55,8 @@ export function RoomSettingsPage({ deviceId }: { deviceId: string }) {
         </div>
       </header>
 
-      <ThresholdSection space={space} />
+      {space && <RoomProfileForm key={space.code} space={space} />}
+      <ThresholdSection key={space?.code ?? "missing"} space={space} />
       <FilterSection device={device} />
       <DeviceSection device={device} />
     </div>
@@ -67,17 +69,17 @@ function ThresholdSection({ space }: { space?: Space }) {
   const save = useSaveSpace(space?.code);
   const applyAuto = useApplyThreshold(space?.code);
   const current = space?.threshold_pm25 ?? 35;
-  const selected = SENSITIVITY.reduce((best, option) =>
-    Math.abs(option.threshold - current) < Math.abs(best.threshold - current) ? option : best,
-  SENSITIVITY[1]);
 
   const [mode, setMode] = useState<ThresholdMode>(space?.threshold_source === "profile" ? "auto" : "manual");
   const [draft, setDraft] = useState<number | null>(null);
   const preview = useThresholdPreview(space?.code, mode === "auto");
+  const profileReady = space != null && space.volume_m3 != null && space.volume_m3 > 0 &&
+    space.occupancy_hours != null && space.occupancy_hours >= 1 && space.occupancy_hours <= 24 &&
+    ["low", "medium", "high"].includes(space.ventilation_estimate ?? "");
 
   const effective = mode === "auto"
     ? (preview.data?.computed.threshold_pm25 ?? current)
-    : (draft ?? selected.threshold);
+    : (draft ?? current);
   const behaviour = fanBehaviour({ ...(space as Space), threshold_pm25: effective });
   const changed = Math.abs(effective - current) > 0.01;
 
@@ -143,7 +145,7 @@ function ThresholdSection({ space }: { space?: Space }) {
             <div className="mt-3 rounded-xl border border-line/70 px-3 py-4 text-sm text-muted">
               Đang tính…
             </div>
-          ) : preview.data && preview.data.space.volume_m3 != null ? (
+          ) : preview.data && profileReady ? (
             <div className="mt-3 rounded-xl border border-line/70 divide-y divide-line/50">
               <div className="flex items-baseline justify-between px-3 py-2.5">
                 <span className="text-sm text-slate-200">Ngưỡng đề xuất</span>
@@ -155,7 +157,7 @@ function ThresholdSection({ space }: { space?: Space }) {
               <Factor
                 label="Mục tiêu liều/ngày"
                 value={`${num(preview.data.computed.daily_dose_target, 1)} µg/m³`}
-                note={`WHO 24h = 15, chia cho ${preview.data.computed.occupancy_hours} giờ có người`}
+                note={`15 × √(24/${preview.data.computed.occupancy_hours} giờ); công thức vận hành của dự án`}
               />
               <Factor
                 label="Hệ số thể tích"
@@ -195,7 +197,7 @@ function ThresholdSection({ space }: { space?: Space }) {
       {mode === "auto" ? (
         <button
           type="button"
-          disabled={applyAuto.isPending || !space || !preview.data}
+          disabled={applyAuto.isPending || !profileReady || !preview.data || preview.isFetching}
           onClick={() => applyAuto.mutate()}
           className="btn-primary mt-3 w-full"
         >

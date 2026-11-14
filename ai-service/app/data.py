@@ -94,7 +94,7 @@ def minute_buckets(rows: Iterable[dict[str, Any]], bucket_seconds: int = 60,
     frame = frame.assign(pm_usable=usable, pm_value=frame["pm25"].where(usable))
 
     bucket = f"{bucket_seconds}s"
-    grouped = frame.groupby(pd.Grouper(freq=bucket))
+    grouped = frame.groupby(pd.Grouper(freq=bucket, label="right", closed="left"))
     result = pd.DataFrame(
         {
             "pm25_median": grouped["pm_value"].median(),
@@ -162,10 +162,27 @@ def actuator_minutes(rows: Iterable[dict[str, Any]], grid: pd.DatetimeIndex) -> 
 def build_dataset(rows: Iterable[dict[str, Any]], actuator_rows: Iterable[dict[str, Any]] | None = None,
                   interval_seconds: float = DEFAULT_INTERVAL_SECONDS,
                   horizons: tuple[int, ...] = (5, 15, 30)) -> pd.DataFrame:
+    rows = list(rows)
     buckets = minute_buckets(rows, 60, interval_seconds)
     frame = with_labels(buckets, horizons)
     if frame.empty:
         return frame
+    # Targets use real measurements, but features may only use packets available at bucket end.
+    # Keep those two views separate so a late replay cannot improve a historical forecast.
+    causal_rows = []
+    for row in rows:
+        recorded = parse_instant(row.get("recorded_at"))
+        if recorded is None:
+            continue
+        end = pd.Timestamp(recorded).floor("min") + pd.Timedelta(minutes=1)
+        received = parse_instant(row.get("received_at"), recorded)
+        if received is not None and pd.Timestamp(received) <= end:
+            causal_rows.append(row)
+    causal = minute_buckets(causal_rows, 60, interval_seconds).reindex(frame.index)
+    for column in buckets.columns:
+        frame[column] = causal[column]
+    frame["pm_valid"] = frame["pm_valid"].fillna(False).astype(bool)
+    frame["coverage"] = frame["coverage"].fillna(0.0)
     fan = actuator_minutes(actuator_rows or [], frame.index)
     for column in ("fan_on", "fan_level", "fan_mode"):
         frame[column] = fan[column]

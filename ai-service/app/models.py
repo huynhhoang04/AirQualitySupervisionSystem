@@ -111,17 +111,36 @@ class BoostingModel:
         return self.model.predict(X[columns])
 
 
+class DeltaRegressor:
+    """Learn the change from the measured anchor, instead of regressing room levels only."""
+
+    def __init__(self, estimator: Any):
+        self.estimator = estimator
+
+    def fit(self, X: pd.DataFrame, y: pd.Series) -> "DeltaRegressor":
+        self.estimator.fit(X, y - X["pm_now"])
+        return self
+
+    def predict(self, X: pd.DataFrame) -> np.ndarray:
+        return X["pm_now"].to_numpy(dtype=float) + self.estimator.predict(X)
+
+
 def make_estimator(algorithm: str, params: dict[str, Any]):
+    params = dict(params)
+    delta = params.pop("target_delta", False)
     if algorithm == "ridge":
-        return make_ridge(float(params.get("alpha", 10.0)))
-    if algorithm == "boosting":
-        return BoostingModel(params)
-    raise ValueError(f"unknown algorithm: {algorithm}")
+        estimator = make_ridge(float(params.get("alpha", 10.0)))
+    elif algorithm == "boosting":
+        estimator = BoostingModel(params)
+    else:
+        raise ValueError(f"unknown algorithm: {algorithm}")
+    return DeltaRegressor(estimator) if delta else estimator
 
 
-RIDGE_GRID = [{"alpha": alpha} for alpha in (0.1, 1.0, 10.0, 100.0)]
+RIDGE_GRID = [{"alpha": alpha, "target_delta": delta} for alpha in (0.1, 1.0, 10.0, 100.0) for delta in (False, True)]
 BOOSTING_GRID = [
-    {"learning_rate": rate, "max_leaf_nodes": leaves}
+    {"learning_rate": rate, "max_leaf_nodes": leaves, "target_delta": delta}
     for rate in (0.05, 0.1)
     for leaves in (7, 15)
+    for delta in (False, True)
 ]

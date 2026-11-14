@@ -52,6 +52,7 @@ public class SpaceService {
      */
     @Transactional
     public Space save(SpaceRequest request) {
+        validateProfile(request.volumeM3(), request.occupancyHours(), request.ventilationEstimate());
         Space space = spaces.findById(request.code()).orElseGet(() -> {
             Space created = new Space();
             created.setCode(request.code());
@@ -186,11 +187,23 @@ public class SpaceService {
     }
 
     private static float validateThreshold(float value) {
-        if (value < THRESHOLD_MIN || value > THRESHOLD_MAX) {
+        if (!Float.isFinite(value) || value < THRESHOLD_MIN || value > THRESHOLD_MAX) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "threshold_pm25 must be between " + THRESHOLD_MIN + " and " + THRESHOLD_MAX);
         }
         return value;
+    }
+
+    static void validateProfile(Float volume, Integer hours, String ventilation) {
+        if (volume != null && (!Float.isFinite(volume) || volume <= 0)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "volume_m3 must be finite and positive");
+        }
+        if (hours != null && (hours < 1 || hours > 24)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "occupancy_hours must be between 1 and 24");
+        }
+        if (ventilation != null && !List.of("low", "medium", "high").contains(ventilation)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "ventilation_estimate must be low, medium or high");
+        }
     }
 
     public record SpaceRequest(String code, String name, Float volumeM3, String purpose, String region,
