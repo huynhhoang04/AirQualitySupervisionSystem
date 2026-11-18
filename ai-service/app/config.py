@@ -39,9 +39,14 @@ class Settings:
     max_history_days: int
     run_worker: bool
     request_timeout: float
+    forecast_engine: str
+    chronos_model: str
+    chronos_adapter: Path | None
+    inference_interval_seconds: int
 
     @classmethod
     def from_env(cls) -> "Settings":
+        adapter = os.getenv("CHRONOS_ADAPTER", "").strip()
         return cls(
             backend_url=os.getenv("BACKEND_URL", "http://localhost:8080").rstrip("/"),
             worker_token=os.getenv("AI_WORKER_TOKEN", ""),
@@ -55,4 +60,10 @@ class Settings:
             max_history_days=_int("MAX_HISTORY_DAYS", 14),
             run_worker=os.getenv("RUN_WORKER", "0") == "1",
             request_timeout=_float("REQUEST_TIMEOUT_SECONDS", 30.0),
+            # "sklearn" keeps the feature-v2 worker; "chronos" issues a 360-step curve.
+            forecast_engine=os.getenv("FORECAST_ENGINE", "sklearn").strip().lower(),
+            chronos_model=os.getenv("CHRONOS_MODEL", "amazon/chronos-2"),
+            chronos_adapter=Path(adapter) if adapter else None,
+            # Chronos runs on every packet; the 60 s default belongs to the minute-bucket engine.
+            inference_interval_seconds=_int("CHRONOS_INFERENCE_SECONDS", 5),
         )

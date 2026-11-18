@@ -15,6 +15,7 @@ import com.aqss.backend.repo.SpaceProfileVersionRepository;
 import com.aqss.backend.repo.SpaceRepository;
 import com.aqss.backend.repo.TelemetryRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -188,6 +189,39 @@ public class DatasetSnapshotService {
         return actuatorHistory.findByDeviceIdAndReceivedAtBetweenOrderByReceivedAtAscIdAsc(deviceId, from, to);
     }
 
+    /**
+     * Incremental read for the worker's context cache (io_contract §14.4).
+     *
+     * <p>The worker loads the 60-minute window once, remembers the last row id and afterwards asks
+     * only for what it has not seen. Ids are the cursor because two samples can share a millisecond.
+     */
+    @Transactional(readOnly = true)
+    public IncrementalPage<Telemetry> samplesAfter(String deviceId, Long afterId, int limit) {
+        devices.findById(deviceId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "device not found: " + deviceId));
+        int size = Math.max(1, Math.min(limit, 2_000));
+        long cursor = afterId == null ? 0L : afterId;
+        List<Telemetry> items = telemetry.findByDeviceIdAndIdGreaterThanOrderByIdAsc(
+                deviceId, cursor, PageRequest.of(0, size));
+        Long next = items.isEmpty() ? null : items.get(items.size() - 1).getId();
+        Long highWater = telemetry.findMaxId(deviceId);
+        return new IncrementalPage<>(items, next, highWater == null ? 0L : highWater);
+    }
+
+    /** Same contract for actuator reports, so a cache can advance both streams. */
+    @Transactional(readOnly = true)
+    public IncrementalPage<ActuatorHistory> actuatorReportsAfter(String deviceId, Long afterId, int limit) {
+        devices.findById(deviceId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "device not found: " + deviceId));
+        int size = Math.max(1, Math.min(limit, 1_000));
+        long cursor = afterId == null ? 0L : afterId;
+        List<ActuatorHistory> items = actuatorHistory.findByDeviceIdAndIdGreaterThanOrderByIdAsc(
+                deviceId, cursor, PageRequest.of(0, size));
+        Long next = items.isEmpty() ? null : items.get(items.size() - 1).getId();
+        // `next` is null when there is nothing new — not an error, and not unboxed into a long.
+        return new IncrementalPage<>(items, next, next == null ? cursor : next);
+    }
+
     // ── helpers ──────────────────────────────────────────────────────────────
 
     private AiDatasetSnapshot require(String snapshotId) {
@@ -301,6 +335,10 @@ public class DatasetSnapshotService {
     }
 
     public record EventPage(SnapshotSummary snapshot, List<RoomEvent> items, String nextCursor, int total) {
+    }
+
+    /** One incremental page: the rows, the next cursor, and the server's high-water id. */
+    public record IncrementalPage<T>(List<T> items, Long nextAfterId, long highWaterId) {
     }
 
     public record Context(Device device, Space space, List<SpaceProfileVersion> profileVersions) {

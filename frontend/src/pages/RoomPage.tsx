@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 
-import { ForecastPanel } from "../components/ForecastPanel";
+import { AccuracyPanel } from "../components/AccuracyPanel";
+import { LiveChart } from "../components/LiveChart";
 import { FanSelector } from "../components/FanSelector";
 import { Icon } from "../components/Icon";
 import { ReadingScale, Secondary, StatusWord, SystemLine } from "../components/Reading";
@@ -17,6 +18,7 @@ import {
   useSpaces,
   useSummary,
 } from "../hooks/useAqss";
+import { useLiveRoom } from "../hooks/useLiveRoom";
 import { filterHours, formatAgo, formatHours, isOnline, roomState, STALE_READING_MS } from "../lib/room";
 import { useNow } from "../hooks/useNow";
 
@@ -36,10 +38,12 @@ export function RoomPage({ deviceId }: { deviceId: string }) {
   const spaces = useSpaces();
   const device = devices.data?.find((item) => item.device_id === deviceId);
   const space = spaces.data?.find((item) => item.code === device?.space_code);
-  const latest = useLatest(device?.device_id);
+  const live = useLiveRoom(device?.device_id);
+  const latest = useLatest(device?.device_id, live.status !== "live");
   const fan = useFanCommand(device?.device_id);
+  const [liveMode, setLiveMode] = useState(true);
   const [range, setRange] = useState(RANGES[2]);
-  const series = useSeries(device?.device_id, range.hours, range.bucket);
+  const series = useSeries(device?.device_id, range.hours, range.bucket, !liveMode);
   const summary = useSummary(device?.device_id, 24);
   const samples = useSamples(device?.device_id, 24, 50);
   const commands = useCommands(device?.device_id, 5);
@@ -73,13 +77,28 @@ export function RoomPage({ deviceId }: { deviceId: string }) {
   }
 
   const threshold = space?.threshold_pm25 ?? 35;
-  const pm25 = latest.data?.pm25 ?? null;
-  const state = roomState(device, latest.data, space);
+  const latestSample = live.samples[live.samples.length - 1];
+  const reading = latestSample ?? latest.data;
+  const pm25 = reading?.pm25 ?? null;
+  const state = roomState(device, reading, space);
   const filter = filterHours(device);
   const online = isOnline(device.last_seen_at);
-  const stale =
-    latest.data != null && now - Date.parse(latest.data.recorded_at) > STALE_READING_MS;
+  const stale = reading != null && now - Date.parse(reading.recorded_at) > STALE_READING_MS;
   const latestCommand = commands.data?.[0];
+  const liveChip =
+    live.status === "live"
+      ? "border-good/30 bg-good/10 text-good"
+      : live.status === "loading"
+        ? "border-line bg-surface text-muted"
+        : "border-warn/30 bg-warn/10 text-warn";
+  const liveText =
+    live.status === "live"
+      ? "trực tiếp"
+      : live.status === "loading"
+        ? "đang tải"
+        : live.status === "error"
+          ? "mất kết nối"
+          : "đang kết nối lại";
 
   return (
     <div className="space-y-5">
@@ -161,19 +180,33 @@ export function RoomPage({ deviceId }: { deviceId: string }) {
 
           <section className="card p-4 lg:p-5">
             <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <div className="label">PM2.5 · thực đo</div>
-              <div className="flex gap-1 rounded-lg border border-line p-0.5" role="group" aria-label="Khoảng thời gian">
+              <div className="flex items-center gap-2">
+                <div className="label">PM2.5 · thực đo &amp; dự báo</div>
+                <span className={`chip border ${liveChip}`}>{liveText}</span>
+              </div>
+              <div
+                className="flex gap-1 rounded-lg border border-line p-0.5"
+                role="group"
+                aria-label="Chế độ chart"
+              >
+                <button
+                  type="button"
+                  aria-pressed={liveMode}
+                  onClick={() => setLiveMode(true)}
+                  className={modeTone(liveMode)}
+                >
+                  Trực tiếp
+                </button>
                 {RANGES.map((option) => (
                   <button
                     key={option.label}
                     type="button"
-                    aria-pressed={range.hours === option.hours}
-                    onClick={() => setRange(option)}
-                    className={`rounded-md px-2.5 py-1 text-[11px] transition-colors ${
-                      range.hours === option.hours
-                        ? "bg-white font-medium text-canvas"
-                        : "text-muted hover:text-white"
-                    }`}
+                    aria-pressed={!liveMode && range.hours === option.hours}
+                    onClick={() => {
+                      setLiveMode(false);
+                      setRange(option);
+                    }}
+                    className={modeTone(!liveMode && range.hours === option.hours)}
                   >
                     {option.label}
                   </button>
@@ -181,23 +214,45 @@ export function RoomPage({ deviceId }: { deviceId: string }) {
               </div>
             </div>
             <div className="mt-2">
-              <SeriesChart
-                items={series.data?.items ?? []}
-                threshold={threshold}
-                bucketSeconds={series.data?.bucket_seconds ?? 300}
-                from={series.data?.from}
-                to={series.data?.to}
-              />
+              <div className="grid gap-4 xl:grid-cols-[minmax(0,3fr)_minmax(250px,1fr)]">
+                <div className="min-w-0">
+                  {liveMode ? (
+                    <LiveChart
+                      samples={live.samples}
+                      forecast={live.forecast}
+                      threshold={threshold}
+                      status={live.status}
+                    />
+                  ) : (
+                    <SeriesChart
+                      items={series.data?.items ?? []}
+                      threshold={threshold}
+                      bucketSeconds={series.data?.bucket_seconds ?? 300}
+                      from={series.data?.from}
+                      to={series.data?.to}
+                    />
+                  )}
+                </div>
+                <AccuracyPanel deviceId={device.device_id} metricsVersion={live.metricsVersion} />
+              </div>
             </div>
+            {liveMode && live.status === "error" && (
+              <p className="mt-2 rounded-lg border border-warn/30 bg-warn/5 px-3 py-2 text-[11px] text-warn">
+                {live.error ?? "Chưa kết nối được dòng dữ liệu trực tiếp."}
+              </p>
+            )}
             <div className="mt-3 grid grid-cols-3 gap-3">
-              <Secondary label="CO₂" value={latest.data?.co2 == null ? "—" : `${Math.round(latest.data.co2)} ppm`} />
+              <Secondary
+                label="CO₂"
+                value={reading?.co2 == null ? "—" : `${Math.round(reading.co2)} ppm`}
+              />
               <Secondary
                 label="Nhiệt độ"
-                value={latest.data?.temperature == null ? "—" : `${latest.data.temperature.toFixed(1)}°C`}
+                value={reading?.temperature == null ? "—" : `${reading.temperature.toFixed(1)}°C`}
               />
               <Secondary
                 label="Độ ẩm"
-                value={latest.data?.humidity == null ? "—" : `${latest.data.humidity.toFixed(0)}%`}
+                value={reading?.humidity == null ? "—" : `${reading.humidity.toFixed(0)}%`}
               />
             </div>
           </section>
@@ -272,8 +327,6 @@ export function RoomPage({ deviceId }: { deviceId: string }) {
               </div>
             </div>
           </section>
-
-          <ForecastPanel deviceId={device.device_id} threshold={threshold} anchor={pm25} />
 
           <section className="card flex items-center justify-between gap-3 p-4">
             <div className="flex min-w-0 items-center gap-3">
@@ -364,6 +417,12 @@ function commandTone(status: string | undefined): string {
   if (status === "PUBLISH_FAILED") return "text-bad";
   if (status === "PUBLISHED" || status === "REQUESTED") return "text-warn";
   return "text-muted";
+}
+
+function modeTone(active: boolean): string {
+  return `rounded-md px-2.5 py-1 text-[11px] transition-colors ${
+    active ? "bg-white font-medium text-canvas" : "text-muted hover:text-white"
+  }`;
 }
 
 function fmtNum(value: number | null | undefined, digits: number): string {

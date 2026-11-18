@@ -1,8 +1,8 @@
 # Kế hoạch nâng cấp Air Quality Supervision System
 
-Ngày lập: 14/11/2026. Trạng thái: **đề xuất để review, chưa triển khai**.
+Ngày lập: 14/11/2026. **Đọc [07 — AI trên chart trực tiếp](07-ai-live-dashboard-v2.md) trước: đây là hướng mới đang review, chưa triển khai.**
 
-Bộ tài liệu này mô tả phiên bản tiếp theo dựa trên code đang có trong repository. Các API, bảng dữ liệu và màn hình được đề xuất bên dưới **chưa tồn tại**, trừ khi được ghi rõ là hiện trạng. Việc ghi bộ kế hoạch không thay đổi firmware, backend, frontend, database hay slide.
+Bộ 01–06 là kế hoạch gốc, nhiều phần đã được triển khai. Tài liệu 07 thay hướng AI/màn hình chính: một chart thực đo–dự báo, SSE, ô độ khớp và foundation model fine-tune; bỏ Trung tâm AI khỏi luồng người dùng. Các mục cũ mâu thuẫn với 07 được giữ làm lịch sử quyết định. Đợt cập nhật kế hoạch này không sửa firmware, backend, frontend, database hay slide.
 
 ## 1. Kết quả cần đạt
 
@@ -15,21 +15,21 @@ Khi báo cáo, phải trả lời được bằng số liệu:
 3. Người dùng đã làm gì sau đề xuất, và diễn biến thực đo sau hành động ra sao?
 4. Model được train từ dữ liệu nào, có bao nhiêu mẫu hợp lệ, đã kiểm định thế nào?
 
-Không có yêu cầu làm model phức tạp bằng mọi giá. Có yêu cầu **train thật, lưu model thật, kiểm định thật và công bố cả trường hợp chưa tốt hơn baseline**.
+Hướng model mới là Chronos-2 pretrained và fine-tune LoRA, với dữ liệu tổng hợp có thể dùng để luyện. Kết quả mô phỏng và kết quả đối chiếu sensor thật phải có nguồn riêng; không trộn hai loại thành một phần trăm độ chính xác.
 
 ## 2. Các quyết định đã chốt
 
 | Hạng mục | Quyết định |
 |---|---|
 | Thời gian | Phiên bản chính trong 3–7 ngày; thu dữ liệu song song từ ngày đầu |
-| Dữ liệu | Một node thật chạy liên tục; ghi sự kiện quạt, cửa, hoạt động trong phòng |
+| Dữ liệu | Sensor thật cho live/đối chiếu; thêm dữ liệu tổng hợp cho fine-tune và kịch bản demo riêng |
 | Embedded | Giữ firmware và MQTT wire format hiện tại trong phiên bản chính |
 | Backend | Tiếp tục Spring Boot/PostgreSQL; nâng chất lượng dữ liệu và bổ sung API cho AI |
-| AI | Service Python riêng chạy local, CPU là cấu hình chuẩn; chưa cần GPU |
+| AI | Chronos-2 120M + LoRA local; benchmark trên RTX 3050 4 GB trước khi chốt cấu hình |
 | Quyền AI | Dự báo, cảnh báo, đề xuất; không tự vượt quyền điều khiển của backend |
-| Frontend | Desktop web là thiết kế chính, đồng thời giữ khả năng xem trên màn hình nhỏ |
+| Frontend | Desktop, một chart chia quá khứ/tương lai, note AI một dòng, panel độ khớp; bỏ Trung tâm AI khỏi điều hướng |
 | Bảng thông số | Nâng cả cách lưu trong database và cách trình bày/lọc/so sánh trên web |
-| Giao tiếp AI | Worker local chủ động gọi backend cloud; trình duyệt chỉ dùng API backend |
+| Giao tiếp AI | Worker outbound đến backend; backend đẩy dữ liệu tới trình duyệt qua SSE |
 | Bằng chứng | Baseline, test theo thời gian, forecast phát hành trước ground truth, thí nghiệm có nhật ký |
 | Tên hiển thị | Dùng đầy đủ **Air Quality Supervision System** trong tài liệu, giao diện và slide |
 
@@ -39,6 +39,10 @@ Các identifier, package, topic và tên file cũ có chữ viết tắt đượ
 
 | Tài liệu | Quyết định cần review |
 |---|---|
+| [07 — AI trên chart trực tiếp](07-ai-live-dashboard-v2.md) | **Ưu tiên mới:** SSE, chart thực đo/dự báo, độ khớp, Chronos-2/LoRA và dữ liệu tổng hợp |
+| [08 — Dữ liệu, phân tích và train AI](08-ai-data-analysis-and-training.md) | Generator 5 giây, EDA, quan hệ/độ trễ, split, LoRA, ablation và bộ kết quả làm slide |
+| [09 — Bước 3 đã đo](09-step3-benchmark-and-training.md) | Benchmark Chronos-2 thật, dữ liệu tổng hợp, kết quả fine-tune và điều chưa kiểm chứng |
+| [10 — Bước 4 đã làm](10-step4-forecast-path-and-worker.md) | `forecast_paths`, worker Chronos + cache gia tăng, chart 360 bước và lỗi tìm được |
 | [01 — Đánh giá hệ thống hiện tại](01-current-system-audit.md) | Giữ gì, sửa gì, code hiện tại thực sự làm được gì |
 | [02 — Backend và dữ liệu](02-backend-and-data.md) | Schema, nguồn dữ liệu, command lifecycle, API và kiến trúc cloud/local |
 | [03 — Service AI](03-ai-service.md) | Features, labels, thuật toán, tự train, inference, lựa chọn model |
@@ -46,7 +50,7 @@ Các identifier, package, topic và tên file cũ có chữ viết tắt đượ
 | [05 — Desktop web](05-desktop-web.md) | Các màn hình, wireframe, bảng thông số và tương tác |
 | [06 — Triển khai và báo cáo](06-delivery-and-report.md) | Thứ tự công việc, test, chạy demo và nội dung slide |
 
-Nên review 01 → 03 → 04 trước: phần AI chỉ có ý nghĩa khi dữ liệu và cách chứng minh đã đúng.
+Review 07 → 08 trước; tham khảo 01/02 cho phần code nền giữ lại. Một chart duy nhất nối thực đo với dự báo, cập nhật và tính lại khi có gói 5 giây; các lịch inference một phút và yêu cầu trang Trung tâm AI/model sklearn chính ở kế hoạch cũ đã bị thay thế.
 
 ## 4. Kiến trúc đích
 
@@ -57,7 +61,7 @@ flowchart LR
     Backend -->|Lệnh theo luật hoặc thao tác người dùng| Broker
     Broker --> Node
     Backend <--> DB[(PostgreSQL)]
-    Web[Desktop web] <-->|REST| Backend
+    Web[Desktop web] <-->|REST và SSE| Backend
     Worker[AI worker local] -->|Lấy job và raw data| Backend
     Worker -->|Gửi model metadata, forecast, metrics| Backend
     Worker <--> Files[(Snapshot và model local)]

@@ -4,6 +4,7 @@ import com.aqss.backend.model.AiAlert;
 import com.aqss.backend.model.AiJob;
 import com.aqss.backend.model.AiModel;
 import com.aqss.backend.model.AiWorker;
+import com.aqss.backend.model.ForecastPath;
 import com.aqss.backend.model.ForecastPoint;
 import com.aqss.backend.model.ForecastRun;
 import com.aqss.backend.model.Telemetry;
@@ -11,6 +12,7 @@ import com.aqss.backend.repo.AiAlertRepository;
 import com.aqss.backend.repo.AiJobRepository;
 import com.aqss.backend.repo.AiModelRepository;
 import com.aqss.backend.repo.AiWorkerRepository;
+import com.aqss.backend.repo.ForecastPathRepository;
 import com.aqss.backend.repo.ForecastPointRepository;
 import com.aqss.backend.repo.ForecastRunRepository;
 import com.aqss.backend.repo.TelemetryRepository;
@@ -45,8 +47,10 @@ public class AiService {
     private final AiWorkerRepository workers;
     private final ForecastRunRepository runs;
     private final ForecastPointRepository points;
+    private final ForecastPathRepository paths;
     private final AiAlertRepository alerts;
     private final TelemetryRepository telemetry;
+    private final LiveEventService live;
 
     // ── jobs ────────────────────────────────────────────────────────────────
 
@@ -248,7 +252,58 @@ public class AiService {
                     .evaluationStatus(pointLate ? "LATE_SUBMISSION" : "PENDING")
                     .build()));
         }
-        return new ForecastView(run, saved);
+
+        // The curve is optional: a worker that only sends three points keeps working.
+        ForecastPath path = null;
+        if (upload.path() != null) {
+            path = storePath(runId, upload.path(), upload.inputCutoff());
+        }
+
+        ForecastView view = new ForecastView(run, saved, path);
+        live.publishAfterCommit(run.getDeviceId(), "forecast", run.getIssuedAt(), run.getAcceptedAt(), view);
+        return view;
+    }
+
+    /**
+     * One array per run, validated against the declared step so a truncated curve is a 400 instead
+     * of a line that silently stops halfway.
+     */
+    private ForecastPath storePath(UUID runId, PathUpload upload, Instant inputCutoff) {
+        int step = upload.stepSeconds() == null ? 5 : upload.stepSeconds();
+        if (step <= 0) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "path.step_seconds must be positive");
+        }
+        int expected = 1800 / step;
+        List<Float> values = upload.values();
+        if (values == null || values.size() != expected) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "path.values must contain " + expected + " values for step_seconds=" + step);
+        }
+        if (upload.anchorAt() == null || upload.anchorPm25() == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "path.anchor_at and path.anchor_pm25 are required");
+        }
+        if (inputCutoff != null && !upload.anchorAt().equals(inputCutoff)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "path.anchor_at must equal input_cutoff");
+        }
+        for (String band : List.of("q10", "q90")) {
+            List<Float> series = "q10".equals(band) ? upload.q10() : upload.q90();
+            if (series != null && series.size() != expected) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                        "path." + band + " must contain " + expected + " values");
+            }
+        }
+        return paths.save(ForecastPath.builder()
+                .runId(runId)
+                .anchorAt(upload.anchorAt())
+                .anchorPm25(upload.anchorPm25())
+                .stepSeconds(step)
+                .values(values)
+                .q10(upload.q10())
+                .q90(upload.q90())
+                .createdAt(Instant.now())
+                .build());
     }
 
     @Transactional(readOnly = true)
@@ -256,8 +311,39 @@ public class AiService {
         return runs.findFirstByDeviceIdOrderByIssuedAtDesc(deviceId).map(this::view);
     }
 
+    /** One stored curve; the latest run when {@code runId} is null. */
+    @Transactional(readOnly = true)
+    public Optional<ForecastPath> path(String deviceId, UUID runId) {
+        UUID target = runId;
+        if (target == null) {
+            ForecastRun latest = runs.findFirstByDeviceIdOrderByIssuedAtDesc(deviceId).orElse(null);
+            if (latest == null) {
+                return Optional.empty();
+            }
+            target = latest.getId();
+        }
+        return paths.findById(target);
+    }
+
     private ForecastView view(ForecastRun run) {
-        return new ForecastView(run, points.findByRunIdOrderByHorizonMinutesAsc(run.getId()));
+        return new ForecastView(run, points.findByRunIdOrderByHorizonMinutesAsc(run.getId()),
+                paths.findById(run.getId()).orElse(null));
+    }
+
+    /**
+     * Delete curves whose milestones are all scored and whose anchor is older than the cutoff.
+     * A run with a pending point keeps its curve, because that curve is the evidence behind a
+     * number the dashboard may soon show.
+     */
+    @Transactional
+    public int prunePaths(Instant before, int limit) {
+        List<UUID> stale = paths.findPrunable(before, PageRequest.of(0, limit));
+        if (stale.isEmpty()) {
+            return 0;
+        }
+        paths.deleteAllById(stale);
+        log.info("Pruned {} forecast paths older than {}", stale.size(), before);
+        return stale.size();
     }
 
     @Transactional(readOnly = true)
@@ -384,10 +470,16 @@ public class AiService {
 
     public record ForecastUpload(String deviceId, String modelId, String modelVersion, Instant inputCutoff,
                                  Instant issuedAt, Integer profileVersion, Float thresholdPm25,
-                                 Map<String, Object> dataQuality, String workerId, List<Point> points) {
+                                 Map<String, Object> dataQuality, String workerId, List<Point> points,
+                                 PathUpload path) {
     }
 
-    public record ForecastView(ForecastRun run, List<ForecastPoint> points) {
+    /** The 360-value curve that belongs to one run (io_contract §14.2). */
+    public record PathUpload(Instant anchorAt, Float anchorPm25, Integer stepSeconds,
+                             List<Float> values, List<Float> q10, List<Float> q90) {
+    }
+
+    public record ForecastView(ForecastRun run, List<ForecastPoint> points, ForecastPath path) {
     }
 
     public record WorkerHeartbeat(String workerId, Map<String, Object> capabilities, String modelArtifact) {

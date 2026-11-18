@@ -132,14 +132,9 @@ export function RoomsPage() {
             AI không nằm trên đường điều khiển. Tắt worker chỉ làm forecast cũ đi, không ảnh hưởng
             đo hay ngưỡng.
           </div>
-          <div className="mt-3 flex gap-2">
-            <Link to="/ai" className="btn-ghost flex-1 py-2 text-[12px]">
-              Trung tâm AI
-            </Link>
-            <Link to="/evaluation" className="btn-ghost flex-1 py-2 text-[12px]">
-              Đánh giá
-            </Link>
-          </div>
+          <Link to="/evaluation" className="btn-ghost mt-3 block py-2 text-center text-[12px]">
+            Thí nghiệm &amp; đánh giá
+          </Link>
         </div>
       </section>
 

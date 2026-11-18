@@ -26,21 +26,78 @@ Training needs at least 19.2 hours of valid minute buckets (the equivalent of 24
 coverage), plus the temporal development/test history. Calendar gaps never count as training
 hours. The data card distinguishes the full minute grid, valid minute buckets and ready origins.
 
+## Chronos-2 foundation model (optional, separate environment)
+
+`app/chronos_model.py` and the three tools under `tools/` implement the direction in
+`docs/upgrade-plan/07`/`08`: a 720-step (60 min) context on the 5-second grid, a 360-step (30 min)
+median forecast, and LoRA fine-tuning on synthetic sessions.
+
+It needs its own environment because it installs a CUDA build of torch:
+
+```bash
+uv venv .venv-chronos --python 3.12
+uv pip install --python .venv-chronos/bin/python -r requirements-chronos.txt
+```
+
+Measured on the RTX 3050 Laptop (4 GB): **P95 0.017 s** per 720 → 360 forecast, **466 MiB** peak
+VRAM. Fine-tune LoRA r=8/alpha=16, 500 steps: 171 s, 589.824 trainable parameters (0.49 %). The
+promotion gate rejected the adapter (validation gain 4.2 % < 10 %), so pretrained remains the
+served checkpoint; the adapter is kept for analysis. Details, numbers and what is **not** proven are
+in [docs/upgrade-plan/09](../docs/upgrade-plan/09-step3-benchmark-and-training.md).
+
+```bash
+cd ai-service
+.venv-chronos/bin/python tools/benchmark_chronos.py --device cuda
+.venv-chronos/bin/python tools/generate_air_quality.py --output data/synthetic
+.venv-chronos/bin/python tools/analyze_air_quality.py --synthetic data/synthetic --output reports/eda
+PYTHONPATH=. .venv-chronos/bin/python tools/train_chronos.py --data data/synthetic \
+    --output models/chronos-lora --steps 500
+PYTHONPATH=. .venv-chronos/bin/python tools/evaluate_chronos.py --data data/synthetic \
+    --model models/chronos-lora --output reports/chronos-eval
+```
+
+The Chronos path is wired into the worker behind `FORECAST_ENGINE=chronos`. It uses an incremental
+context cache (`app/context_cache.py`) instead of reloading 60 minutes per packet, and uploads the
+360-value curve to `forecast_paths`:
+
+```bash
+FORECAST_ENGINE=chronos CHRONOS_INFERENCE_SECONDS=5 \
+BACKEND_URL=http://localhost:8080 PYTHONPATH=. \
+.venv-chronos/bin/python -m app.worker_entry
+```
+
+`CHRONOS_ADAPTER=/path/to/adapter` serves a LoRA adapter instead of the pretrained checkpoint. The
+adapter from step 3 is **not promoted** (validation gain 4.2 % < 10 %), so leaving it unset is the
+current correct configuration. Details: [docs/upgrade-plan/10](../docs/upgrade-plan/10-step4-forecast-path-and-worker.md).
+
 ## Layout
 
 ```
 app/
-  config.py      environment settings
-  backend.py     HTTP client for public + internal APIs
-  data.py        minute buckets, labels, actuator alignment
-  features.py    feature-v2 (train and inference share this file)
-  models.py      persistence, Ridge, boosting, artifact save/load
-  training.py    split, walk-forward, metrics, promotion gate
-  inference.py   recent context → forecast run
-  worker.py      claim/train/infer loop
-  main.py        loopback /health only
+  config.py       environment settings
+  backend.py      HTTP client for public + internal APIs
+  data.py         minute buckets, labels, actuator alignment
+  features.py     feature-v2 (train and inference share this file)
+  models.py       persistence, Ridge, boosting, artifact save/load
+  training.py     split, walk-forward, metrics, promotion gate
+  inference.py    recent context → forecast run
+  chronos_model.py 720 → 360 step context/pipeline adapter (Chronos-2)
+  chronos_runner.py one task per device, newest request wins, uploads the curve
+  context_cache.py  incremental after_id reads per device
+  worker.py       claim/train/infer loop
+  main.py         loopback /health only
+configs/
+  air_quality_synthetic.yaml  generator parameters (scenario, faults, split)
+tools/
+  benchmark_chronos.py        latency/VRAM measurement
+  generate_air_quality.py     seeded synthetic sessions → Parquet shards
+  analyze_air_quality.py      EDA, figures, real-vs-synthetic comparison
+  train_chronos.py            LoRA fine-tune + validation gate + manifest
+  evaluate_chronos.py         frozen test evaluation for a saved adapter
 tests/
   test_pipeline.py
+  test_chronos_context.py     readiness, gaps and causality of the Chronos context
+  test_context_cache.py       incremental cursor, dedupe and fallback reload
 ```
 
 ## Run

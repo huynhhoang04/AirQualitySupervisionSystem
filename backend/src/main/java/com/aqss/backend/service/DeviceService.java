@@ -51,6 +51,7 @@ public class DeviceService {
     private final AuditService audit;
     private final SpaceCodes spaceCodes;
     private final ThresholdService thresholds;
+    private final LiveEventService live;
 
     @Transactional(readOnly = true)
     public List<Device> findAll(boolean includeUnpaired) {
@@ -542,6 +543,11 @@ public class DeviceService {
         devices.save(device);
 
         matchPendingCommand(device, state, level, event.mode(), receivedAt);
+
+        live.publishAfterCommit(event.deviceId(), "actuator",
+                recordedAt == null ? receivedAt : recordedAt, receivedAt,
+                new LiveEventService.ActuatorUpdate(state, level.intValue(),
+                        duty == null ? null : duty.intValue(), event.mode(), runtimeS));
     }
 
     private void matchPendingCommand(Device device, String state, Short level, String mode, Instant at) {

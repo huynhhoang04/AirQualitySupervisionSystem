@@ -89,6 +89,26 @@ public class InternalAiController {
         return snapshots.recentActuator(deviceId, minutes);
     }
 
+    /**
+     * Incremental context read (io_contract §14.4): only rows after {@code after_id}.
+     * The first call uses {@code after_id=0}; afterwards the worker passes {@code next_after_id}.
+     */
+    @GetMapping("/devices/{deviceId}/samples")
+    public DatasetSnapshotService.IncrementalPage<Telemetry> samples(
+            @PathVariable String deviceId,
+            @RequestParam(name = "after_id", defaultValue = "0") long afterId,
+            @RequestParam(defaultValue = "500") int limit) {
+        return snapshots.samplesAfter(deviceId, afterId, limit);
+    }
+
+    @GetMapping("/devices/{deviceId}/actuator-reports")
+    public DatasetSnapshotService.IncrementalPage<com.aqss.backend.model.ActuatorHistory> actuatorReports(
+            @PathVariable String deviceId,
+            @RequestParam(name = "after_id", defaultValue = "0") long afterId,
+            @RequestParam(defaultValue = "200") int limit) {
+        return snapshots.actuatorReportsAfter(deviceId, afterId, limit);
+    }
+
     // ── jobs ────────────────────────────────────────────────────────────────
 
     @PostMapping("/jobs/claim")

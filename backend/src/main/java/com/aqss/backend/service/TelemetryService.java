@@ -22,6 +22,7 @@ import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /** Stores telemetry with its provenance, serves charts, and triggers the control loop. */
 @Service
@@ -36,6 +37,7 @@ public class TelemetryService {
     private final DeviceRepository devices;
     private final DeviceService deviceService;
     private final ControlLoop control;
+    private final LiveEventService live;
 
     @EventListener
     @Transactional
@@ -82,7 +84,7 @@ public class TelemetryService {
         device.setLastTelemetryReceivedAt(receivedAt);
         devices.save(device);
 
-        repository.save(Telemetry.builder()
+        Telemetry saved = repository.save(Telemetry.builder()
                 .deviceId(event.deviceId())
                 .recordedAt(recordedAt)
                 .receivedAt(receivedAt)
@@ -104,6 +106,9 @@ public class TelemetryService {
 
         // The reading that just arrived is what the loop should judge, not the one from a minute ago.
         control.onReading(device);
+
+        // After commit: the chart must never receive a row that a rollback removes.
+        live.publishAfterCommit(event.deviceId(), "telemetry", recordedAt, receivedAt, saved);
     }
 
     private static Map<String, Object> qualityFlags(MqttLink.SystemInfo system) {
@@ -151,8 +156,19 @@ public class TelemetryService {
 
     @Transactional(readOnly = true)
     public Telemetry latest(String deviceId) {
-        return repository.findFirstByDeviceIdOrderByRecordedAtDesc(deviceId)
+        return latestOptional(deviceId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "no telemetry for " + deviceId));
+    }
+
+    @Transactional(readOnly = true)
+    public Optional<Telemetry> latestOptional(String deviceId) {
+        return repository.findFirstByDeviceIdOrderByRecordedAtDesc(deviceId);
+    }
+
+    /** Raw rows for the live window. Bucketing belongs to the history screens, not this path. */
+    @Transactional(readOnly = true)
+    public List<Telemetry> recentWindow(String deviceId, Instant from, Instant to) {
+        return repository.findByDeviceIdAndRecordedAtBetweenOrderByRecordedAtAsc(deviceId, from, to);
     }
 
     /**

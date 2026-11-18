@@ -41,6 +41,11 @@ aqss:
     enabled: ${AI_ENABLED:true}
     # Bearer token for /internal/**. Blank = local development (no auth).
     worker-token: ${AI_WORKER_TOKEN:}
+    # How often due forecast targets are scored against the measured samples that followed them.
+    evaluation-interval-ms: ${AI_EVALUATION_INTERVAL_MS:15000}
+    # Full curves are large (360 floats per run, a run every 5 s). 0 disables pruning.
+    path-retention-hours: ${AI_PATH_RETENTION_HOURS:48}
+    retention-interval-ms: ${AI_RETENTION_INTERVAL_MS:3600000}
   control:
     cycle-ms: ${CONTROL_CYCLE_MS:60000}
     hysteresis-ratio: ${CONTROL_HYSTERESIS_RATIO:0.7}

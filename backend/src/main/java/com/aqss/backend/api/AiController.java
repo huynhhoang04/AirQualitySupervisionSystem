@@ -4,6 +4,8 @@ import com.aqss.backend.model.AiAlert;
 import com.aqss.backend.model.AiJob;
 import com.aqss.backend.model.AiModel;
 import com.aqss.backend.service.AiService;
+import com.aqss.backend.service.ForecastAccuracyService;
+import com.aqss.backend.service.ScoredForecastPoint;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -25,6 +27,7 @@ import java.util.UUID;
 public class AiController {
 
     private final AiService ai;
+    private final ForecastAccuracyService accuracy;
 
     @GetMapping("/ai/status")
     public AiService.Status status(@RequestParam(name = "device_id", required = false) String deviceId) {
@@ -61,9 +64,45 @@ public class AiController {
                         HttpStatus.NOT_FOUND, "no forecast for " + deviceId));
     }
 
+    /** One stored curve; the latest run's when {@code run_id} is omitted (io_contract §14.3). */
+    @GetMapping("/devices/{deviceId}/forecast/path")
+    public com.aqss.backend.model.ForecastPath forecastPath(
+            @PathVariable String deviceId,
+            @RequestParam(name = "run_id", required = false) UUID runId) {
+        return ai.path(deviceId, runId)
+                .orElseThrow(() -> new org.springframework.web.server.ResponseStatusException(
+                        HttpStatus.NOT_FOUND, "no forecast path for " + deviceId));
+    }
+
     @GetMapping("/devices/{deviceId}/alerts")
     public List<AiAlert> alerts(@PathVariable String deviceId) {
         return ai.alerts(deviceId);
+    }
+
+    /**
+     * How the forecasts already issued matched the room (io_contract §13).
+     *
+     * <p>Defaults to the model that produced the latest run, because averaging versions would be a
+     * number about nothing in particular.
+     */
+    @GetMapping("/devices/{deviceId}/forecast/accuracy")
+    public ForecastAccuracyService.Accuracy accuracy(
+            @PathVariable String deviceId,
+            @RequestParam(name = "horizon", defaultValue = "5") int horizon,
+            @RequestParam(name = "hours", defaultValue = "6") int hours,
+            @RequestParam(name = "model_version", required = false) String modelVersion) {
+        return accuracy.accuracy(deviceId, horizon, hours, modelVersion);
+    }
+
+    /** The pairs behind the indicators: issued → target → predicted → actual → error. */
+    @GetMapping("/devices/{deviceId}/forecast/accuracy/points")
+    public List<ScoredForecastPoint> accuracyPoints(
+            @PathVariable String deviceId,
+            @RequestParam(name = "horizon", defaultValue = "0") int horizon,
+            @RequestParam(name = "hours", defaultValue = "6") int hours,
+            @RequestParam(name = "model_version", required = false) String modelVersion,
+            @RequestParam(name = "limit", defaultValue = "50") int limit) {
+        return accuracy.recent(deviceId, horizon, hours, modelVersion, limit);
     }
 
     /** "Đã kiểm tra" / "bỏ qua" / "đã xử lý" — recorded, never inferred from a click elsewhere. */

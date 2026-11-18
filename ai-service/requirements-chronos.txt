@@ -1,0 +1,26 @@
+# Chronos-2 environment for the optional AI worker's forecasting model.
+#
+# This is deliberately separate from requirements.txt (the sklearn worker): it needs a CUDA build of
+# torch and a much larger download. Create it with Python 3.12:
+#
+#   uv venv .venv-chronos --python 3.12
+#   uv pip install --python .venv-chronos/bin/python -r requirements-chronos.txt
+#
+# Benchmark on this machine (RTX 3050 Laptop 4 GB): P95 0.017 s for 720 context -> 360 steps,
+# peak 466 MiB VRAM. See docs/upgrade-plan/09-step3-benchmark-and-training.md.
+torch>=2.5
+chronos-forecasting>=2.3
+peft>=0.13
+transformers>=4.45
+accelerate>=1.0
+# The worker itself: hypertext transport and the sklearn artifacts stay available so one
+# environment can run `FORECAST_ENGINE=chronos` end to end.
+httpx>=0.27
+joblib>=1.4
+scikit-learn>=1.5
+numpy>=2.0
+pandas>=2.2
+pyarrow>=17.0
+pyyaml>=6.0
+matplotlib>=3.9
+pytest>=8.0

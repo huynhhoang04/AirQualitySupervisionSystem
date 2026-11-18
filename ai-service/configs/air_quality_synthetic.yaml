@@ -1,0 +1,71 @@
+# Synthetic room sessions for Chronos-2 fine-tuning (docs/upgrade-plan/08 §4–§7).
+#
+# Every value here is a simulation parameter, not a measured characteristic of the fan or the room.
+# The filter response is a scenario generator, not a CADR.
+
+seed: 20261114
+
+# 2,000 sessions x 24 h x 17,280 steps/day = 34.56 M rows, written as Parquet shards.
+sessions:
+  train: 1400
+  validation: 300
+  test: 300
+  hours: 24
+  step_seconds: 5
+
+# Room geometry is drawn per session; metadata stays out of the model inputs.
+room:
+  volume_m3: [12.0, 90.0]
+  ventilation_per_hour: [0.2, 2.5]
+  outdoor_pm25: [8.0, 70.0]
+
+# Dust sources. intensity is in ug/(m3*h) so the balance equation keeps physical units.
+sources:
+  background: [0.5, 3.0]
+  event_rate_per_hour: [0.05, 0.6]
+  event_intensity: [8.0, 60.0]
+  event_duration_minutes: [10.0, 90.0]
+
+# A HEPA stage removes particles; the coefficient is per fan level, in 1/h.
+filter:
+  level_off: [0.05, 0.2]
+  level_1: [0.5, 1.1]
+  level_2: [1.0, 2.0]
+  level_3: [1.8, 3.4]
+  kickstart_seconds: [0.0, 20.0]
+
+# Occupancy drives CO2 and adds a small particle source; it never removes CO2 here.
+occupancy:
+  start_hour: [6.0, 11.0]
+  end_hour: [17.0, 23.5]
+  people: [1, 6]
+  co2_generation_ppm_per_hour_per_person: [90.0, 220.0]
+
+sensors:
+  pm_noise_ug_m3: [0.4, 2.5]
+  co2_noise_ppm: [8.0, 35.0]
+  temperature_noise_c: [0.05, 0.3]
+  humidity_noise_pct: [0.5, 2.5]
+  saturation_ug_m3: 500.0
+
+# Faults make missingness realistic; they are masked, never clipped into a valid value.
+faults:
+  gap_rate_per_hour: [0.0, 0.25]
+  gap_minutes: [0.5, 6.0]
+  dust_fault_rate: [0.0, 0.02]
+  clock_skew_seconds: [-3.0, 3.0]
+
+# The fan policy the room simulation follows. Training must not see only one policy.
+fan:
+  policies: ["threshold", "scheduled", "manual"]
+  threshold_ug_m3: [20.0, 45.0]
+  off_ratio: [0.6, 0.8]
+  min_on_minutes: [3.0, 8.0]
+  max_on_minutes: [45.0, 120.0]
+
+# Split by whole session, never by overlapping windows.
+split:
+  train: 1400
+  validation: 300
+  test: 300
+  test_variation: true

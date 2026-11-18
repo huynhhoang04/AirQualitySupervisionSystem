@@ -30,6 +30,7 @@ public record AqssSettings(
      * AI is optional. Turning it off must not affect telemetry, control or pairing.
      * The worker token guards {@code /internal/**}; blank means local development mode.
      */
-    public record Ai(boolean enabled, String workerToken) {
+    public record Ai(boolean enabled, String workerToken, long evaluationIntervalMs,
+                     long pathRetentionHours) {
     }
 }

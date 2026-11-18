@@ -9,12 +9,12 @@ const LIVE_MS = 5_000;
 export const useDevices = () =>
   useQuery({ queryKey: ["devices"], queryFn: api.devices, refetchInterval: LIVE_MS });
 
-export const useLatest = (deviceId?: string) =>
+export const useLatest = (deviceId?: string, enabled = true) =>
   useQuery({
     queryKey: ["latest", deviceId],
     queryFn: () => api.latest(deviceId!),
-    enabled: Boolean(deviceId),
-    refetchInterval: LIVE_MS,
+    enabled: Boolean(deviceId) && enabled,
+    refetchInterval: enabled ? LIVE_MS : false,
     // A freshly connected node has no reading yet; 404 is the expected state, not an error.
     retry: false,
   });
@@ -27,11 +27,11 @@ export const useHistory = (deviceId?: string, hours = 24) =>
     refetchInterval: 60_000,
   });
 
-export const useSeries = (deviceId?: string, hours = 24, bucket: "1m" | "5m" | "15m" = "5m") =>
+export const useSeries = (deviceId?: string, hours = 24, bucket: "1m" | "5m" | "15m" = "5m", enabled = true) =>
   useQuery({
     queryKey: ["series", deviceId, hours, bucket],
     queryFn: () => api.series(deviceId!, hours, bucket),
-    enabled: Boolean(deviceId),
+    enabled: Boolean(deviceId) && enabled,
     refetchInterval: 60_000,
   });
 
@@ -73,6 +73,33 @@ export const useForecast = (deviceId?: string) =>
     queryFn: () => api.forecast(deviceId!),
     enabled: Boolean(deviceId),
     refetchInterval: 60_000,
+    retry: false,
+  });
+
+/**
+ * Forecast accuracy for one horizon. `version` is bumped by an SSE `metrics` event, which makes the
+ * query key change and refetches the cohort without a poll.
+ */
+export const useForecastAccuracy = (deviceId?: string, horizon = 5, hours = 6, version = 0) =>
+  useQuery({
+    queryKey: ["forecast-accuracy", deviceId, horizon, hours, version],
+    queryFn: () => api.forecastAccuracy(deviceId!, horizon, hours),
+    enabled: Boolean(deviceId),
+    refetchInterval: 60_000,
+    retry: false,
+  });
+
+export const useAccuracyPoints = (
+  deviceId?: string,
+  horizon = 0,
+  hours = 6,
+  enabled = false,
+  version = 0,
+) =>
+  useQuery({
+    queryKey: ["accuracy-points", deviceId, horizon, hours, version],
+    queryFn: () => api.accuracyPoints(deviceId!, horizon, hours),
+    enabled: Boolean(deviceId) && enabled,
     retry: false,
   });
 
@@ -147,7 +174,7 @@ function invalidate(queryClient: ReturnType<typeof useQueryClient>, deviceId?: s
   queryClient.invalidateQueries({ queryKey: ["devices"] });
   if (deviceId) {
     for (const key of ["latest", "history", "series", "summary", "samples", "commands",
-      "actuator-history", "forecast", "alerts", "events"]) {
+      "actuator-history", "forecast", "forecast-accuracy", "accuracy-points", "alerts", "events"]) {
       queryClient.invalidateQueries({ queryKey: [key, deviceId] });
     }
   }

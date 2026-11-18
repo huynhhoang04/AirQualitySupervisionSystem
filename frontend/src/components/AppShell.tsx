@@ -26,7 +26,6 @@ export function AppShell() {
   const nav: NavItem[] = [
     { to: "/", label: "Tổng quan", icon: "overview", active: (p) => p === "/" },
     { to: roomHref, label: "Phân tích phòng", icon: "wind", active: (p) => p.startsWith("/room") },
-    { to: "/ai", label: "Trung tâm AI", icon: "ai", active: (p) => p.startsWith("/ai") },
     { to: "/evaluation", label: "Thí nghiệm & đánh giá", icon: "chart", active: (p) => p.startsWith("/evaluation") },
     { to: "/devices", label: "Thiết bị & cấu hình", icon: "chip", active: (p) => p.startsWith("/devices") },
     { to: "/audit", label: "Nhật ký", icon: "list", active: (p) => p.startsWith("/audit") },

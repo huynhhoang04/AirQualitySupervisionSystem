@@ -10,9 +10,12 @@ import type {
   DeviceUpdateRequest,
   FanCommand,
   ForecastView,
+  ForecastAccuracy,
+  LiveSnapshot,
   PairRequest,
   RoomEvent,
   SamplePage,
+  ScoredPoint,
   Series,
   Space,
   SpaceRequest,
@@ -158,7 +161,29 @@ export const api = {
   // ── AI ────────────────────────────────────────────────────────────────────
   forecast: (id: string) =>
     request<ForecastView>(`/api/v1/devices/${encodeURIComponent(id)}/forecast`),
+
+  // ── Live room stream ──────────────────────────────────────────────────────
+  /** Initial state for the room chart: raw 30-minute window, latest forecast, cursor. */
+  liveSnapshot: (id: string) =>
+    request<LiveSnapshot>(`/api/v1/devices/${encodeURIComponent(id)}/live/snapshot`),
+  /** EventSource URL; `after` lets the stream replay what the snapshot did not include. */
+  liveEventsUrl: (id: string, cursor?: number | null) =>
+    `${API_BASE}/api/v1/devices/${encodeURIComponent(id)}/live/events${
+      cursor == null ? "" : `?after=${cursor}`
+    }`,
   alerts: (id: string) => request<AiAlert[]>(`/api/v1/devices/${encodeURIComponent(id)}/alerts`),
+  /** How the forecasts already issued matched the measurements that followed. */
+  forecastAccuracy: (id: string, horizon = 5, hours = 6) =>
+    request<ForecastAccuracy>(
+      `/api/v1/devices/${encodeURIComponent(id)}/forecast/accuracy` +
+        `?horizon=${horizon}&hours=${hours}`,
+    ),
+  /** The scored pairs behind the indicators, newest first. */
+  accuracyPoints: (id: string, horizon = 0, hours = 6, limit = 50) =>
+    request<ScoredPoint[]>(
+      `/api/v1/devices/${encodeURIComponent(id)}/forecast/accuracy/points` +
+        `?horizon=${horizon}&hours=${hours}&limit=${limit}`,
+    ),
   aiStatus: (deviceId?: string) => {
     const query = deviceId ? `?device_id=${encodeURIComponent(deviceId)}` : "";
     return request<AiStatus>(`/api/v1/ai/status${query}`);

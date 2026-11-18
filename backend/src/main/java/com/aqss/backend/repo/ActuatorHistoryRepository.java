@@ -18,4 +18,8 @@ public interface ActuatorHistoryRepository extends JpaRepository<ActuatorHistory
 
     List<ActuatorHistory> findByDeviceIdAndReceivedAtBetweenOrderByReceivedAtAscIdAsc(
             String deviceId, Instant from, Instant to);
+
+    /** Incremental worker read, same id-cursor rule as telemetry (io_contract §14.4). */
+    List<ActuatorHistory> findByDeviceIdAndIdGreaterThanOrderByIdAsc(
+            String deviceId, Long afterId, Pageable pageable);
 }

@@ -1,6 +1,13 @@
 .venv/
+# The Chronos environment is separate from the worker's: torch + CUDA is several GB.
+.venv-chronos/
 __pycache__/
 *.pyc
 artifacts/
 snapshots/
 .pytest_cache/
+
+# Generated data and checkpoints are reproducible from a seed and a manifest, not source.
+data/
+models/
+reports/

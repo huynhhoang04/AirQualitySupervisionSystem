@@ -1,8 +1,33 @@
 # AQSS V6 — I/O Contract
 
 > **Single source of truth for the data contracts between the layers.**
-> **Version 6.0** — the measurement/control layer is unchanged. V6 adds provenance, actuator
-> history, command lifecycle, a raw export API and an optional local AI worker.
+> **Version 6.3** — adds the 360-step forecast path (`forecast_paths`) and the incremental worker
+> read. Measurement, control, MQTT and the previous tables are unchanged.
+
+## What changed from 6.2
+
+| Added | Why |
+| :--- | :--- |
+| `forecast_paths` table + `path` on `POST /internal/v1/ai/forecast-runs` | One run is a curve, not three points. 360 floats in one `REAL[]` instead of 360 rows |
+| `path` in `GET /devices/{id}/forecast` and in the `forecast` SSE event | The chart draws the whole future line without a second request |
+| `GET /internal/v1/ai/devices/{id}/samples?after_id` and `.../actuator-reports?after_id` | The worker keeps a context cache instead of reloading 60 minutes per packet |
+| `GET /api/v1/devices/{id}/forecast/path` | Read one stored curve by run id, for the drawer and exports |
+
+## What changed from 6.1
+
+| Added | Why |
+| :--- | :--- |
+| Forecast evaluator | `forecast_points` already carries `actual_pm25`, `error` and `evaluation_status`; nothing was filling them. Scored prospectively, never after the fact |
+| `GET /api/v1/devices/{id}/forecast/accuracy` | The three indicators of the room panel and its drawer |
+| `metrics` SSE event | The panel updates when a target is scored, not on a poll |
+
+## What changed from 6.0
+
+| Added | Why |
+| :--- | :--- |
+| `GET /api/v1/devices/{id}/live/snapshot` | One initial payload for the room chart: raw 30-minute window, latest forecast, cursor |
+| `GET /api/v1/devices/{id}/live/events` | `text/event-stream`: every stored sample reaches the chart without polling |
+| `forecast` and `actuator` events | The UI replaces the future line and the reported fan state without a page refresh |
 
 ## What changed from 5.0
 
@@ -160,6 +185,8 @@ JSON is **snake_case** everywhere (platform-wide Jackson setting). No authentica
 | `POST` | `/api/v1/devices/{id}/command` | Any command from §5 |
 | `GET` | `/api/v1/devices/{id}/latest` | Newest reading |
 | `GET` | `/api/v1/devices/{id}/telemetry?from&to` | Chart data, default last 24 h, thinned to ~800 points |
+| `GET` | `/api/v1/devices/{id}/live/snapshot` | Raw 30-minute window + latest forecast + event cursor (§12) |
+| `GET` | `/api/v1/devices/{id}/live/events?after` | SSE stream of `telemetry`, `forecast`, `actuator`, `reset` (§12) |
 | `GET` | `/api/v1/spaces` | Rooms + thresholds |
 | `GET` | `/api/v1/spaces/{code}` | One room |
 | `PUT` | `/api/v1/spaces/{code}` | Patch `{name, volume_m3, purpose, region, ventilation_estimate, occupancy_hours, threshold_pm25}` |
@@ -371,6 +398,8 @@ All under `/internal/v1/ai`, `Authorization: Bearer $AI_WORKER_TOKEN` when the t
 | `GET /api/v1/ai/jobs`, `/ai/jobs/{id}` | Progress and result |
 | `GET /api/v1/ai/models?device_id` | Model versions, metrics, status |
 | `GET /api/v1/devices/{id}/forecast` | Latest run and points, with timestamps |
+| `GET /api/v1/devices/{id}/forecast/accuracy?horizon&hours&model_version` | MAE and within-tolerance rate for the cohort (§13) |
+| `GET /api/v1/devices/{id}/forecast/accuracy/points?horizon&hours&limit` | Drawer rows behind those indicators (§13) |
 | `GET /api/v1/devices/{id}/alerts` | Alert episodes |
 | `POST /api/v1/alerts/{id}/feedback` | Record operator feedback (accepted / ignored / handled) |
 | `GET /api/v1/devices/{id}/commands` | Command lifecycle |
@@ -400,3 +429,271 @@ rejected above 2,000 buckets.
 
 The worker is outbound-only; the backend never dials the laptop. `forecast-demo/` remains an
 optional reference until the new service reaches acceptance.
+
+---
+
+# 12. Live room stream (V6.1)
+
+The room screen keeps one chart: measured history on the left, forecast on the right, one X axis.
+The chart is fed by a snapshot plus an SSE stream; there is no 5-second polling of a bucketed
+endpoint behind it.
+
+## 12.1 Snapshot
+
+`GET /api/v1/devices/{id}/live/snapshot`
+
+```json
+{
+  "device_id": "AQSS_ESP32S3_01",
+  "server_time": "2026-11-14T09:00:00Z",
+  "cursor": 142,
+  "window_seconds": 1800,
+  "samples": [ "...telemetry rows, oldest first..." ],
+  "forecast": { "run": { "...": "..." }, "points": [ "...": "..." ] },
+  "device": { "...device row..." }
+}
+```
+
+| Field | Notes |
+| :--- | :--- |
+| `samples` | Raw rows in `[anchor - 30 min, anchor]`, where `anchor` is the newest valid `recorded_at`. No bucket, no interpolation, null PM kept |
+| `forecast` | Latest run + its points (5/15/30 min), or `null`. The chart draws the anchor and these target times only |
+| `cursor` | High-water event id, captured **before** the sample query. Anything published between the two steps is replayed by the stream, and the client deduplicates by sample id |
+| `server_time` | Clock-skew display only; event timestamps stay authoritative |
+
+## 12.2 Event stream
+
+`GET /api/v1/devices/{id}/live/events?after={cursor}` with `Accept: text/event-stream`.
+`Last-Event-ID` wins over `after` when both are present (the browser sends it on reconnect).
+
+```
+id: 143
+event: telemetry
+data: {"event_id":143,"device_id":"AQSS_ESP32S3_01","type":"telemetry",
+       "occurred_at":"2026-11-14T09:00:05Z","received_at":"2026-11-14T09:00:05.120Z",
+       "payload":{ "...one telemetry row..." }}
+```
+
+| Event | Payload | When |
+| :--- | :--- | :--- |
+| `telemetry` | The stored telemetry row (`id`, `recorded_at`, `received_at`, sensors, flags) | After the ingestion transaction commits |
+| `forecast` | `{run, points}` (same shape as `GET /devices/{id}/forecast`) | After a new run is stored; duplicate uploads do not emit again |
+| `actuator` | `{state, level, duty_pct, mode, filter_runtime_s}` | After the actuator report commits |
+| `metrics` | `{device_id, horizon_minutes, actual_pm25, error}` | After a point is scored, or declared missing, by the evaluator |
+| `reset` | `{device_id, cursor, server_time}` | Cursor is older than the ring buffer, or the server restarted |
+| comment | `: heartbeat` | Every 15 s; keeps proxies and the browser from closing an idle stream |
+
+Rules:
+
+- Every event carries the full envelope; `event_id` is a process-local monotonic cursor per device.
+  It is also the SSE `id:`. A server restart resets it, which is why a client that sees a cursor
+  ahead of the server must resync.
+- The buffer keeps the last 1,000 events per device. A slow client has a bounded queue; when it
+  overflows it receives `reset` instead of blocking ingestion.
+- Events are published **after transaction commit**. `SseEmitter.send` never runs on the MQTT
+  callback thread.
+- Response headers disable caching and proxy buffering (`Cache-Control: no-cache`,
+  `X-Accel-Buffering: no`). The emitter times out after 30 minutes; `EventSource` reconnects with
+  its last id.
+- Unknown event names are ignored, so the stream can add more events without a breaking change.
+
+## 12.3 Client sequence
+
+1. `GET /live/snapshot`; render the measured window and the latest forecast, remember `cursor`.
+2. Open `EventSource` on `/live/events?after={cursor}`.
+3. Deduplicate by `event_id` and by sample/run id; apply `telemetry` in `recorded_at` order and
+   replace the future line only when the incoming run is newer than the one on screen.
+4. On `reset` or a stream error: keep the chart visible, request a new snapshot, then reopen the
+   stream. Polling is a fallback only while the stream is unavailable; it is stopped once SSE is
+   live.
+5. The chart domain is `[anchor - 30 min, anchor + 30 min]`; the anchor moves with every new
+   sample. A missing sample leaves a gap; it is never filled with a synthetic point.
+
+## 12.4 What is not in this version
+
+`advisory` events and the full 360-step forecast path are still reserved. Full paths arrive with the
+Chronos-backed worker; until then the forecast line uses the three target points stored in
+`forecast_points`.
+
+---
+
+# 13. Forecast evaluation (V6.2)
+
+`forecast_points.actual_pm25`, `error` and `evaluation_status` existed from V6 but nothing filled
+them. This section defines who does, and what the panel may claim.
+
+## 13.1 Scoring rules
+
+| Rule | Detail |
+| :--- | :--- |
+| Prospective only | A point is scored only when the backend's `accepted_at` is before `target_at`. A run uploaded later keeps its stored points but is never counted as a forecast |
+| Sample matching | The nearest **usable** sample within **±3 s** of the target; a distance tie takes the earlier timestamp |
+| Usable sample | `pm25` not null, `pm25_saturated = false`, `dust_fault` not true. A saturated reading is a floor and a fault is a broken sensor; neither is a measurement of the room, and neither may score a forecast |
+| No interpolation | A missing sample is never bridged from the neighbours; the target is either matched or not |
+| One sample per target | A single observation cannot score two targets of the same run |
+| Late data | A point stays `PENDING` for **10 minutes** after its target, then becomes `UNSCORED_MISSING_TARGET` |
+| Missing is not zero | An unmatched target keeps `actual_pm25 = error = NULL`. `error = 0` would read as a perfect forecast |
+| Cadence | Due points are scored by a poll every `AI_EVALUATION_INTERVAL_MS` (default 15 s), batched 500 at a time |
+
+Statuses: `PENDING` → `SCORED` | `UNSCORED_MISSING_TARGET`; `LATE_SUBMISSION` is written at upload
+time and never scored.
+
+## 13.2 Accuracy read
+
+`GET /api/v1/devices/{id}/forecast/accuracy?horizon=5|15|30&hours=6&model_version=...`
+
+| Field | Meaning |
+| :--- | :--- |
+| `matched` | Scored pairs used as the denominator of both indicators |
+| `mae_ug_m3` | Mean of `abs(predicted − actual)` over `matched`; `null` when nothing is matched |
+| `within_tolerance_pct` | Percentage of matched pairs with `abs(error) ≤ tolerance_ug_m3`; `null` when nothing is matched |
+| `tolerance_ug_m3` | 5.0; always shown next to the percentage |
+| `pending`, `missing`, `late` | The rest of the cohort — they explain why the denominator is small |
+| `horizons[]` | The same numbers for 5/15/30 minutes, so switching the selector needs no request |
+| `model_version` | The cohort. Defaults to the model version of the latest run; mixing versions would average different models |
+
+`GET /api/v1/devices/{id}/forecast/accuracy/points?horizon&hours&limit` returns the drawer rows:
+`target_at`, `horizon_minutes`, `predicted_pm25`, `actual_pm25`, `error`, `issued_at`,
+`model_version`, `evaluated_at` — newest target first.
+
+Rules for the UI:
+
+- Never present `100 − MAPE` or any single "accuracy percentage". PM near zero makes a relative error
+  meaningless; the two indicators above are absolute.
+- Never show `100 %` before a pair exists. With `matched = 0` show "Chưa đủ mốc đối chiếu".
+- Below 20 matched pairs the panel still shows the computed values but labels them
+  "Đang thu thêm dữ liệu".
+- The historical forecast line on the chart uses a fixed 5-minute horizon: at each target `t` it
+  shows the run issued around `t − 5 min`. A run published after its target is never drawn as a
+  historical forecast.
+
+---
+
+# 14. Forecast path (V6.3)
+
+A Chronos run produces 360 values on the 5-second grid, not three points. Storing them as rows
+would be 6.2 M rows/day/device; they are stored as one array per run instead.
+
+## 14.1 Storage
+
+```sql
+CREATE TABLE forecast_paths (
+    run_id       UUID PRIMARY KEY REFERENCES forecast_runs (id) ON DELETE CASCADE,
+    anchor_at    TIMESTAMPTZ NOT NULL,
+    anchor_pm25  REAL NOT NULL,
+    step_seconds INTEGER NOT NULL DEFAULT 5,
+    values       REAL[] NOT NULL,     -- 360 values, +5 s .. +30 min
+    q10          REAL[],
+    q90          REAL[],
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+```
+
+| Column | Notes |
+| :--- | :--- |
+| `anchor_at`, `anchor_pm25` | The measured sample the curve starts from. Not part of `values`; the chart connects the last measurement to `values[0]` itself |
+| `step_seconds` | 5. Target `k` (1-based) is `anchor_at + k × step_seconds`. No timestamps are stored per value |
+| `values` | `REAL[360]`. The median path |
+| `q10`, `q90` | Optional 10/90 band. `null` when the model did not produce one |
+
+Retention: 48 hours by default (`AI_PATH_RETENTION_HOURS`). The retention job deletes a path only
+after its evaluation points (5/15/30 min) are no longer `PENDING`; a pending point keeps its run.
+`forecast_points` keeps the three scored milestones and is retained longer (14 days).
+
+## 14.2 Upload
+
+`POST /internal/v1/ai/forecast-runs` gains one optional object:
+
+```json
+{
+  "device_id": "AQSS_ESP32S3_01",
+  "model_version": "chronos-2-lora-d67f566",
+  "input_cutoff": "2026-11-18T12:00:00Z",
+  "issued_at": "2026-11-18T12:00:01Z",
+  "points": [ "...three milestones, unchanged..." ],
+  "path": {
+    "anchor_at": "2026-11-18T12:00:00Z",
+    "anchor_pm25": 28.4,
+    "step_seconds": 5,
+    "values": [28.5, 28.7, "...360 values..."],
+    "q10": [27.1, "...360 values..."],
+    "q90": [29.6, "...360 values..."]
+  }
+}
+```
+
+Rules:
+
+- `path.values` must have exactly `1800 / step_seconds` entries (360 at the default). A wrong length
+  is a `400`, not a silently truncated curve.
+- `anchor_at` must equal `input_cutoff` when both are present; the anchor is the last input sample.
+- Duplicate uploads (same device + model + `input_cutoff`) return the stored run and do **not** emit
+  a second SSE `forecast` event, so a retried upload cannot make the chart jump backwards.
+- A run without `path` is still valid (the existing three-point behaviour); the UI falls back to the
+  three points.
+
+## 14.3 Read
+
+`GET /api/v1/devices/{id}/forecast` and the `forecast` SSE event return the same envelope with an
+optional `path`:
+
+```json
+{
+  "run": { "id": "…", "model_version": "…", "issued_at": "…", "input_cutoff": "…" },
+  "points": [ "...three milestones..." ],
+  "path": { "anchor_at": "…", "anchor_pm25": 28.4, "step_seconds": 5, "values": [ "...360..." ] }
+}
+```
+
+`GET /api/v1/devices/{id}/forecast/path?run_id=…` returns one stored curve (latest run when the
+parameter is omitted). `404` when the run exists but its curve has been pruned.
+
+## 14.4 Worker context cache
+
+Reloading 60 minutes of history on every packet is 720 rows per 5 s, per device, for no benefit.
+The worker keeps an in-memory cache and only asks for what it has not seen:
+
+| Endpoint | Returns |
+| :--- | :--- |
+| `GET /internal/v1/ai/devices/{id}/samples?after_id=…&limit=500` | Telemetry rows with `id > after_id`, oldest first; plus `next_after_id` |
+| `GET /internal/v1/ai/devices/{id}/actuator-reports?after_id=…&limit=200` | Actuator reports with `id > after_id`, oldest first |
+
+Rules:
+
+- On start, or after a gap the cache cannot cover, the worker loads the full 60-minute window once
+  through `/recent`; after that it polls `after_id`.
+- `after_id` is the row id, not a timestamp: two rows can share a millisecond.
+- A cache miss (older than the context window, or server restart with a lower id) triggers a full
+  reload, never a partial guess.
+- Inference stays one task per device; while one runs, only the newest pending request is kept.
+  The number of dropped requests is reported in the heartbeat capabilities.
+- Telemetry carries no fan level: the node reports it on a separate topic. The cache joins the
+  actuator stream as-of the **receive** clock, so a sample is described only by fan reports the
+  backend already had when the sample arrived. A sample older than the first report has no known
+  fan state (`NaN`), never a guessed one.
+
+## 14.5 Context readiness
+
+The context is a 720-step grid ending at the newest usable sample. Two independent rules decide
+whether a forecast may be issued:
+
+| Rule | Threshold | Why |
+| :--- | :--- | :--- |
+| Coverage | ≥ 80 % of the 720 steps carry a usable PM sample | A mostly-empty window is not a context |
+| Longest hole | ≤ 60 steps (5 minutes) | Coverage alone hides an outage: 120 missing steps is still 83 %, and a curve fitted across a ten-minute hole is a guess wearing a confidence band |
+
+A sample snaps to its nearest grid point, keeping the newest per point. A device reporting every
+5.02 s drifts by 0.02 s per packet but stays within half a step of a grid point for hundreds of
+packets, so a healthy stream stays near 100 % coverage. Requiring a sample within half a step *in
+one direction* was the earlier bug and dropped about half of such a stream.
+
+Missing steps stay `NaN`; they are never interpolated.
+
+## 14.6 Latency and honesty
+
+- The target is sensor → chart ≤ 5 s and warm inference P95 ≤ 3 s. Measured on this machine:
+  P95 **0.017 s** for 720 → 360, so the remaining budget belongs to the network and the upload.
+- A path is drawn **only** at the target times it was issued for. A run whose `anchor_at` is older
+  than the one on screen must not move the chart backwards.
+- If the worker cannot keep up, the chart keeps the previous curve and the UI says so. No value is
+  ever synthesised to fill the gap.

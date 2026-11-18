@@ -173,9 +173,105 @@ export interface ForecastRun {
   status: string;
 }
 
+export interface ForecastPath {
+  run_id: string;
+  anchor_at: string;
+  anchor_pm25: number;
+  step_seconds: number;
+  values: number[];
+  q10: number[] | null;
+  q90: number[] | null;
+  created_at: string;
+}
+
 export interface ForecastView {
   run: ForecastRun;
   points: ForecastPoint[];
+  /** The 360-step curve when the worker produced one (io_contract §14). */
+  path: ForecastPath | null;
+}
+
+// ── Live room stream ────────────────────────────────────────────────────────
+
+export interface LiveSnapshot {
+  device_id: string;
+  server_time: string;
+  cursor: number;
+  window_seconds: number;
+  samples: Telemetry[];
+  forecast: ForecastView | null;
+  device: Device;
+}
+
+export interface LiveEventEnvelope<T = unknown> {
+  event_id: number;
+  device_id: string;
+  type: string;
+  occurred_at: string;
+  received_at: string;
+  payload: T;
+}
+
+export interface LiveActuator {
+  state: FanState;
+  level: number;
+  duty_pct: number | null;
+  mode: FanMode | null;
+  filter_runtime_s: number | null;
+}
+
+export interface LiveReset {
+  device_id: string;
+  cursor: number;
+  server_time: string;
+}
+
+export interface LiveMetrics {
+  device_id: string;
+  horizon_minutes: number;
+  actual_pm25: number | null;
+  error: number | null;
+}
+
+// ── Forecast accuracy ───────────────────────────────────────────────────────
+
+export interface AccuracyHorizon {
+  horizon_minutes: number;
+  matched: number;
+  mae_ug_m3: number | null;
+  within_tolerance_pct: number | null;
+  pending: number;
+  missing: number;
+  late: number;
+}
+
+export interface ForecastAccuracy {
+  device_id: string;
+  model_version: string;
+  horizon_minutes: number;
+  window_hours: number;
+  from: string;
+  to: string;
+  matched: number;
+  mae_ug_m3: number | null;
+  within_tolerance: number;
+  within_tolerance_pct: number | null;
+  pending: number;
+  missing: number;
+  late: number;
+  tolerance_ug_m3: number;
+  horizons: AccuracyHorizon[];
+}
+
+export interface ScoredPoint {
+  target_at: string;
+  horizon_minutes: number;
+  predicted_pm25: number;
+  actual_pm25: number;
+  error: number;
+  issued_at: string;
+  model_version: string;
+  evaluated_at: string;
 }
 
 export interface AiWorkerStatus {

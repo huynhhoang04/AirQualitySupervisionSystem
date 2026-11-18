@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from .backend import BackendClient
+from .chronos_runner import ChronosRunner
 from .config import Settings
 from .inference import NotReady, predict_run
 from .features import FEATURE_VERSION
@@ -39,6 +40,10 @@ class Worker:
         self._training_job = None
         self._training_progress = (5, "snapshot")
         self.device_status: dict[str, dict[str, Any]] = {}
+        # Chronos is opt-in: the sklearn engine stays the default so a worker without CUDA or the
+        # separate environment keeps working exactly as before.
+        self.chronos = (ChronosRunner(settings, self.client)
+                        if settings.forecast_engine == "chronos" else None)
         # Do not queue a retrain at process start; wait one full interval first.
         self._next_train_check = time.monotonic() + max(1, settings.train_interval_hours) * 3600
         # Consecutive-run state for the two-run breach rule. In-memory on purpose: the backend
@@ -66,8 +71,13 @@ class Worker:
                     self.client.progress(self._training_job["id"], self._training_job["lease_token"],
                                          *self._training_progress)
                 if now >= self._next_inference:
-                    self._next_inference = now + self.settings.inference_seconds
-                    self.infer_all()
+                    if self.chronos is not None:
+                        # Chronos has its own cadence and its own one-task-per-device state.
+                        self._next_inference = now + self.settings.inference_interval_seconds
+                        self.chronos.tick(self.client.devices())
+                    else:
+                        self._next_inference = now + self.settings.inference_seconds
+                        self.infer_all()
                 if self._training_future is None and now >= self._next_poll:
                     self._next_poll = now + self.settings.poll_seconds
                     job = self.client.claim(self.settings.worker_id)
@@ -85,6 +95,11 @@ class Worker:
 
     def heartbeat(self) -> None:
         pointer = self._any_pointer_path()
+        if self.chronos is not None:
+            status = dict(self.device_status)
+            status["_engine"] = self.chronos.status()
+            self.client.heartbeat(self.settings.worker_id, str(pointer) if pointer else None, status)
+            return
         self.client.heartbeat(self.settings.worker_id, str(pointer) if pointer else None, self.device_status)
 
     def report_progress(self, job_id: str, lease: str, progress: int, phase: str) -> None:

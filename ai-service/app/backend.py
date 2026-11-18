@@ -122,11 +122,26 @@ class BackendClient:
         return self._get(f"/internal/v1/ai/devices/{quote(device_id, safe='')}/recent-actuator",
                          params={"minutes": minutes})
 
+    def samples_after(self, device_id: str, after_id: int, limit: int = 500) -> dict[str, Any]:
+        """Incremental telemetry read (io_contract §14.4)."""
+        return self._get(f"/internal/v1/ai/devices/{quote(device_id, safe='')}/samples",
+                         params={"after_id": after_id, "limit": limit})
+
+    def actuator_reports_after(self, device_id: str, after_id: int,
+                               limit: int = 200) -> dict[str, Any]:
+        return self._get(f"/internal/v1/ai/devices/{quote(device_id, safe='')}/actuator-reports",
+                         params={"after_id": after_id, "limit": limit})
+
     def heartbeat(self, worker_id: str, model_artifact: str | None,
                   device_status: dict[str, Any] | None = None) -> dict[str, Any]:
+        algorithms = ["persistence", "ridge", "boosting"]
+        engine = (device_status or {}).pop("_engine", None) if device_status else None
+        if engine:
+            algorithms.append("chronos-2")
         return self._post("/internal/v1/ai/workers/heartbeat", {
             "worker_id": worker_id,
-            "capabilities": {"features": "feature-v2", "algorithms": ["persistence", "ridge", "boosting"],
+            "capabilities": {"features": "feature-v2", "algorithms": algorithms,
+                             "engine": engine,
                              "device_status": dict(device_status or {})},
             "model_artifact": model_artifact,
         })
