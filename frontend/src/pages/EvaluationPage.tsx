@@ -6,12 +6,12 @@ import { formatAgo } from "../lib/room";
 import { modelLabel } from "../lib/modelLabel";
 
 /**
- * Evaluation: what was measured, not what was hoped. Every table carries its sample count, and a
- * model that lost is shown with the reason it lost.
+ * Two different questions, two different sections. Confusing them is what made this page unreadable.
  *
- * Two different questions live here, and they must not be confused: what the *serving* model is
- * scoring right now against live measurements (top), and the frozen retrospective test of a learned
- * sklearn model (below). The sklearn registry can be empty while a model is serving forecasts.
+ * 1. "Is the model that is running right now any good?" — answered by scoring the forecasts it
+ *    already published against the measurements that arrived after them. Live, always moving.
+ * 2. "Was the sklearn model we tried worth keeping?" — answered by a frozen test window, scored
+ *    once. It lost, so Chronos-2 serves instead. This is evidence for a report, not an operation.
  */
 export function EvaluationPage() {
   const [params, setParams] = useSearchParams();
@@ -23,7 +23,9 @@ export function EvaluationPage() {
   const models = useAiModels(deviceId);
   const alerts = useAlerts(deviceId);
   const forecast = useForecast(deviceId);
-  const live = useForecastAccuracy(deviceId, 5, 6);
+  // Same horizon as the room page: the product forecasts 30 minutes, so 30 minutes is what is
+  // scored here. This page used to ask for +5, which produced dashes while the room showed numbers.
+  const live = useForecastAccuracy(deviceId, 30, 6);
 
   const model = pickModel(models.data);
 
@@ -31,7 +33,7 @@ export function EvaluationPage() {
     <div className="space-y-5">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <p className="text-[11px] uppercase tracking-[0.14em] text-muted">Thí nghiệm & đánh giá</p>
+          <p className="text-[11px] uppercase tracking-[0.14em] text-muted">Thí nghiệm &amp; đánh giá</p>
           <h2 className="mt-1 text-lg font-semibold tracking-tight">{space?.name ?? device?.name ?? "—"}</h2>
           <p className="mt-0.5 font-mono text-[11px] text-muted">{deviceId ?? "chưa có thiết bị"}</p>
         </div>
@@ -49,54 +51,19 @@ export function EvaluationPage() {
         </select>
       </header>
 
-      <section className="card p-4 lg:p-5">
-        <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <div className="label">Model đang phục vụ</div>
-          <span className="font-mono text-[11px] text-slate-300">
-            {modelLabel(forecast.data?.run)}
-          </span>
-        </div>
-        <p className="mt-2 text-[11px] leading-relaxed text-muted">
-          Đánh giá trực tiếp: các dự báo đã phát hành được chấm bằng số đo đến sau, không phải
-          test window đóng băng.
-        </p>
-        <dl className="mt-3 grid grid-cols-3 gap-3 text-[12px]">
-          <div>
-            <dt className="text-[10px] uppercase tracking-wider text-muted">Lệch TB +5p</dt>
-            <dd className="font-mono text-lg text-slate-100">
-              {live.data?.mae_ug_m3 == null ? "—" : live.data.mae_ug_m3.toFixed(1)}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-[10px] uppercase tracking-wider text-muted">Trong ±5</dt>
-            <dd className="font-mono text-lg text-slate-100">
-              {live.data?.within_tolerance_pct == null
-                ? "—"
-                : `${live.data.within_tolerance_pct.toFixed(0)}%`}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-[10px] uppercase tracking-wider text-muted">Mốc</dt>
-            <dd className="font-mono text-lg text-slate-100">{live.data?.matched ?? "—"}</dd>
-          </div>
-        </dl>
-        {forecast.data?.run.data_quality?.readiness === "warmup" && (
-          <p className="mt-2 text-[11px] text-warn">
-            Model đang chạy warm-up (15–60 phút lịch sử), chưa đủ context một giờ.
-          </p>
-        )}
-      </section>
+      <LiveSection accuracy={live.data} forecastRun={forecast.data?.run} />
 
       {models.isLoading ? (
         <p className="text-sm text-muted">Đang tải kết quả…</p>
       ) : !model ? (
         <section className="card p-5">
-          <h3 className="text-sm font-medium">Chưa có model sklearn nào được đánh giá độc lập</h3>
+          <div className="label">Model sklearn đã thử</div>
+          <h3 className="mt-1.5 text-sm font-medium">Chưa từng có model sklearn nào để đánh giá</h3>
           <p className="mt-2 max-w-2xl text-[12px] leading-relaxed text-muted">
-            Registry này chỉ chứa model <span className="font-mono">feature-v2</span> huấn luyện trên
-            dữ liệu node thật. Chưa có model nào như vậy, nên không có test window đóng băng để chấm.
-            Đây không phải lỗi: model đang phục vụ là Chronos-2, và nó được đánh giá trực tiếp ở
-            khối phía trên.
+            Hệ thống có hai đường dự báo. Đường đang chạy là Chronos-2, đánh giá ngay ở khối trên.
+            Đường còn lại là một model sklearn (<span className="font-mono">feature-v2</span>) huấn
+            luyện trên dữ liệu node thật, và nó chưa từng được train xong trên node này — nên không có
+            test window nào để chấm. Không có gì bị hỏng.
           </p>
         </section>
       ) : (
@@ -105,8 +72,8 @@ export function EvaluationPage() {
           <section className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
             <BenchmarkPanel model={model} />
             <section className="card p-4 lg:p-5">
-              <div className="label">Promotion</div>
-              <div className="mt-3">
+              <div className="label">Có được dùng làm model chính không?</div>
+              <div className="mt-2 flex items-center gap-2">
                 <span
                   className={`chip border ${
                     model.status === "PRODUCTION"
@@ -114,11 +81,17 @@ export function EvaluationPage() {
                       : "border-warn/30 bg-warn/10 text-warn"
                   }`}
                 >
-                  {model.status}
+                  {model.status === "PRODUCTION" ? "Đang dùng" : "Không dùng"}
                 </span>
+                <span className="font-mono text-[10px] text-muted">{model.status}</span>
               </div>
               <p className="mt-3 text-[13px] leading-relaxed text-slate-300">
                 {model.promotion_reason ?? "Không có lý do được ghi."}
+              </p>
+              <p className="mt-2 text-[11px] leading-relaxed text-muted">
+                Muốn thay model đang chạy, nó phải giảm sai số ở mốc 15 và 30 phút ít nhất 10% so với
+                bản trước, và không được làm mốc 5 phút xấu đi quá 5%. Đây là cổng chặn để một lần
+                train chưa tốt không âm thầm thay model đang phục vụ.
               </p>
               <dl className="mt-4 space-y-2 text-[12px]">
                 <Row label="Feature" value={model.feature_version ?? "—"} mono />
@@ -126,10 +99,6 @@ export function EvaluationPage() {
                 <Row label="Artifact hash" value={model.artifact_hash?.slice(0, 16) ?? "—"} mono />
                 <Row label="Train cutoff" value={model.train_cutoff ?? "—"} mono />
               </dl>
-              <p className="mt-4 rounded-lg border border-line/60 px-3 py-2 text-[11px] leading-relaxed text-muted">
-                Model không thắng baseline vẫn được giữ và hiển thị. Hệ thống không biến “chưa tốt
-                hơn” thành “không có kết quả”.
-              </p>
             </section>
           </section>
         </>
@@ -164,19 +133,121 @@ export function EvaluationPage() {
   );
 }
 
+/**
+ * "Is the model running right now any good?"
+ *
+ * Every forecast is stored before its target time, then scored with the measurement that arrives
+ * afterwards. Nothing here is a frozen test set — it is the live record of the model being right or
+ * wrong, and it changes as time passes. When there is nothing to show, this says why instead of
+ * printing three dashes and letting the reader guess.
+ */
+function LiveSection({
+  accuracy,
+  forecastRun,
+}: {
+  accuracy?: import("../api/types").ForecastAccuracy;
+  forecastRun?: import("../api/types").ForecastRun | null;
+}) {
+  const matched = accuracy?.matched ?? 0;
+  const hasNumbers = matched > 0 && accuracy?.mae_ug_m3 != null;
+  const readiness = forecastRun?.data_quality?.readiness;
+
+  return (
+    <section className="card p-4 lg:p-5">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <div className="label">Model đang chạy — dự báo 30 phút đúng đến đâu</div>
+        <span className="font-mono text-[11px] text-slate-300">{modelLabel(forecastRun)}</span>
+      </div>
+
+      <p className="mt-1.5 max-w-3xl text-[11px] leading-relaxed text-muted">
+        Mỗi dự báo được lưu lại <em>trước</em> thời điểm nó nói tới. Khi 30 phút trôi qua, hệ thống
+        lấy số đo thật lúc đó để chấm. Vì vậy đây là bằng chứng model đúng hay sai trên dữ liệu thật,
+        không phải một bài test đóng băng.
+      </p>
+
+      {hasNumbers ? (
+        <>
+          <dl className="mt-3 grid grid-cols-2 gap-4 sm:grid-cols-4">
+            <div>
+              <dt className="text-[10px] uppercase tracking-wider text-muted">Lệch trung bình</dt>
+              <dd className="font-mono text-lg text-slate-100">
+                {accuracy!.mae_ug_m3!.toFixed(1)}
+                <span className="ml-1 font-sans text-[10px] text-muted">µg/m³</span>
+              </dd>
+            </div>
+            <div>
+              <dt className="text-[10px] uppercase tracking-wider text-muted">Trong ±5 µg/m³</dt>
+              <dd className="font-mono text-lg text-slate-100">
+                {accuracy!.within_tolerance_pct == null
+                  ? "—"
+                  : `${accuracy!.within_tolerance_pct.toFixed(0)}%`}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-[10px] uppercase tracking-wider text-muted">
+                Trong ±{Math.round((accuracy!.relative_tolerance ?? 0.3) * 100)}%
+              </dt>
+              <dd className="font-mono text-lg text-slate-100">
+                {accuracy!.within_relative_pct == null
+                  ? "—"
+                  : `${accuracy!.within_relative_pct.toFixed(0)}%`}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-[10px] uppercase tracking-wider text-muted">Mốc đã chấm</dt>
+              <dd className="font-mono text-lg text-slate-100">{matched}</dd>
+            </div>
+          </dl>
+          <p className="mt-2 text-[11px] text-muted">
+            {matched} dự báo đã đủ 30 phút để chấm · 6 giờ gần nhất
+          </p>
+        </>
+      ) : (
+        <div className="mt-3 rounded-lg border border-line/60 px-3 py-2.5">
+          <p className="text-[12px] leading-relaxed text-slate-200">
+            {forecastRun
+              ? "Chưa có dự báo nào đủ 30 phút để chấm trong 6 giờ qua."
+              : "Chưa có dự báo nào được phát hành cho phòng này."}
+          </p>
+          <p className="mt-1 text-[11px] leading-relaxed text-muted">
+            Cần hai việc: worker AI phải đang phát dự báo, và mỗi dự báo phải chờ 30 phút trước khi
+            chấm được. Nếu node vừa khởi động lại, nó cần ít nhất 15 phút số đo liên tục trước khi
+            phát dự báo đầu tiên.
+            {accuracy && accuracy.pending > 0 && ` Hiện có ${accuracy.pending} dự báo đang chờ đủ 30 phút.`}
+          </p>
+        </div>
+      )}
+
+      {readiness === "warmup" && (
+        <p className="mt-2 text-[11px] text-warn">
+          Dự báo gần nhất chạy ở chế độ warm-up: mới có 15–60 phút lịch sử, chưa đủ context một giờ.
+        </p>
+      )}
+    </section>
+  );
+}
+
 function DataCard({ model }: { model: AiModelStatus }) {
   const metrics = (model.metrics ?? {}) as Record<string, unknown>;
   const data = (metrics.data ?? {}) as Record<string, unknown>;
   return (
     <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-      <Stat label="Raw packets" value={int(data.raw_rows)} />
-      <Stat label="Minute buckets" value={int(data.minute_buckets)} />
+      <Stat label="Gói thô đã nhận" value={int(data.raw_rows)} />
+      <Stat label="Phút đo hợp lệ" value={int(data.minute_buckets)} />
       <Stat label="Khoảng quan sát" value={data.span_hours ? `${data.span_hours} giờ` : "—"} />
-      <Stat label="Test window" value={data.test_hours ? `${data.test_hours} giờ cuối` : "—"} />
+      <Stat label="Giữ riêng để chấm" value={data.test_hours ? `${data.test_hours} giờ cuối` : "—"} />
     </section>
   );
 }
 
+/**
+ * "Was the sklearn model we tried worth keeping?"
+ *
+ * This is a frozen test window, scored once — evidence for a report, not a live measurement. The
+ * "persistence" column is not a model: it is the do-nothing baseline, repeat the current reading for
+ * the whole horizon. A model that cannot beat it adds nothing, however small its own error looks.
+ * That comparison is the point of the table, so the column is labelled instead of being left to guess.
+ */
 function BenchmarkPanel({ model }: { model: AiModelStatus }) {
   const metrics = (model.metrics ?? {}) as Record<string, Record<string, Record<string, number>>>;
   const test = metrics.test ?? {};
@@ -188,17 +259,17 @@ function BenchmarkPanel({ model }: { model: AiModelStatus }) {
   return (
     <section className="card overflow-hidden">
       <div className="border-b border-line/60 px-4 py-3">
-        <div className="label">Retrospective test</div>
+        <div className="label">Model sklearn đã thử — chấm trên test window đóng băng</div>
       </div>
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[560px] text-left text-[12px]">
+        <table className="w-full text-left text-[12px]">
           <thead className="text-[10px] uppercase tracking-wider text-muted">
             <tr className="border-b border-line/50">
-              <th className="px-3 py-2">Horizon</th>
-              <th className="px-3 py-2 text-right">MAE model</th>
-              <th className="px-3 py-2 text-right">MAE Ridge</th>
-              <th className="px-3 py-2 text-right">MAE persistence</th>
-              <th className="px-3 py-2 text-right">Samples</th>
+              <th className="whitespace-nowrap px-3 py-2">Dự báo trước</th>
+              <th className="whitespace-nowrap px-3 py-2 text-right">Model học</th>
+              <th className="whitespace-nowrap px-3 py-2 text-right">Ridge</th>
+              <th className="whitespace-nowrap px-3 py-2 text-right">Giữ nguyên</th>
+              <th className="whitespace-nowrap px-3 py-2 text-right">Mẫu</th>
             </tr>
           </thead>
           <tbody>
@@ -223,7 +294,9 @@ function BenchmarkPanel({ model }: { model: AiModelStatus }) {
         </table>
       </div>
       <p className="px-3 py-2 text-[10px] leading-relaxed text-muted">
-        MAE tính trên các origin có đủ target. Test chỉ được chấm một lần cho model đã đóng băng.
+        MAE = sai lệch tuyệt đối trung bình, µg/m³, càng thấp càng tốt. Cột “giữ nguyên số đo” là
+        baseline không học gì: nó lặp lại số hiện tại cho cả 30 phút. Model nào không thắng được cột
+        đó thì không đóng góp thông tin, dù sai số của nó nhìn có vẻ nhỏ.
       </p>
     </section>
   );

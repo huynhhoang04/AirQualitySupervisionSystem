@@ -13,7 +13,7 @@ import {
 import type { ForecastView, Telemetry } from "../api/types";
 import type { LiveStatus } from "../hooks/useLiveRoom";
 import { useNow } from "../hooks/useNow";
-import { buildChartRows, type ChartRow } from "../lib/chartRows";
+import { buildChartRows, MAX_CURVE_AGE_MS, type ChartRow } from "../lib/chartRows";
 import { formatAgo } from "../lib/room";
 
 const WINDOW_MS = 30 * 60_000;
@@ -46,10 +46,17 @@ export function LiveChart({ samples, forecast, threshold, status, height = 400 }
   const anchorValue = anchorSample?.pm25 ?? null;
   const start = anchor - WINDOW_MS;
   const end = anchor + WINDOW_MS;
-  // A curve issued for an older anchor must not be drawn inside this window: its targets are not
-  // the 30 minutes after the sample on screen, and plotting it would move the chart backwards.
+  // A curve is only drawn when its anchor is close to the newest sample. The old check asked only
+  // that the anchor be inside the 30-minute window, so a forecast issued 24 minutes ago still
+  // qualified: most of its targets were already in the past, and what remained was a five-minute
+  // yellow stub joined to today's reading by a vertical cliff the model never produced.
+  const curveAgeMs = forecast?.path ? anchor - Date.parse(forecast.path.anchor_at) : null;
   const visiblePath =
-    forecast?.path && Date.parse(forecast.path.anchor_at) >= start ? forecast.path : null;
+    forecast?.path && curveAgeMs != null && curveAgeMs <= MAX_CURVE_AGE_MS ? forecast.path : null;
+  const staleCurveMinutes =
+    forecast?.path && curveAgeMs != null && curveAgeMs > MAX_CURVE_AGE_MS
+      ? Math.round(curveAgeMs / 60_000)
+      : null;
   const futurePoints = useMemo(
     () =>
       (forecast?.points ?? []).filter((point) => {
@@ -248,8 +255,12 @@ export function LiveChart({ samples, forecast, threshold, status, height = 400 }
               </span>
             )}
           </span>
+        ) : staleCurveMinutes != null ? (
+          <span className="text-warn">
+            dự báo cũ {staleCurveMinutes} phút · worker chưa phát bản mới
+          </span>
         ) : (
-          <span>{forecast ? "dự báo cũ hơn mẫu mới nhất" : "chưa có dự báo"}</span>
+          <span>{forecast ? "chưa có dự báo cho mẫu này" : "chưa có dự báo"}</span>
         )}
         <span className="text-bad">┄ Ngưỡng</span>
         <span className="ml-auto font-mono">{samples.length} mẫu</span>

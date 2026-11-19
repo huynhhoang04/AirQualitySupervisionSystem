@@ -4,7 +4,13 @@ import type { Space } from "../api/types";
 import { useSaveSpace } from "../hooks/useAqss";
 import { ROOM_TEMPLATES } from "../lib/room";
 
-export function RoomProfileForm({ space }: { space: Space }) {
+/**
+ * The profile that decides the threshold.
+ *
+ * `embedded` drops the card chrome and the outer heading: the panel that hosts it already provides
+ * both, and two nested cards made the form look like a separate page.
+ */
+export function RoomProfileForm({ space, embedded = false }: { space: Space; embedded?: boolean }) {
   const preset = ROOM_TEMPLATES.find((item) => item.purpose === space.purpose) ?? ROOM_TEMPLATES[0];
   const [purpose, setPurpose] = useState(space.purpose ?? preset.purpose);
   const [volume, setVolume] = useState(space.volume_m3?.toString() ?? "");
@@ -16,11 +22,13 @@ export function RoomProfileForm({ space }: { space: Space }) {
   const complete = space.volume_m3 != null && space.occupancy_hours != null && space.ventilation_estimate != null;
 
   return (
-    <section className="card mt-6 p-5" aria-label="Hồ sơ tính ngưỡng">
-      <h2 className="font-medium">Hồ sơ tính ngưỡng</h2>
-      <p className="mt-1 text-sm leading-relaxed text-muted">
-        {complete ? "Điều chỉnh thông số theo phòng thực tế." : "Hồ sơ đang thiếu thông số. Chọn mẫu để điền gợi ý, sau đó kiểm tra và lưu."}
-        {" "}Thông số mẫu là giả định, có thể sửa. Lưu hồ sơ xong, xem và áp dụng ngưỡng bên dưới.
+    <section className={embedded ? "pt-3" : "card mt-6 p-5"} aria-label="Hồ sơ tính ngưỡng">
+      {!embedded && <h2 className="font-medium">Hồ sơ tính ngưỡng</h2>}
+      <p className="mt-1 text-[12px] leading-relaxed text-muted">
+        {complete
+          ? "Điều chỉnh thông số theo phòng thực tế."
+          : "Hồ sơ đang thiếu thông số. Chọn mẫu để điền gợi ý, sau đó kiểm tra và lưu."}{" "}
+        Thông số mẫu là giả định, có thể sửa.
       </p>
       <div className="mt-4 flex flex-wrap gap-2">
         {ROOM_TEMPLATES.filter((item) => item.key !== "custom").map((item) => (

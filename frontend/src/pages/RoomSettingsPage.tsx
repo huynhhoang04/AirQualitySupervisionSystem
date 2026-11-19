@@ -1,28 +1,18 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
-import type { Device, Space } from "../api/types";
+import type { Device } from "../api/types";
 import { Icon } from "../components/Icon";
-import { RoomProfileForm } from "../components/RoomProfileForm";
-import {
-  useApplyThreshold,
-  useDevices,
-  useLatest,
-  useResetFilter,
-  useSaveSpace,
-  useSpaces,
-  useThresholdPreview,
-  useUnpairDevice,
-} from "../hooks/useAqss";
-import { fanBehaviour, filterHours, formatAgo, formatHours, roomState } from "../lib/room";
+import { useDevices, useLatest, useResetFilter, useSpaces, useUnpairDevice } from "../hooks/useAqss";
+import { filterHours, formatAgo, formatHours, roomState } from "../lib/room";
 
-/** Thresholds as three positions a person can reason about, with the number shown underneath. */
-const SENSITIVITY = [
-  { key: "low", label: "Ít nhạy", threshold: 50 },
-  { key: "medium", label: "Vừa", threshold: 35 },
-  { key: "high", label: "Nhạy", threshold: 25 },
-] as const;
-
+/**
+ * Device-level settings only: the filter counter and the pairing.
+ *
+ * The room profile and the threshold used to live here. They moved to the room page, next to the
+ * reading and the fan they control — a screen that shows neither cannot be the place to change the
+ * number that decides when the fan runs.
+ */
 export function RoomSettingsPage({ deviceId }: { deviceId: string }) {
   const navigate = useNavigate();
   const devices = useDevices();
@@ -50,206 +40,24 @@ export function RoomSettingsPage({ deviceId }: { deviceId: string }) {
           <Icon name="back" />
         </button>
         <div>
-          <h1 className="text-[15px] font-medium">Cài đặt</h1>
+          <h1 className="text-[15px] font-medium">Cài đặt thiết bị</h1>
           <div className="font-mono text-[10px] text-muted">{space?.name ?? deviceId}</div>
         </div>
       </header>
 
-      {space && <RoomProfileForm key={space.code} space={space} />}
-      <ThresholdSection key={space?.code ?? "missing"} space={space} />
+      <p className="mt-4 rounded-xl border border-line/60 px-3 py-2.5 text-[12px] leading-relaxed text-muted">
+        Hồ sơ phòng và ngưỡng bật máy nằm ở{" "}
+        <Link
+          to={`/room/${encodeURIComponent(deviceId)}`}
+          className="text-info underline-offset-4 hover:underline"
+        >
+          trang phòng
+        </Link>
+        , cạnh số đo và điều khiển quạt.
+      </p>
+
       <FilterSection device={device} />
       <DeviceSection device={device} />
-    </div>
-  );
-}
-
-type ThresholdMode = "manual" | "auto";
-
-function ThresholdSection({ space }: { space?: Space }) {
-  const save = useSaveSpace(space?.code);
-  const applyAuto = useApplyThreshold(space?.code);
-  const current = space?.threshold_pm25 ?? 35;
-
-  const [mode, setMode] = useState<ThresholdMode>(space?.threshold_source === "profile" ? "auto" : "manual");
-  const [draft, setDraft] = useState<number | null>(null);
-  const preview = useThresholdPreview(space?.code, mode === "auto");
-  const profileReady = space != null && space.volume_m3 != null && space.volume_m3 > 0 &&
-    space.occupancy_hours != null && space.occupancy_hours >= 1 && space.occupancy_hours <= 24 &&
-    ["low", "medium", "high"].includes(space.ventilation_estimate ?? "");
-
-  const effective = mode === "auto"
-    ? (preview.data?.computed.threshold_pm25 ?? current)
-    : (draft ?? current);
-  const behaviour = fanBehaviour({ ...(space as Space), threshold_pm25: effective });
-  const changed = Math.abs(effective - current) > 0.01;
-
-  return (
-    <section className="mt-8">
-      <div className="flex items-baseline justify-between">
-        <div className="label">Ngưỡng bật máy</div>
-        <div className="flex gap-1 rounded-lg border border-line p-0.5" role="group" aria-label="Cách đặt ngưỡng">
-          <button
-            type="button"
-            aria-pressed={mode === "manual"}
-            onClick={() => setMode("manual")}
-            className={`rounded-md px-2.5 py-1 text-[11px] transition-colors ${
-              mode === "manual" ? "bg-white font-medium text-canvas" : "text-muted hover:text-white"
-            }`}
-          >
-            Tự chọn
-          </button>
-          <button
-            type="button"
-            aria-pressed={mode === "auto"}
-            onClick={() => setMode("auto")}
-            className={`rounded-md px-2.5 py-1 text-[11px] transition-colors ${
-              mode === "auto" ? "bg-white font-medium text-canvas" : "text-muted hover:text-white"
-            }`}
-          >
-            Tự động
-          </button>
-        </div>
-      </div>
-
-      {mode === "manual" ? (
-        <>
-          <p className="mt-1 text-sm leading-relaxed text-muted">
-            Chọn mức nhạy bạn muốn. Máy bật khi bụi chạm ngưỡng, tắt khi xuống dưới 70 % ngưỡng.
-          </p>
-          <div className="mt-3 grid grid-cols-3 gap-2">
-            {SENSITIVITY.map((option) => (
-              <button
-                key={option.key}
-                type="button"
-                aria-pressed={effective === option.threshold}
-                onClick={() => setDraft(option.threshold)}
-                className={`rounded-xl border py-3 text-sm transition-colors ${
-                  effective === option.threshold
-                    ? "border-white bg-white font-medium text-canvas"
-                    : "border-line text-slate-400 hover:border-slate-500 hover:text-white"
-                }`}
-              >
-                {option.label}
-                <span className="mt-0.5 block font-mono text-[10px] opacity-70">{option.threshold}</span>
-              </button>
-            ))}
-          </div>
-        </>
-      ) : (
-        <>
-          <p className="mt-1 text-sm leading-relaxed text-muted">
-            Tính từ hồ sơ phòng và số đo CO₂ hiện tại. Ngưỡng thấp hơn khi phòng kín hoặc phải ở lâu hơn.
-          </p>
-
-          {preview.isLoading ? (
-            <div className="mt-3 rounded-xl border border-line/70 px-3 py-4 text-sm text-muted">
-              Đang tính…
-            </div>
-          ) : preview.data && profileReady ? (
-            <div className="mt-3 rounded-xl border border-line/70 divide-y divide-line/50">
-              <div className="flex items-baseline justify-between px-3 py-2.5">
-                <span className="text-sm text-slate-200">Ngưỡng đề xuất</span>
-                <span className="font-mono text-lg text-white">
-                  {num(preview.data.computed.threshold_pm25, 1)}
-                  <span className="ml-1 font-sans text-[11px] text-muted">µg/m³</span>
-                </span>
-              </div>
-              <Factor
-                label="Mục tiêu liều/ngày"
-                value={`${num(preview.data.computed.daily_dose_target, 1)} µg/m³`}
-                note={`15 × √(24/${preview.data.computed.occupancy_hours} giờ); công thức vận hành của dự án`}
-              />
-              <Factor
-                label="Hệ số thể tích"
-                value={`× ${num(preview.data.computed.volume_factor, 2)}`}
-                note={
-                  preview.data.computed.volume_m3 == null
-                    ? "chưa nhập thể tích"
-                    : `${preview.data.computed.volume_m3} m³ so với chuẩn 20 m³`
-                }
-              />
-              <Factor
-                label="Hệ số thông gió"
-                value={`× ${num(preview.data.computed.ventilation_factor, 2)}`}
-                note={space?.ventilation_estimate === "low" ? "phòng kín" : space?.ventilation_estimate === "high" ? "thoáng" : "trung bình"}
-              />
-              <Factor
-                label="Hệ số CO₂"
-                value={`× ${num(preview.data.computed.co2_factor, 2)}`}
-                note={
-                  preview.data.computed.co2_ppm == null
-                    ? "chưa có số đo CO₂"
-                    : `${Math.round(preview.data.computed.co2_ppm)} ppm hiện tại`
-                }
-              />
-            </div>
-          ) : (
-            <RawPanel space={space} />
-          )}
-        </>
-      )}
-
-      <div className="mt-3 rounded-xl border border-line/70 px-3 py-2.5 text-[12px] leading-relaxed text-muted">
-        Ngưỡng <span className="font-mono text-slate-200">{effective.toFixed(1)} µg/m³</span> ·{" "}
-        {behaviour.on} · {behaviour.off}
-      </div>
-
-      {mode === "auto" ? (
-        <button
-          type="button"
-          disabled={applyAuto.isPending || !profileReady || !preview.data || preview.isFetching}
-          onClick={() => applyAuto.mutate()}
-          className="btn-primary mt-3 w-full"
-        >
-          {applyAuto.isPending ? "Đang áp dụng…" : `Áp dụng ${effective.toFixed(0)} µg/m³`}
-        </button>
-      ) : (
-        changed && (
-          <button
-            type="button"
-            disabled={save.isPending || !space}
-            onClick={() => save.mutate({ threshold_pm25: effective })}
-            className="btn-primary mt-3 w-full"
-          >
-            {save.isPending ? "Đang lưu…" : `Đặt ngưỡng ${effective.toFixed(0)} µg/m³`}
-          </button>
-        )
-      )}
-
-      {(save.error || applyAuto.error) && (
-        <p className="mt-2 rounded-lg border border-bad/30 bg-bad/10 px-2.5 py-1.5 text-[11px] text-bad">
-          {(save.error ?? applyAuto.error)?.message}
-        </p>
-      )}
-    </section>
-  );
-}
-
-function Factor({ label, value, note }: { label: string; value: string; note: string }) {
-  return (
-    <div className="flex items-baseline justify-between gap-3 px-3 py-2.5">
-      <div className="min-w-0">
-        <div className="text-[12px] text-slate-300">{label}</div>
-        <div className="text-[11px] leading-snug text-muted">{note}</div>
-      </div>
-      <span className="shrink-0 font-mono text-sm text-slate-200">{value}</span>
-    </div>
-  );
-}
-
-/** Formats a number that may be missing, so one absent field cannot take the page down. */
-function num(value: number | null | undefined, digits: number): string {
-  return typeof value === "number" && Number.isFinite(value) ? value.toFixed(digits) : "—";
-}
-
-function RawPanel({ space }: { space?: Space }) {
-  return (
-    <div className="mt-3 rounded-xl border border-line/70 px-3 py-2.5 text-[11px] leading-relaxed text-muted">
-      Phòng này chưa đủ thông số để tính tự động. Cập nhật thể tích, công năng và thông gió trước.
-      <div className="mt-1.5 font-mono text-[10px]">
-        thể tích: {space?.volume_m3 ?? "—"} · công năng: {space?.purpose ?? "—"} · thông gió:{" "}
-        {space?.ventilation_estimate ?? "—"}
-      </div>
     </div>
   );
 }

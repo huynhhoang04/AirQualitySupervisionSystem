@@ -11,6 +11,16 @@ export const MAX_PATH_POINTS = 120;
 /** A break after three missed packets, never sooner than this. */
 export const MIN_GAP_MS = 15_000;
 
+/**
+ * How far behind the newest measurement a forecast may be and still be drawn.
+ *
+ * The worker issues a forecast every few seconds, so a curve anchored seconds ago is current. Once
+ * the anchor is minutes old, the pattern in the chart stops being "a forecast" and becomes "a
+ * measurement joined to a stale guess": the line drops vertically from today's reading to a value
+ * predicted ten minutes earlier. That cliff is an artefact of the join, not something the model said.
+ */
+export const MAX_CURVE_AGE_MS = 120_000;
+
 const DEFAULT_CADENCE_MS = 5_000;
 
 export interface ChartRow {
@@ -109,22 +119,30 @@ export function buildChartRows(
   }
 
   const hasCurve = (path?.values?.length ?? 0) > 0;
-  const connectAt = anchorAt ?? (path ? Date.parse(path.anchor_at) : null);
-  const connectPm = anchorPm ?? path?.anchor_pm25 ?? null;
-  if (connectAt != null && connectPm != null) {
-    put(connectAt, { forecast: connectPm });
-  }
+  const anchorMs0 = path ? Date.parse(path.anchor_at) : null;
+  // A curve whose anchor is far behind the newest sample is not a forecast of the next 30 minutes:
+  // most of its targets are already in the past. Drawing the surviving tail joined to today's
+  // reading produced a short yellow stub with a vertical cliff — an artefact of the join, not
+  // something the model said. A stale forecast is shown as stale, not drawn.
+  const curveIsCurrent =
+    anchorMs0 != null && (anchorAt == null || anchorAt - anchorMs0 <= MAX_CURVE_AGE_MS);
 
-  if (hasCurve && path) {
+  if (hasCurve && path && curveIsCurrent) {
     // The curve is the real forecast: 360 values on a 5 s grid. It is thinned for display only —
     // the stored values are never touched.
-    const anchorMs = Date.parse(path.anchor_at);
+    const anchorMs = anchorMs0!;
     const stepMs = (path.step_seconds || 5) * 1000;
     const stride = Math.max(1, Math.ceil(path.values.length / MAX_PATH_POINTS));
-    const firstVisible = connectAt == null ? anchorMs : Math.max(anchorMs, connectAt);
+    const connectAt = anchorAt ?? anchorMs;
+    put(anchorMs, { forecast: path.anchor_pm25 });
+    if (connectAt > anchorMs) {
+      // Display connector only: the newest reading to the first still-valid target. It is not a
+      // stored forecast value and is never counted as one.
+      put(connectAt, { forecast: anchorPm });
+    }
     const emit = (index: number) => {
       const at = anchorMs + (index + 1) * stepMs;
-      if (at <= firstVisible) {
+      if (at <= connectAt) {
         return;   // superseded by the newer measurement
       }
       put(at, {
@@ -143,8 +161,12 @@ export function buildChartRows(
     return [...rows.values()].sort((a, b) => a.at - b.at);
   }
 
-  for (const point of futurePoints) {
-    put(Date.parse(point.target_at), { forecast: point.pm25 });
+  // A stale curve is not drawn at all (see above). A worker that never sent a curve still has its
+  // three milestones, and those are worth drawing while they are still ahead of the anchor.
+  if (!hasCurve) {
+    for (const point of futurePoints) {
+      put(Date.parse(point.target_at), { forecast: point.pm25 });
+    }
   }
 
   return [...rows.values()].sort((a, b) => a.at - b.at);

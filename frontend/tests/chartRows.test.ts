@@ -69,16 +69,49 @@ test("an isolated single null keeps the gap", () => {
 });
 
 test("the forecast line starts at the newest measurement, not the old anchor", () => {
-  // The model issued for 12:00 with 25; a newer reading of 70 arrived at 12:01.
+  // The model issued 60 s ago with 25; a newer reading of 70 arrived just now. Within the freshness
+  // window the curve is drawn, and its start is the *newest* reading, not the model's anchor.
   const oldPath = path(0, Array.from({ length: 360 }, () => 25));
   const samples = [sample(0, 25), sample(60, 70)];
 
   const rows = buildChartRows(samples, [], oldPath, T0 + 60_000, 70);
 
-  const start = rows.find((row) => row.forecast != null);
-  assert.ok(start, "the forecast has no start point");
-  assert.equal(start.at, T0 + 60_000, "the forecast does not start at the newest sample");
-  assert.equal(start.forecast, 70, "the forecast start carries the stale anchor value");
+  // Rows are sorted by time. The first forecast point is the curve's own anchor (T0, value 25);
+  // the value at the *newest measurement* must be that measurement, not the model's old anchor.
+  const atNow = rows.find((row) => row.at === T0 + 60_000);
+  assert.ok(atNow, "there is no row at the newest sample");
+  assert.equal(atNow.forecast, 70, "the newest sample carries the stale anchor value");
+});
+
+test("a curve older than the freshness window is not drawn at all", () => {
+  /*
+   * The bug this pins: a forecast issued 24 minutes ago still passed the old "anchor inside the
+   * 30-minute window" test. Most of its targets were already past, so what remained was a short
+   * yellow stub, joined to today's reading by a vertical cliff the model never produced.
+   */
+  const stalePath = path(0, Array.from({ length: 360 }, (_, index) => 60 + index * 0.01));
+  const anchorNow = T0 + 24 * 60_000;
+  const samples = [sample(24 * 60, 88)];
+
+  const rows = buildChartRows(samples, [], stalePath, anchorNow, 88);
+
+  assert.equal(
+    rows.filter((row) => row.forecast != null).length,
+    0,
+    "a stale curve was drawn anyway",
+  );
+  assert.equal(rows.filter((row) => row.measured != null).length, 1);
+});
+
+test("a curve anchored seconds ago is drawn in full", () => {
+  const values = Array.from({ length: 360 }, (_, index) => 60 + index * 0.01);
+  const freshPath = path(0, values);
+  // 45 s later: still inside the freshness window.
+  const rows = buildChartRows([sample(45, 61)], [], freshPath, T0 + 45_000, 61);
+
+  const drawn = rows.filter((row) => row.forecast != null);
+  assert.ok(drawn.length > 50, "a fresh curve was dropped");
+  assert.equal(drawn[drawn.length - 1].forecast, values[values.length - 1]);
 });
 
 test("stored curve values after the new anchor are kept", () => {
@@ -94,16 +127,17 @@ test("stored curve values after the new anchor are kept", () => {
   assert.equal(later[later.length - 1].forecast, values[values.length - 1]);
 });
 
-test("three-point fallback still draws a line", () => {
+test("a worker with no curve still shows its three milestones", () => {
   const points = [
     { horizon_minutes: 5, target_at: at(300), pm25: 26, actual_pm25: null, error: null, evaluation_status: "PENDING" },
     { horizon_minutes: 15, target_at: at(900), pm25: 28, actual_pm25: null, error: null, evaluation_status: "PENDING" },
   ];
   const rows = buildChartRows([sample(0, 25)], points, undefined, T0, 25);
 
+  // Three stored milestones are what such a worker has; the newest reading is the measured line.
   assert.deepEqual(
     rows.filter((row) => row.forecast != null).map((row) => row.forecast),
-    [25, 26, 28],
+    [26, 28],
   );
 });
 

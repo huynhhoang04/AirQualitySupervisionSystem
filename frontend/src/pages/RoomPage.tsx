@@ -7,6 +7,7 @@ import { FanSelector } from "../components/FanSelector";
 import { Icon } from "../components/Icon";
 import { ReadingScale, StatusWord, SystemLine } from "../components/Reading";
 import { SeriesChart } from "../components/SeriesChart";
+import { ThresholdPanel } from "../components/ThresholdPanel";
 import {
   useCommands,
   useDevices,
@@ -84,6 +85,11 @@ export function RoomPage({ deviceId }: { deviceId: string }) {
   const online = isOnline(device.last_seen_at);
   const stale = reading != null && now - Date.parse(reading.recorded_at) > STALE_READING_MS;
   const latestCommand = commands.data?.[0];
+  // The panel opens itself when the profile cannot produce a threshold yet: that is the one moment
+  // the operator has to act, and a collapsed panel is a dead end.
+  const profileIncomplete =
+    space != null &&
+    (space.volume_m3 == null || space.occupancy_hours == null || space.ventilation_estimate == null);
   const liveChip =
     live.status === "live"
       ? "border-good/30 bg-good/10 text-good"
@@ -129,17 +135,11 @@ export function RoomPage({ deviceId }: { deviceId: string }) {
             to={`/room/${encodeURIComponent(device.device_id)}/settings`}
             className="btn-ghost px-3 py-2 text-[12px]"
           >
-            <Icon name="settings" size={14} /> Cài đặt
+            <Icon name="settings" size={14} /> Thiết bị
           </Link>
         </div>
       </header>
 
-      {space && (space.volume_m3 == null || space.occupancy_hours == null || space.ventilation_estimate == null) && (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-warn/30 bg-warn/5 px-4 py-3 text-sm">
-          <p>Hồ sơ phòng còn thiếu thông số tính ngưỡng.</p>
-          <Link className="font-medium text-info hover:underline" to={`/room/${encodeURIComponent(deviceId)}/settings`}>Bổ sung hồ sơ phòng →</Link>
-        </div>
-      )}
       <section className="card p-5">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
@@ -252,6 +252,8 @@ export function RoomPage({ deviceId }: { deviceId: string }) {
         )}
       </section>
 
+      <ThresholdPanel space={space} defaultOpen={profileIncomplete} />
+
       <div className="grid gap-4 lg:grid-cols-2">
         <AccuracyPanel deviceId={device.device_id} metricsVersion={live.metricsVersion} />
 
@@ -282,7 +284,7 @@ export function RoomPage({ deviceId }: { deviceId: string }) {
                 to={`/room/${encodeURIComponent(device.device_id)}/settings`}
                 className="underline-offset-4 hover:text-white hover:underline"
               >
-                đổi
+                đổi lõi
               </Link>
             </span>
           </div>
