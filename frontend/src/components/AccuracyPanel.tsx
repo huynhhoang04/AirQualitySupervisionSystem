@@ -56,6 +56,8 @@ export function AccuracyPanel({ deviceId, metricsVersion }: Props) {
 
   const mae = accuracy.mae_ug_m3;
   const within = accuracy.within_tolerance_pct;
+  const relative = accuracy.within_relative_pct;
+  const relativePct = Math.round(accuracy.relative_tolerance * 100);
 
   return (
     <section className="card self-start p-4" aria-label="Dự báo 30 phút khớp đến đâu">
@@ -68,17 +70,22 @@ export function AccuracyPanel({ deviceId, metricsVersion }: Props) {
         </p>
       )}
 
-      {within != null && (
+      {relative != null && (
         <p className="mt-1 text-[12px] leading-relaxed text-slate-200">
-          Cứ 10 lần thì khoảng{" "}
           <strong
             className={`font-mono text-[16px] ${
-              within >= 70 ? "text-good" : within >= 40 ? "text-warn" : "text-bad"
+              relative >= 70 ? "text-good" : relative >= 40 ? "text-warn" : "text-bad"
             }`}
           >
-            {Math.round(within / 10)}
+            {relative.toFixed(0)}%
           </strong>{" "}
-          lần lệch dưới 5 µg/m³.
+          số dự báo nằm trong ±{relativePct}% so với số đo thật.
+        </p>
+      )}
+
+      {within != null && (
+        <p className="mt-1 text-[12px] leading-relaxed text-muted">
+          Cứ 10 lần thì khoảng {Math.round(within / 10)} lần lệch dưới 5 µg/m³.
         </p>
       )}
 

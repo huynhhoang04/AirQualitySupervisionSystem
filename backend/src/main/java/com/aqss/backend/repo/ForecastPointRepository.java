@@ -22,6 +22,11 @@ public interface ForecastPointRepository extends JpaRepository<ForecastPoint, Lo
     /**
      * Per-horizon accuracy for one device and model cohort inside a window. One query instead of
      * loading every point: at a 5 s cadence the window holds tens of thousands of rows.
+     *
+     * <p>Two tolerances are counted side by side because they answer different questions. The
+     * absolute one (±5 µg/m³) is what a person can see on the chart; the relative one (±30 %) is
+     * scale-free, so it stays meaningful when the room is at 10 µg/m³ or at 90. Neither replaces
+     * the other, and both are reported with their own denominator.
      */
     @Query("""
             select p.horizonMinutes as horizonMinutes,
@@ -29,6 +34,11 @@ public interface ForecastPointRepository extends JpaRepository<ForecastPoint, Lo
                    avg(case when p.evaluationStatus = 'SCORED' then abs(p.error) else null end) as mae,
                    sum(case when p.evaluationStatus = 'SCORED' and abs(p.error) <= :tolerance
                             then 1 else 0 end) as within,
+                   sum(case when p.evaluationStatus = 'SCORED' and p.actualPm25 > 0
+                            then 1 else 0 end) as relativeBase,
+                   sum(case when p.evaluationStatus = 'SCORED' and p.actualPm25 > 0
+                             and abs(p.error) <= :relative * p.actualPm25
+                            then 1 else 0 end) as withinRelative,
                    sum(case when p.evaluationStatus = 'PENDING' then 1 else 0 end) as pending,
                    sum(case when p.evaluationStatus = 'UNSCORED_MISSING_TARGET' then 1 else 0 end) as missing,
                    sum(case when p.evaluationStatus = 'LATE_SUBMISSION' then 1 else 0 end) as late
@@ -43,7 +53,8 @@ public interface ForecastPointRepository extends JpaRepository<ForecastPoint, Lo
                                      @Param("modelVersion") String modelVersion,
                                      @Param("from") Instant from,
                                      @Param("to") Instant to,
-                                     @Param("tolerance") float tolerance);
+                                     @Param("tolerance") float tolerance,
+                                     @Param("relative") float relative);
 
     /**
      * Newest scored pairs for the drawer.
@@ -79,6 +90,11 @@ public interface ForecastPointRepository extends JpaRepository<ForecastPoint, Lo
         Double getMae();
 
         Long getWithin();
+
+        /** Scored pairs with a positive actual value — the only ones a relative error is defined for. */
+        Long getRelativeBase();
+
+        Long getWithinRelative();
 
         Long getPending();
 

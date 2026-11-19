@@ -254,6 +254,9 @@ export interface AccuracyHorizon {
   matched: number;
   mae_ug_m3: number | null;
   within_tolerance_pct: number | null;
+  /** Pairs whose actual value is above zero — the denominator of the relative percentage. */
+  relative_base: number;
+  within_relative_pct: number | null;
   pending: number;
   missing: number;
   late: number;
@@ -270,6 +273,11 @@ export interface ForecastAccuracy {
   mae_ug_m3: number | null;
   within_tolerance: number;
   within_tolerance_pct: number | null;
+  relative_base: number;
+  within_relative: number;
+  /** Share of forecasts within `relative_tolerance` (0.30) of the measured value. */
+  within_relative_pct: number | null;
+  relative_tolerance: number;
   pending: number;
   missing: number;
   late: number;

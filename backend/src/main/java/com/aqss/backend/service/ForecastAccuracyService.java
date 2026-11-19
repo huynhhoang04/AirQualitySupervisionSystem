@@ -28,6 +28,15 @@ public class ForecastAccuracyService {
     /** Tolerance for "within". It is shown next to the percentage, never hidden behind it. */
     public static final float TOLERANCE_UG_M3 = 5f;
 
+    /**
+     * Relative tolerance: the share of forecasts within 30 % of the measured value.
+     *
+     * <p>Scale-free, so it survives a room that swings between 10 and 90 µg/m³. It is counted on a
+     * different denominator from the absolute one — pairs whose actual value is above zero — and
+     * that denominator is reported rather than hidden.
+     */
+    public static final float RELATIVE_TOLERANCE = 0.30f;
+
     private static final List<Integer> HORIZONS = List.of(5, 15, 30);
 
     private final ForecastPointRepository points;
@@ -45,7 +54,7 @@ public class ForecastAccuracyService {
         String model = resolveModel(deviceId, modelVersion);
 
         List<ForecastPointRepository.HorizonAggregate> rows = points.aggregate(
-                deviceId, model, from, to, TOLERANCE_UG_M3);
+                deviceId, model, from, to, TOLERANCE_UG_M3, RELATIVE_TOLERANCE);
         ForecastPointRepository.HorizonAggregate row = rows.stream()
                 .filter(item -> horizonMinutes == item.getHorizonMinutes())
                 .findFirst()
@@ -53,6 +62,8 @@ public class ForecastAccuracyService {
 
         long matched = row == null ? 0 : nullSafe(row.getMatched());
         long within = row == null ? 0 : nullSafe(row.getWithin());
+        long relativeBase = row == null ? 0 : nullSafe(row.getRelativeBase());
+        long withinRelative = row == null ? 0 : nullSafe(row.getWithinRelative());
         long pending = row == null ? 0 : nullSafe(row.getPending());
         long missing = row == null ? 0 : nullSafe(row.getMissing());
         long late = row == null ? 0 : nullSafe(row.getLate());
@@ -64,7 +75,9 @@ public class ForecastAccuracyService {
 
         return new Accuracy(deviceId, model, horizonMinutes, window, from, to,
                 matched, mae, within, matched == 0 ? null : round(100.0 * within / matched),
-                pending, missing, late, TOLERANCE_UG_M3, horizons);
+                relativeBase, withinRelative,
+                relativeBase == 0 ? null : round(100.0 * withinRelative / relativeBase),
+                RELATIVE_TOLERANCE, pending, missing, late, TOLERANCE_UG_M3, horizons);
     }
 
     /** The drawer behind "Xem các mốc": newest scored pairs, newest first. */
@@ -98,13 +111,17 @@ public class ForecastAccuracyService {
                 .findFirst()
                 .orElse(null);
         if (row == null) {
-            return new HorizonSummary(horizon, 0, null, null, 0, 0, 0);
+            return new HorizonSummary(horizon, 0, null, null, 0, null, 0, 0, 0);
         }
         long matched = nullSafe(row.getMatched());
         long within = nullSafe(row.getWithin());
+        long relativeBase = nullSafe(row.getRelativeBase());
+        long withinRelative = nullSafe(row.getWithinRelative());
         return new HorizonSummary(horizon, matched,
                 row.getMae() == null ? null : round(row.getMae()),
                 matched == 0 ? null : round(100.0 * within / matched),
+                relativeBase,
+                relativeBase == 0 ? null : round(100.0 * withinRelative / relativeBase),
                 nullSafe(row.getPending()), nullSafe(row.getMissing()), nullSafe(row.getLate()));
     }
 
@@ -117,12 +134,15 @@ public class ForecastAccuracyService {
     }
 
     public record HorizonSummary(int horizonMinutes, long matched, Double maeUgM3,
-                                 Double withinTolerancePct, long pending, long missing, long late) {
+                                 Double withinTolerancePct, long relativeBase,
+                                 Double withinRelativePct, long pending, long missing, long late) {
     }
 
     public record Accuracy(String deviceId, String modelVersion, int horizonMinutes, int windowHours,
                            Instant from, Instant to, long matched, Double maeUgM3,
-                           long withinTolerance, Double withinTolerancePct, long pending, long missing,
-                           long late, float toleranceUgM3, List<HorizonSummary> horizons) {
+                           long withinTolerance, Double withinTolerancePct,
+                           long relativeBase, long withinRelative, Double withinRelativePct,
+                           float relativeTolerance, long pending, long missing, long late,
+                           float toleranceUgM3, List<HorizonSummary> horizons) {
     }
 }

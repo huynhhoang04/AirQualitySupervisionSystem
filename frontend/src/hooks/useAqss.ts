@@ -77,8 +77,13 @@ export const useForecast = (deviceId?: string) =>
   });
 
 /**
- * Forecast accuracy for one horizon. `version` is bumped by an SSE `metrics` event, which makes the
- * query key change and refetches the cohort without a poll.
+ * Forecast accuracy for one horizon.
+ *
+ * Two things keep it in step with the data rather than with a timer:
+ * * `version` is bumped by an SSE `metrics` event, so a freshly scored target refetches at once;
+ * * `placeholderData` keeps the last numbers on screen while that refetch is in flight. Without it
+ *   every scored point replaced the panel with "Đang tải…" — the value was briefly missing exactly
+ *   when it had just changed.
  */
 export const useForecastAccuracy = (deviceId?: string, horizon = 5, hours = 6, version = 0) =>
   useQuery({
@@ -86,6 +91,7 @@ export const useForecastAccuracy = (deviceId?: string, horizon = 5, hours = 6, v
     queryFn: () => api.forecastAccuracy(deviceId!, horizon, hours),
     enabled: Boolean(deviceId),
     refetchInterval: 60_000,
+    placeholderData: (previous) => previous,
     retry: false,
   });
 
@@ -100,6 +106,7 @@ export const useAccuracyPoints = (
     queryKey: ["accuracy-points", deviceId, horizon, hours, version],
     queryFn: () => api.accuracyPoints(deviceId!, horizon, hours),
     enabled: Boolean(deviceId) && enabled,
+    placeholderData: (previous) => previous,
     retry: false,
   });
 

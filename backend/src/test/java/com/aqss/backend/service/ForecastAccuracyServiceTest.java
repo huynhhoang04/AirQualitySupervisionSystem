@@ -72,7 +72,8 @@ class ForecastAccuracyServiceTest {
     @DisplayName("A horizon with no rows at all is reported as zero matched")
     void should_ReportZero_WhenCohortEmpty() {
         stubModel("model-a");
-        when(points.aggregate(anyString(), anyString(), any(), any(), anyFloat())).thenReturn(List.of());
+        when(points.aggregate(anyString(), anyString(), any(), any(), anyFloat(), anyFloat()))
+                .thenReturn(List.of());
 
         ForecastAccuracyService.Accuracy result = service.accuracy("dev-1", 15, 6, null);
 
@@ -120,6 +121,37 @@ class ForecastAccuracyServiceTest {
     }
 
     @Test
+    @DisplayName("The relative percentage uses its own denominator, not the absolute one")
+    void should_ComputeRelativePercentage_OnItsOwnBase() {
+        stubModel("model-a");
+        // 4 scored pairs, but only 3 have an actual value above zero (the only base a relative
+        // error is defined for); 2 of those 3 are within 30 %.
+        stubAggregate(new Aggregate(30, 4L, 2.5, 3L, 0L, 0L, 0L, 3L, 2L));
+
+        ForecastAccuracyService.Accuracy result = service.accuracy("dev-1", 30, 6, null);
+
+        assertThat(result.matched()).isEqualTo(4);
+        assertThat(result.relativeBase()).isEqualTo(3);
+        assertThat(result.withinRelative()).isEqualTo(2);
+        assertThat(result.withinRelativePct()).isEqualTo(66.67);
+        assertThat(result.relativeTolerance()).isEqualTo(0.30f);
+        // The absolute indicator keeps its own denominator and is not overwritten by the relative one.
+        assertThat(result.withinTolerancePct()).isEqualTo(75.0);
+    }
+
+    @Test
+    @DisplayName("No positive actual value means no relative percentage, never zero")
+    void should_ReportNullRelative_WhenBaseIsZero() {
+        stubModel("model-a");
+        stubAggregate(new Aggregate(30, 2L, 3.0, 1L, 0L, 0L, 0L, 0L, 0L));
+
+        ForecastAccuracyService.Accuracy result = service.accuracy("dev-1", 30, 6, null);
+
+        assertThat(result.withinRelativePct()).isNull();
+        assertThat(result.withinTolerancePct()).isEqualTo(50.0);
+    }
+
+    @Test
     @DisplayName("The drawer passes the requested horizon into the query")
     void should_PassHorizonIntoQuery() {
         stubModel("model-a");
@@ -163,12 +195,30 @@ class ForecastAccuracyServiceTest {
     }
 
     private void stubAggregate(ForecastPointRepository.HorizonAggregate... rows) {
-        when(points.aggregate(eq("dev-1"), anyString(), any(), any(), anyFloat()))
+        when(points.aggregate(eq("dev-1"), anyString(), any(), any(), anyFloat(), anyFloat()))
                 .thenReturn(List.of(rows));
     }
 
+    /** Fixtures default the relative counts to the same shape as the absolute ones. */
     private record Aggregate(Integer horizon, Long matched, Double mae, Long within, Long pending,
-                             Long missing, Long late) implements ForecastPointRepository.HorizonAggregate {
+                             Long missing, Long late, Long relativeBase,
+                             Long withinRelative) implements ForecastPointRepository.HorizonAggregate {
+
+        Aggregate(Integer horizon, Long matched, Double mae, Long within, Long pending,
+                  Long missing, Long late) {
+            this(horizon, matched, mae, within, pending, missing, late, matched, within);
+        }
+
+        @Override
+        public Long getRelativeBase() {
+            return relativeBase;
+        }
+
+        @Override
+        public Long getWithinRelative() {
+            return withinRelative;
+        }
+
         @Override
         public Integer getHorizonMinutes() {
             return horizon;
