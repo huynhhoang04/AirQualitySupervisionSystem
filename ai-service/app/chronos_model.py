@@ -35,6 +35,16 @@ MAX_ANCHOR_AGE_SECONDS = 15
 # coverage alone lets a 10-minute outage hide inside 83 %, and a curve fitted across it is a guess.
 MAX_GAP_STEPS = 60
 
+# Below the full window a forecast is still useful, but it is not the same claim. A freshly
+# installed node used to produce nothing for 48 minutes; Chronos handles a shorter history fine, so
+# the model runs on what exists and the result is labelled `warmup` everywhere.
+MIN_WARMUP_STEPS = 180          # 15 minutes
+WARMUP_COVERAGE = 0.9           # of whatever grid the context actually uses
+
+READINESS_FULL = "full"
+READINESS_WARMUP = "warmup"
+READINESS_NOT_READY = "not_ready"
+
 PM_MIN = 0.0
 PM_MAX = 500.0
 
@@ -54,9 +64,11 @@ class ChronosContext:
     covariates: dict[str, np.ndarray]
     anchor_at: datetime
     anchor_pm25: float
-    coverage: float               # share of the 720 steps with a PM sample
+    coverage: float               # share of this context's grid with a PM sample
     steps_present: int
     anchor_age_seconds: float
+    steps_used: int = CONTEXT_STEPS
+    readiness: str = READINESS_NOT_READY
 
 
 def _number(value: Any) -> float | None:
@@ -162,55 +174,103 @@ def build_context(rows: Sequence[dict[str, Any]], *, now: pd.Timestamp | None = 
     if require_fresh and age > MAX_ANCHOR_AGE_SECONDS:
         raise NotReady(f"Mẫu mới nhất đã {age:.0f} giây; cần mới hơn {MAX_ANCHOR_AGE_SECONDS} giây.")
 
-    grid = pd.date_range(anchor_at - step * (context_steps - 1), anchor_at, freq=step)
+    # Use the full window when the history supports it; otherwise use exactly the history that
+    # exists. A 720-step grid stretched over 30 minutes of data is 40 % NaN by construction, which
+    # says nothing about the room — it only says the node is new.
+    history_steps = int((anchor_at - valid["at"].iloc[0]) / step) + 1
+    grid_steps = max(1, min(context_steps, history_steps))
+
+    grid = pd.date_range(anchor_at - step * (grid_steps - 1), anchor_at, freq=step)
     start = grid[0]
     indexed = frame.set_index("at")
 
-    target = _align_to_grid(indexed["pm25"], start, step, context_steps)
+    target = _align_to_grid(indexed["pm25"], start, step, grid_steps)
     steps_present = int(np.isfinite(target).sum())
-    coverage = steps_present / context_steps
+    # Coverage is of the grid actually used; how *much* history that is, is the separate warm-up
+    # rule. Mixing the two let a shortened grid report 100 % over four minutes of data.
+    coverage = steps_present / grid_steps
+    readiness = (
+        READINESS_FULL if grid_steps >= context_steps and coverage >= MIN_CONTEXT_COVERAGE
+        else READINESS_WARMUP
+    )
 
     return ChronosContext(
         grid=grid,
         target=target,
         covariates={
-            "co2": _align_to_grid(indexed["co2"], start, step, context_steps),
-            "temperature": _align_to_grid(indexed["temperature"], start, step, context_steps),
-            "humidity": _align_to_grid(indexed["humidity"], start, step, context_steps),
-            "fan_level": _align_to_grid(indexed["fan_level"], start, step, context_steps),
+            "co2": _align_to_grid(indexed["co2"], start, step, grid_steps),
+            "temperature": _align_to_grid(indexed["temperature"], start, step, grid_steps),
+            "humidity": _align_to_grid(indexed["humidity"], start, step, grid_steps),
+            "fan_level": _align_to_grid(indexed["fan_level"], start, step, grid_steps),
         },
         anchor_at=anchor_at.to_pydatetime(),
         anchor_pm25=anchor_pm25,
         coverage=coverage,
         steps_present=steps_present,
         anchor_age_seconds=age,
+        steps_used=grid_steps,
+        readiness=readiness,
     )
 
 
 def longest_gap_steps(values: np.ndarray) -> int:
-    """Longest run of missing cells in a grid array, in steps."""
+    """
+    Longest run of missing cells *between* the first and last present value.
+
+    The empty region before a device started reporting is not a hole in the data — it is short
+    history, and the coverage rule already measures it. Counting it here produced a confusing
+    "32-minute hole" on a stream that had been perfect for its whole 27-minute life.
+    """
+    present = np.flatnonzero(np.isfinite(values))
+    if len(present) < 2:
+        return 0
     longest = current = 0
-    for present in np.isfinite(values):
-        current = 0 if present else current + 1
+    for index in range(present[0], present[-1] + 1):
+        current = 0 if np.isfinite(values[index]) else current + 1
         longest = max(longest, current)
     return longest
 
 
 def ensure_ready(context: ChronosContext, *, min_coverage: float = MIN_CONTEXT_COVERAGE,
-                 max_gap_steps: int = MAX_GAP_STEPS) -> None:
-    if context.coverage < min_coverage:
-        raise NotReady(
-            f"Context chỉ có {context.coverage:.0%} bước hợp lệ; cần ≥ {min_coverage:.0%} "
-            f"({context.steps_present}/{CONTEXT_STEPS} bước 5 giây)."
-        )
+                 max_gap_steps: int = MAX_GAP_STEPS) -> str:
+    """
+    Decide whether this context may produce a forecast, and return which claim it supports.
+
+    Two levels, both honest:
+
+    * `full` — the whole 720-step window with ≥ 80 % coverage. The normal case.
+    * `warmup` — a shorter grid (≥ 15 minutes) over the history that actually exists, with high
+      coverage of *that* grid, and no long hole. Used right after a node is installed; the result is
+      labelled as such everywhere so it is never mistaken for a full-window forecast.
+
+    Raises when neither applies.
+    """
+    if not math.isfinite(context.anchor_pm25):
+        raise NotReady("Mẫu nối không có PM hợp lệ.")
+
     gap = longest_gap_steps(context.target)
     if gap > max_gap_steps:
         raise NotReady(
             f"Có khoảng mất dữ liệu {gap * STEP_SECONDS / 60:.1f} phút trong context; "
             f"tối đa {max_gap_steps * STEP_SECONDS / 60:.0f} phút."
         )
-    if not math.isfinite(context.anchor_pm25):
-        raise NotReady("Mẫu nối không có PM hợp lệ.")
+
+    if context.steps_used >= CONTEXT_STEPS and context.coverage >= min_coverage:
+        return READINESS_FULL
+
+    # Warm-up: enough contiguous history to say something, and tight coverage of the short grid.
+    if context.steps_present < MIN_WARMUP_STEPS:
+        minutes_have = context.steps_present * STEP_SECONDS / 60
+        minutes_need = MIN_WARMUP_STEPS * STEP_SECONDS / 60
+        raise NotReady(
+            f"Mới có {minutes_have:.0f} phút lịch sử hợp lệ; cần ít nhất {minutes_need:.0f} phút "
+            f"để phát dự báo đầu tiên."
+        )
+    if context.coverage < WARMUP_COVERAGE:
+        raise NotReady(
+            f"Context ngắn chỉ có {context.coverage:.0%} bước hợp lệ; cần ≥ {WARMUP_COVERAGE:.0%}."
+        )
+    return READINESS_WARMUP
 
 
 def _at_anchor(values: np.ndarray | None) -> float | None:
@@ -232,11 +292,12 @@ def to_model_input(context: ChronosContext) -> list[dict[str, Any]]:
     One sample in Chronos-2's documented shape.
 
     Past covariates are passed exactly as observed; no key is placed in `future_covariates`,
-    because the room's future fan state and future CO2 are unknown at issue time.
+    because the room's future fan state and future CO2 are unknown at issue time. A warm-up context
+    supplies its own (shorter) length rather than being padded back to 720 with NaN.
     """
-    target = _pad_or_trim(context.target.astype(np.float32), CONTEXT_STEPS)
+    target = context.target.astype(np.float32)
     covariates = {
-        name: _pad_or_trim(values.astype(np.float32), CONTEXT_STEPS)
+        name: values.astype(np.float32)
         for name, values in context.covariates.items()
         if np.isfinite(values).any()
     }
@@ -268,14 +329,14 @@ class ChronosForecaster:
         Return the median path plus the 10/90 band. Index i corresponds to anchor + (i+1) steps:
         the anchor itself is the measured value and is not part of the forecast.
         """
-        ensure_ready(context)
+        readiness = ensure_ready(context)
         inputs = to_model_input(context)
         # `predict` returns the full quantile tensor; `predict_quantiles` selects levels and does
         # interpolation, so one call is enough for both the median and the band.
         raw = self.pipeline.predict(
             inputs,
             prediction_length=steps,
-            context_length=CONTEXT_STEPS,
+            context_length=len(context.target),
         )
         tensor = raw[0]
         values = tensor.detach().cpu().numpy() if hasattr(tensor, "detach") else np.asarray(tensor)
@@ -302,6 +363,8 @@ class ChronosForecaster:
             "coverage": context.coverage,
             "steps_present": context.steps_present,
             "model_version": self.model_version,
+            "readiness": readiness,
+            "steps_used": context.steps_used,
         }
 
     def forecast_context(self, context: ChronosContext) -> dict[str, Any]:
@@ -333,7 +396,10 @@ class ChronosForecaster:
             "data_quality": {
                 "model_kind": "chronos",
                 "model_version": result["model_version"],
-                "context_steps": CONTEXT_STEPS,
+                # "warmup" means the curve was fitted on 15–60 minutes of history, not the full hour.
+                # The UI says so; it must never be presented as a full-window forecast.
+                "readiness": result["readiness"],
+                "context_steps": result["steps_used"],
                 "prediction_steps": PREDICTION_STEPS,
                 "context_coverage": round(context.coverage, 3),
                 "steps_present": context.steps_present,

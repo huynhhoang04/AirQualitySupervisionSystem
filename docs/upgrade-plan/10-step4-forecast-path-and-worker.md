@@ -162,8 +162,68 @@ bước có fan_level (trước là 0/720).
 `npm test` được thêm vào `frontend/package.json`; `tsconfig.test.json` typecheck riêng thư mục
 `tests/` vì `tsconfig.app.json` chỉ gồm `src/`.
 
-## 6. Chưa kiểm chứng
+## 5c. Hoàn thiện sau khi deploy
 
+### Vấn đề: node mới không có dự báo trong 48 phút
+
+Luật readiness ban đầu đòi đủ context 720 bước ở 80% coverage — tức **48 phút dữ liệu**. Node vừa
+cài đặt không có dự báo nào trong gần một giờ, và tính năng trông như hỏng. Trên thực tế đã quan sát
+đúng như vậy lúc deploy: worker online, telemetry đều 5 s, nhưng `issued: 0` với lý do "57% bước hợp
+lệ".
+
+**Sửa:** hai mức readiness.
+
+| Mức | Điều kiện | Nhãn |
+| :--- | :--- | :--- |
+| `full` | 720 bước, coverage ≥ 80% | bình thường |
+| `warmup` | ≥ 180 bước (15 phút), coverage ≥ 90% **của lưới thực dùng** | `readiness: "warmup"` |
+
+Lưới được rút ngắn về đúng lượng lịch sử có thật, không pad NaN cho đủ 720 — pad sẽ tạo cảm giác
+"đủ context" trong khi thực chất chỉ có 20 phút. Kết quả warm-up là dự báo thật trên dữ liệu thật;
+nhãn chỉ nói rằng nó là một claim yếu hơn.
+
+Kèm theo, `longest_gap_steps` giờ chỉ đo **giữa mẫu đầu và mẫu cuối**. Trước đó nó tính cả vùng
+trống trước khi node bắt đầu gửi, nên báo "lỗ 32 phút" cho một stream hoàn toàn không có lỗ — một
+câu sai về dữ liệu.
+
+Đo trên backend đã deploy: 47 phút lịch sử → `readiness: warmup`, coverage 99,6%, upload thành công
+một curve 360 giá trị (`run be0ab058`). Worker trên máy chạy liên tục giờ phát dự báo ngay thay vì
+chờ.
+
+### UI gọn lại
+
+| Trước | Sau |
+| :--- | :--- |
+| 4 card KPI lớn ở Tổng quan (máy lọc / đang lọc / AI worker / model) | một dòng trạng thái |
+| Panel độ khớp hiện 3 số gạch ngang + bảng 3 dòng toàn số 0 khi chưa có mốc | một câu giải thích |
+| Chart: 2 dòng chú thích trùng nhau + legend 4 mục | legend 3 mục, badge `WARM-UP` khi áp dụng |
+| Room: nhãn "Không khí", 4 metric 24h dạng ô, khối 3 dòng trạng thái quạt | một dòng số + một dòng tóm tắt 24h; trạng thái quạt 1 dòng |
+| Room header: 3 nút "Mở cửa / Có người / Mở cửa sổ" | bỏ (xem bên dưới) |
+| Tổng quan ghi `model persistence` | `model chronos-2` |
+
+### Hai nhãn sai đã sửa
+
+**`model persistence`.** `RoomsPage` lấy nhãn từ `AiModel` — registry sklearn `feature-v2`, rỗng vì
+chưa model nào qua cổng promote. Khi `null`, UI rơi vào chuỗi mặc định `"persistence"`, trong khi
+thứ đang dự báo là Chronos-2. Ba khái niệm bị lẫn: registry sklearn (rỗng), baseline persistence
+(chỉ đúng khi `model_kind = baseline`), và model thật (`run.model_version`).
+`frontend/src/lib/modelLabel.ts` giờ đọc từ forecast đang chạy.
+
+**"Chưa có kết quả đánh giá"** trên trang Đánh giá trong khi Chronos đang phục vụ và đang được chấm
+thật (150+ mốc). Trang giờ có khối "Model đang phục vụ" ở đầu với MAE/±5/số mốc trực tiếp; khối
+registry sklearn rỗng được giải thích là "chưa có model sklearn", không phải "chưa có gì".
+
+### Nút ghi sự kiện phòng đã bỏ
+
+Ba nút `Mở cửa`, `Có người`, `Mở cửa sổ` nằm ở header phòng trông như điều khiển hệ thống, nhưng
+**không ảnh hưởng gì**: `ControlLoop` và `ThresholdService` không tham chiếu `room_events` (0 lần),
+`fetch_events` bên worker có định nghĩa nhưng không được gọi. Contract đã ghi từ đầu: "Operator
+context, never required by a model". Đã bỏ khỏi UI cùng hook/type không còn dùng.
+
+Bảng `room_events` và endpoint `/api/v1/devices/{id}/events` **vẫn được giữ**: dữ liệu cũ còn đó và
+API worker-export còn dùng. Chỉ giao diện ghi mới bị bỏ.
+
+## 6. Chưa kiểm chứng
 - [ ] Chạy `FORECAST_ENGINE=chronos` liên tục với node thật và đo end-to-end sensor → chart.
 - [ ] P95 của cả vòng (đọc cache + inference + upload + SSE) dưới 5 giây. Đã đo riêng inference:
       17 ms. Phần mạng chưa đo.

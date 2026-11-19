@@ -73,10 +73,9 @@ public class ForecastAccuracyService {
                                             String modelVersion, int limit) {
         String model = resolveModel(deviceId, modelVersion);
         Instant from = Instant.now().minus(Duration.ofHours(Math.max(1, Math.min(hours, 24 * 14))));
-        return points.recentScored(deviceId, model, from,
-                        PageRequest.of(0, Math.max(1, Math.min(limit, 200)))).stream()
-                .filter(point -> horizonMinutes == 0 || point.horizonMinutes() == horizonMinutes)
-                .toList();
+        Integer horizon = horizonMinutes == 0 ? null : horizonMinutes;
+        return points.recentScored(deviceId, model, from, horizon,
+                PageRequest.of(0, Math.max(1, Math.min(limit, 200))));
     }
 
     /**

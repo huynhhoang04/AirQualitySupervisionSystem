@@ -90,6 +90,7 @@ configs/
   air_quality_synthetic.yaml  generator parameters (scenario, faults, split)
 tools/
   benchmark_chronos.py        latency/VRAM measurement
+  check_worker.py             read-only preflight against a deployed backend
   generate_air_quality.py     seeded synthetic sessions → Parquet shards
   analyze_air_quality.py      EDA, figures, real-vs-synthetic comparison
   train_chronos.py            LoRA fine-tune + validation gate + manifest
@@ -115,6 +116,30 @@ python -m app.worker_entry
 
 The worker only makes **outbound** connections; no inbound port or tunnel is needed. Diagnostics:
 `uvicorn app.main:app --host 127.0.0.1 --port 8001` serves `GET /health`.
+
+### Preflight before you test
+
+`tools/check_worker.py` answers "can this laptop serve that backend right now" and prints the reason
+when it cannot. It is read-only unless you pass `--upload`:
+
+```bash
+PYTHONPATH=. .venv-chronos/bin/python tools/check_worker.py            # Chronos, dry run
+PYTHONPATH=. .venv/bin/python tools/check_worker.py --engine sklearn   # no torch needed
+PYTHONPATH=. .venv-chronos/bin/python tools/check_worker.py --upload   # store one run
+```
+
+It checks health, the V6.1–V6.3 endpoints, context coverage and longest hole, then the anchor age,
+and only then runs the model.
+
+**Readiness has two levels.** A full forecast uses the whole 720-step (60 min) window at ≥ 80 %
+coverage. A node that has just been installed gets a **warm-up** forecast as soon as it has 15
+minutes of clean history: the grid shrinks to the data that exists instead of being padded with NaN,
+and the result is labelled `readiness: "warmup"` in `data_quality` and in the chart legend. It is a
+real forecast on real data, presented as the weaker claim it is. Without this, a new node produced
+nothing for 48 minutes and the feature looked broken.
+
+The context is also refused outright when any single hole exceeds 5 minutes, because coverage alone
+lets a 10-minute outage hide inside 83 %.
 
 ## Tests
 

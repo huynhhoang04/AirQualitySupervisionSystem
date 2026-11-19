@@ -168,9 +168,23 @@ export interface ForecastRun {
   accepted_at: string;
   profile_version: number | null;
   threshold_pm25: number | null;
-  data_quality: Record<string, unknown> | null;
+  data_quality: ForecastQuality | null;
   worker_id: string | null;
   status: string;
+}
+
+/** `data_quality` is free-form JSON; the fields the UI relies on are typed, the rest is allowed. */
+export interface ForecastQuality {
+  model_kind?: string;
+  /** "full" = 60-minute context, "warmup" = 15–60 minutes right after a node is installed. */
+  readiness?: "full" | "warmup";
+  context_steps?: number;
+  context_coverage?: number;
+  pm_at_origin?: number;
+  co2_at_origin?: number | null;
+  fallback_reason?: string | null;
+  recommendations?: { kind: string; severity: string; title: string; detail: string }[];
+  [key: string]: unknown;
 }
 
 export interface ForecastPath {
@@ -338,17 +352,6 @@ export interface AiAlert {
   lifecycle: string;
   feedback: string | null;
   feedback_at: string | null;
-}
-
-export interface RoomEvent {
-  id: string;
-  device_id: string | null;
-  space_code: string | null;
-  occurred_at: string;
-  received_at: string;
-  type: string;
-  note: string | null;
-  experiment_id: string | null;
 }
 
 export interface AuditEntry {

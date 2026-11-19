@@ -1,12 +1,17 @@
 import { useSearchParams } from "react-router-dom";
 
 import type { AiAlert, AiModelStatus } from "../api/types";
-import { useAiModels, useAlerts, useDevices, useSpaces } from "../hooks/useAqss";
+import { useAiModels, useAlerts, useDevices, useForecast, useForecastAccuracy, useSpaces } from "../hooks/useAqss";
 import { formatAgo } from "../lib/room";
+import { modelLabel } from "../lib/modelLabel";
 
 /**
  * Evaluation: what was measured, not what was hoped. Every table carries its sample count, and a
  * model that lost is shown with the reason it lost.
+ *
+ * Two different questions live here, and they must not be confused: what the *serving* model is
+ * scoring right now against live measurements (top), and the frozen retrospective test of a learned
+ * sklearn model (below). The sklearn registry can be empty while a model is serving forecasts.
  */
 export function EvaluationPage() {
   const [params, setParams] = useSearchParams();
@@ -17,6 +22,8 @@ export function EvaluationPage() {
   const space = spaces.data?.find((item) => item.code === device?.space_code);
   const models = useAiModels(deviceId);
   const alerts = useAlerts(deviceId);
+  const forecast = useForecast(deviceId);
+  const live = useForecastAccuracy(deviceId, 5, 6);
 
   const model = pickModel(models.data);
 
@@ -42,14 +49,54 @@ export function EvaluationPage() {
         </select>
       </header>
 
+      <section className="card p-4 lg:p-5">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <div className="label">Model đang phục vụ</div>
+          <span className="font-mono text-[11px] text-slate-300">
+            {modelLabel(forecast.data?.run)}
+          </span>
+        </div>
+        <p className="mt-2 text-[11px] leading-relaxed text-muted">
+          Đánh giá trực tiếp: các dự báo đã phát hành được chấm bằng số đo đến sau, không phải
+          test window đóng băng.
+        </p>
+        <dl className="mt-3 grid grid-cols-3 gap-3 text-[12px]">
+          <div>
+            <dt className="text-[10px] uppercase tracking-wider text-muted">Lệch TB +5p</dt>
+            <dd className="font-mono text-lg text-slate-100">
+              {live.data?.mae_ug_m3 == null ? "—" : live.data.mae_ug_m3.toFixed(1)}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-[10px] uppercase tracking-wider text-muted">Trong ±5</dt>
+            <dd className="font-mono text-lg text-slate-100">
+              {live.data?.within_tolerance_pct == null
+                ? "—"
+                : `${live.data.within_tolerance_pct.toFixed(0)}%`}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-[10px] uppercase tracking-wider text-muted">Mốc</dt>
+            <dd className="font-mono text-lg text-slate-100">{live.data?.matched ?? "—"}</dd>
+          </div>
+        </dl>
+        {forecast.data?.run.data_quality?.readiness === "warmup" && (
+          <p className="mt-2 text-[11px] text-warn">
+            Model đang chạy warm-up (15–60 phút lịch sử), chưa đủ context một giờ.
+          </p>
+        )}
+      </section>
+
       {models.isLoading ? (
         <p className="text-sm text-muted">Đang tải kết quả…</p>
       ) : !model ? (
-        <section className="card p-6">
-          <h3 className="text-sm font-medium">Chưa có kết quả đánh giá</h3>
-          <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted">
-            Cần một model đã train trên dữ liệu node thật, với test window tách riêng. Hệ thống không
-            điền số minh hoạ vào bảng này; khi chưa đủ dữ liệu, nó nói chưa đủ dữ liệu.
+        <section className="card p-5">
+          <h3 className="text-sm font-medium">Chưa có model sklearn nào được đánh giá độc lập</h3>
+          <p className="mt-2 max-w-2xl text-[12px] leading-relaxed text-muted">
+            Registry này chỉ chứa model <span className="font-mono">feature-v2</span> huấn luyện trên
+            dữ liệu node thật. Chưa có model nào như vậy, nên không có test window đóng băng để chấm.
+            Đây không phải lỗi: model đang phục vụ là Chronos-2, và nó được đánh giá trực tiếp ở
+            khối phía trên.
           </p>
         </section>
       ) : (

@@ -1,11 +1,21 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 import type { ScoredPoint } from "../api/types";
 import { useAccuracyPoints, useForecastAccuracy } from "../hooks/useAqss";
 
-const HORIZONS = [5, 15, 30] as const;
-/** Below this, the numbers are published but labelled as still collecting data. */
+/**
+ * The product forecasts 30 minutes, so the scoreboard scores 30 minutes.
+ *
+ * The previous version offered +5/+15/+30 tabs and two statistics (MAE, "% inside a ±5 band")
+ * without saying what either meant. Nobody opens a room page to read a mean absolute error. This
+ * version answers the question the room actually asks — "how close was it, really?" — by putting
+ * the guesses next to the truth as bars.
+ */
+const HORIZON_MINUTES = 30;
+const WINDOW_HOURS = 6;
 const MIN_PAIRS = 20;
+/** How many recent forecasts the comparison strip draws. */
+const STRIP_SIZE = 24;
 
 interface Props {
   deviceId: string;
@@ -13,211 +23,193 @@ interface Props {
   metricsVersion: number;
 }
 
-/**
- * How the forecasts already issued matched the room. Two absolute indicators and a count — never a
- * single "accuracy %", which PM near zero makes meaningless.
- */
 export function AccuracyPanel({ deviceId, metricsVersion }: Props) {
-  const [horizon, setHorizon] = useState<number>(5);
   const [open, setOpen] = useState(false);
-  const query = useForecastAccuracy(deviceId, horizon, 6, metricsVersion);
-  const accuracy = query.data;
+  const summary = useForecastAccuracy(deviceId, HORIZON_MINUTES, WINDOW_HOURS, metricsVersion);
+  const accuracy = summary.data;
+
+  if (summary.isLoading) {
+    return (
+      <section className="card self-start p-4" aria-label="Dự báo 30 phút khớp đến đâu">
+        <Header />
+        <p className="mt-2 text-[12px] text-muted">Đang tải…</p>
+      </section>
+    );
+  }
+
+  if (!accuracy || accuracy.matched === 0) {
+    return (
+      <section className="card self-start p-4" aria-label="Dự báo 30 phút khớp đến đâu">
+        <Header />
+        <p className="mt-2 text-[12px] leading-relaxed text-muted">
+          Chưa có dự báo nào đủ 30 phút để chấm. Mỗi đường dự báo cần 30 phút trôi qua mới biết nó
+          đúng đến đâu.
+        </p>
+        {accuracy && accuracy.pending > 0 && (
+          <p className="mt-1.5 text-[11px] text-muted">
+            {accuracy.pending} dự báo đang chờ đủ 30 phút.
+          </p>
+        )}
+      </section>
+    );
+  }
+
+  const mae = accuracy.mae_ug_m3;
+  const within = accuracy.within_tolerance_pct;
 
   return (
-    <section className="card p-4" aria-label="Độ khớp dự báo">
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <div className="label">Độ khớp dự báo</div>
-        <div
-          className="flex gap-1 rounded-lg border border-line p-0.5"
-          role="group"
-          aria-label="Độ xa dự báo"
-        >
-          {HORIZONS.map((value) => (
-            <button
-              key={value}
-              type="button"
-              aria-pressed={horizon === value}
-              onClick={() => setHorizon(value)}
-              className={`rounded-md px-2 py-0.5 font-mono text-[10px] transition-colors ${
-                horizon === value ? "bg-white font-medium text-canvas" : "text-muted hover:text-white"
-              }`}
-            >
-              {value}p
-            </button>
-          ))}
-        </div>
-      </div>
+    <section className="card self-start p-4" aria-label="Dự báo 30 phút khớp đến đâu">
+      <Header />
 
-      {query.isLoading && <p className="mt-3 text-sm text-muted">Đang tải…</p>}
-
-      {!query.isLoading && accuracy == null && (
-        <p className="mt-3 text-sm leading-relaxed text-muted">
-          Chưa có dự báo nào được phát hành để đối chiếu. Panel cần một run thật.
+      {mae != null && (
+        <p className="mt-2 text-[12px] leading-relaxed text-slate-200">
+          Nhìn trước 30 phút, con số thường lệch{" "}
+          <strong className="font-mono text-[16px] text-slate-100">{mae.toFixed(1)}</strong> µg/m³.
         </p>
       )}
 
-      {accuracy && (
-        <>
-          <dl className="mt-3 space-y-2.5">
-            <div>
-              <dt className="text-[11px] text-muted">Sai lệch trung bình</dt>
-              <dd className="font-mono text-2xl tabular-nums text-slate-100">
-                {accuracy.mae_ug_m3 == null ? "—" : accuracy.mae_ug_m3.toFixed(1)}
-                <span className="ml-1 font-sans text-[11px] font-normal text-muted">µg/m³</span>
-              </dd>
-            </div>
-            <div>
-              <dt className="text-[11px] text-muted">
-                Trong ±{accuracy.tolerance_ug_m3.toFixed(0)} µg/m³
-              </dt>
-              <dd className="font-mono text-2xl tabular-nums text-slate-100">
-                {accuracy.within_tolerance_pct == null
-                  ? "—"
-                  : `${accuracy.within_tolerance_pct.toFixed(0)}%`}
-              </dd>
-            </div>
-            <div>
-              <dt className="text-[11px] text-muted">Mốc đã đối chiếu</dt>
-              <dd className="font-mono text-sm text-slate-200">
-                {accuracy.matched}
-                {accuracy.pending > 0 && (
-                  <span className="ml-2 font-sans text-[10px] text-muted">
-                    {accuracy.pending} đang chờ mốc
-                  </span>
-                )}
-              </dd>
-            </div>
-          </dl>
-
-          <HorizonBreakdown accuracy={accuracy} current={horizon} onSelect={setHorizon} />
-
-          {accuracy.matched === 0 ? (
-            <p className="mt-3 text-[11px] leading-relaxed text-muted">Chưa đủ mốc đối chiếu.</p>
-          ) : accuracy.matched < MIN_PAIRS ? (
-            <p className="mt-3 text-[11px] leading-relaxed text-muted">
-              Đang thu thêm dữ liệu — {accuracy.matched} cặp là ít, số liệu sẽ ổn định hơn khi tích luỹ.
-            </p>
-          ) : null}
-
-          {accuracy.missing + accuracy.late > 0 && (
-            <p className="mt-2 text-[10px] leading-relaxed text-muted">
-              {accuracy.missing} mốc thiếu số đo · {accuracy.late} run nộp trễ (không tính).
-            </p>
-          )}
-
-          <p className="mt-2 truncate font-mono text-[10px] text-muted" title={accuracy.model_version}>
-            model: {accuracy.model_version}
-          </p>
-
-          <button
-            type="button"
-            onClick={() => setOpen((value) => !value)}
-            className="mt-3 text-[11px] text-info underline-offset-4 hover:underline"
+      {within != null && (
+        <p className="mt-1 text-[12px] leading-relaxed text-slate-200">
+          Cứ 10 lần thì khoảng{" "}
+          <strong
+            className={`font-mono text-[16px] ${
+              within >= 70 ? "text-good" : within >= 40 ? "text-warn" : "text-bad"
+            }`}
           >
-            {open ? "Ẩn các mốc" : "Xem các mốc"}
-          </button>
-        </>
+            {Math.round(within / 10)}
+          </strong>{" "}
+          lần lệch dưới 5 µg/m³.
+        </p>
       )}
 
-      {accuracy && open && (
-        <AccuracyDrawer deviceId={deviceId} horizon={horizon} metricsVersion={metricsVersion} />
-      )}
+      <Comparison deviceId={deviceId} metricsVersion={metricsVersion} />
+
+      <p className="mt-2 text-[11px] text-muted">
+        {accuracy.matched} lần đã chấm · 6 giờ gần nhất
+        {accuracy.matched < MIN_PAIRS && " · còn ít, số sẽ ổn định hơn khi tích luỹ"}
+      </p>
+
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        className="mt-1.5 text-[11px] text-info underline-offset-4 hover:underline"
+      >
+        {open ? "Ẩn bảng chi tiết" : "Xem bảng chi tiết"}
+      </button>
+
+      {open && <AccuracyDrawer deviceId={deviceId} metricsVersion={metricsVersion} />}
     </section>
   );
 }
 
-/** 5 / 15 / 30 at a glance; clicking a row switches the panel to that horizon. */
-function HorizonBreakdown({
-  accuracy,
-  current,
-  onSelect,
-}: {
-  accuracy: NonNullable<ReturnType<typeof useForecastAccuracy>["data"]>;
-  current: number;
-  onSelect: (horizon: number) => void;
-}) {
-  if (accuracy.horizons.length === 0) {
+function Header() {
+  return (
+    <div className="flex flex-wrap items-baseline justify-between gap-2">
+      <div className="label">Dự báo 30 phút khớp đến đâu</div>
+      <span className="font-mono text-[10px] text-muted">mỗi cột ≈ 1 lần</span>
+    </div>
+  );
+}
+
+/**
+ * Two bars per forecast: what was predicted and what was measured.
+ *
+ * A shorter yellow bar than the cyan one means the forecast was too low; equal heights mean it was
+ * right. This needs no legend beyond colour and no statistics at all — it is the same visual
+ * grammar as the chart above.
+ */
+function Comparison({ deviceId, metricsVersion }: { deviceId: string; metricsVersion: number }) {
+  const query = useAccuracyPoints(deviceId, HORIZON_MINUTES, WINDOW_HOURS, true, metricsVersion);
+  const rows = useMemo(
+    () => [...(query.data ?? [])].slice(0, STRIP_SIZE).reverse(),
+    [query.data],
+  );
+
+  if (query.isLoading) {
+    return <div className="mt-3 h-20 animate-pulse rounded-lg bg-line/30" />;
+  }
+  if (rows.length === 0) {
     return null;
   }
+
+  const top = Math.max(...rows.flatMap((row) => [row.predicted_pm25, row.actual_pm25]), 10) * 1.1;
+
   return (
-    <table className="mt-3 w-full text-left text-[10px]">
-      <thead className="text-[9px] uppercase tracking-wider text-muted">
-        <tr>
-          <th className="py-1">Độ xa</th>
-          <th className="py-1 text-right">Cặp</th>
-          <th className="py-1 text-right">Lệch TB</th>
-          <th className="py-1 text-right">±5</th>
-        </tr>
-      </thead>
-      <tbody>
-        {accuracy.horizons.map((item) => (
-          <tr
-            key={item.horizon_minutes}
-            onClick={() => onSelect(item.horizon_minutes)}
-            className={`cursor-pointer border-t border-line/30 ${item.horizon_minutes === current ? "text-slate-100" : "text-muted"}`}
-          >
-            <td className="py-1">+{item.horizon_minutes}p</td>
-            <td className="py-1 text-right font-mono">{item.matched}</td>
-            <td className="py-1 text-right font-mono">
-              {item.mae_ug_m3 == null ? "—" : item.mae_ug_m3.toFixed(1)}
-            </td>
-            <td className="py-1 text-right font-mono">
-              {item.within_tolerance_pct == null ? "—" : `${item.within_tolerance_pct.toFixed(0)}%`}
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
+    <div className="mt-3">
+      <div
+        className="flex h-20 items-end gap-[3px]"
+        role="img"
+        aria-label="So sánh dự báo và thực đo của các lần gần nhất"
+      >
+        {rows.map((row) => {
+          const close = Math.abs(row.error) <= 5;
+          return (
+            <div
+              key={`${row.issued_at}-${row.target_at}`}
+              className="flex h-full flex-1 items-end justify-center gap-px"
+              title={`Đoán ${row.predicted_pm25.toFixed(1)} · thực tế ${row.actual_pm25.toFixed(1)} · lệch ${row.error > 0 ? "+" : ""}${row.error.toFixed(1)}`}
+            >
+              <span
+                className="w-1/2 rounded-t-sm bg-warn/70"
+                style={{ height: `${Math.max(2, (row.predicted_pm25 / top) * 100)}%` }}
+              />
+              <span
+                className={`w-1/2 rounded-t-sm ${close ? "bg-info" : "bg-bad/80"}`}
+                style={{ height: `${Math.max(2, (row.actual_pm25 / top) * 100)}%` }}
+              />
+            </div>
+          );
+        })}
+      </div>
+      <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-[10px] text-muted">
+        <span className="text-warn">▮ đoán</span>
+        <span className="text-info">▮ thực tế, lệch ≤ 5</span>
+        <span className="text-bad">▮ thực tế, lệch &gt; 5</span>
+        <span className="ml-auto">{rows.length} lần gần nhất</span>
+      </div>
+    </div>
   );
 }
 
 function AccuracyDrawer({
   deviceId,
-  horizon,
   metricsVersion,
 }: {
   deviceId: string;
-  horizon: number;
   metricsVersion: number;
 }) {
-  const query = useAccuracyPoints(deviceId, horizon, 6, true, metricsVersion);
+  const query = useAccuracyPoints(deviceId, HORIZON_MINUTES, WINDOW_HOURS, true, metricsVersion);
   const rows: ScoredPoint[] = query.data ?? [];
 
   return (
-    <div className="mt-3 border-t border-line/60 pt-3">
-      <p className="text-[10px] leading-relaxed text-muted">
-        Phát hành → mốc → dự báo → thực đo → lệch. Chỉ các cặp đã chấm, mới nhất trước.
-      </p>
-      {query.isLoading && <p className="mt-2 text-[11px] text-muted">Đang tải…</p>}
+    <div className="mt-2 border-t border-line/60 pt-2">
+      {query.isLoading && <p className="text-[11px] text-muted">Đang tải…</p>}
       {!query.isLoading && rows.length === 0 && (
-        <p className="mt-2 text-[11px] text-muted">Chưa có cặp nào cho độ xa này.</p>
+        <p className="text-[11px] text-muted">Chưa có lần nào được chấm.</p>
       )}
       {rows.length > 0 && (
-        <div className="mt-2 max-h-64 overflow-auto">
+        <div className="max-h-56 overflow-auto">
           <table className="w-full text-left text-[11px]">
             <thead className="sticky top-0 bg-surface text-[9px] uppercase tracking-wider text-muted">
               <tr>
-                <th className="py-1 pr-2">Phát hành</th>
-                <th className="py-1 pr-2">Mốc</th>
-                <th className="py-1 pr-2 text-right">Dự báo</th>
-                <th className="py-1 pr-2 text-right">Thực đo</th>
+                <th className="py-1 pr-2">Phát hành → mốc</th>
+                <th className="py-1 pr-2 text-right">Đoán</th>
+                <th className="py-1 pr-2 text-right">Thực tế</th>
                 <th className="py-1 text-right">Lệch</th>
               </tr>
             </thead>
             <tbody>
               {rows.map((row) => (
                 <tr key={`${row.issued_at}-${row.target_at}`} className="border-t border-line/30">
-                  <td className="py-1 pr-2 font-mono text-[10px] text-muted">
+                  <td className="whitespace-nowrap py-1 pr-2 font-mono text-[10px] text-muted">
                     {new Date(row.issued_at).toLocaleTimeString("vi-VN", {
                       hour: "2-digit",
                       minute: "2-digit",
                     })}
-                  </td>
-                  <td className="py-1 pr-2 font-mono text-[10px] text-muted">
+                    <span className="mx-1 opacity-50">→</span>
                     {new Date(row.target_at).toLocaleTimeString("vi-VN", {
                       hour: "2-digit",
                       minute: "2-digit",
-                      second: "2-digit",
                     })}
                   </td>
                   <td className="py-1 pr-2 text-right font-mono">{row.predicted_pm25.toFixed(1)}</td>

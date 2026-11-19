@@ -106,7 +106,24 @@ def test_longest_gap_steps_counts_the_hole():
     values = np.array([1.0, np.nan, np.nan, np.nan, 2.0, np.nan, 3.0])
     assert longest_gap_steps(values) == 3
     assert longest_gap_steps(np.array([1.0, 2.0])) == 0
-    assert longest_gap_steps(np.array([np.nan, np.nan])) == 2
+
+
+def test_short_history_is_not_a_hole():
+    """
+    Cells before the first sample are short history, not a gap.
+
+    A device that started 30 minutes ago has an 80-minute empty prefix in a 110-minute window;
+    reporting that as a "hole" told the operator something false about a perfect stream.
+    """
+    values = np.concatenate([np.full(400, np.nan), np.full(320, 25.0)])
+    assert longest_gap_steps(values) == 0
+
+    # A real hole inside the observed span still counts.
+    values[500:560] = np.nan
+    assert longest_gap_steps(values) == 60
+
+    # Nothing observed at all is also not a hole; coverage reports that separately.
+    assert longest_gap_steps(np.array([np.nan, np.nan])) == 0
 
 
 def test_align_keeps_newest_sample_per_cell():

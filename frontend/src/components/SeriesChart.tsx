@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { Area, CartesianGrid, ComposedChart, Line, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 import type { SeriesBucket } from "../api/types";
@@ -22,9 +22,17 @@ interface ChartPoint {
 
 const timeLabel = (at: number) => new Date(at).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
 
+/**
+ * A bucket is 12 samples at 1 minute, 60 at 5 minutes and 180 at 15. The min–max band answers
+ * "how much did this move inside the bucket", which is only a real question once a bucket holds
+ * enough samples: at 1 minute it is noise, at 5 minutes and above it is what keeps a spike visible
+ * after aggregation. So the band is shown automatically from 5 minutes, and the checkbox is gone.
+ */
+const RANGE_MIN_BUCKET_SECONDS = 300;
+
 /** A regular grid keeps both the range and the median broken across missing buckets. */
 export function SeriesChart({ items, threshold, height = 320, bucketSeconds = 300, from, to }: Props) {
-  const [showRange, setShowRange] = useState(false);
+  const showRange = bucketSeconds >= RANGE_MIN_BUCKET_SECONDS;
   const points = useMemo(() => {
     const valid = items.filter((item) => Number.isFinite(Date.parse(item.bucket_start)));
     if (!valid.length) return [];
@@ -48,12 +56,12 @@ export function SeriesChart({ items, threshold, height = 320, bucketSeconds = 30
 
   return (
     <div>
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-xs text-muted">
-        <span>µg/m³ · mỗi điểm {bucketSeconds / 60} phút · khoảng mất dữ liệu được để trống</span>
-        <label className="flex cursor-pointer items-center gap-2">
-          <input type="checkbox" checked={showRange} onChange={(event) => setShowRange(event.target.checked)} className="accent-cyan-300" />
-          Hiện dải thấp nhất–cao nhất
-        </label>
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-[11px] text-muted">
+        <span>
+          µg/m³ · mỗi điểm {bucketSeconds / 60} phút
+          {showRange ? " · dải thấp–cao trong từng khoảng" : ""}
+        </span>
+        <span>{measured.length}/{points.length} khoảng có dữ liệu</span>
       </div>
       <div style={{ height }} role="img" aria-label={`Biểu đồ PM2.5, ${measured.length} khoảng có dữ liệu, ngưỡng ${threshold} µg/m³`}>
         <ResponsiveContainer width="100%" height="100%" minWidth={0}>
@@ -79,9 +87,10 @@ export function SeriesChart({ items, threshold, height = 320, bucketSeconds = 30
           </ComposedChart>
         </ResponsiveContainer>
       </div>
-      <div className="mt-2 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-muted">
-        <span className="text-info">━ PM2.5 trung vị</span><span className="text-bad">┄ Ngưỡng hiện tại</span>
-        <span>{measured.length}/{points.length} khoảng có dữ liệu</span>
+      <div className="mt-2 flex flex-wrap items-center gap-x-5 gap-y-1 text-[11px] text-muted">
+        <span className="text-info">━ PM2.5 trung vị</span>
+        {showRange && <span className="text-info/60">▮ thấp–cao trong khoảng</span>}
+        <span className="text-bad">┄ Ngưỡng {threshold.toFixed(0)}</span>
       </div>
     </div>
   );

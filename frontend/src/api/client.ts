@@ -13,7 +13,6 @@ import type {
   ForecastAccuracy,
   LiveSnapshot,
   PairRequest,
-  RoomEvent,
   SamplePage,
   ScoredPoint,
   Series,
@@ -197,13 +196,4 @@ export const api = {
   },
   createJob: (body: { type: string; device_id: string; params?: Record<string, unknown> }) =>
     request<AiJob>("/api/v1/ai/jobs", { method: "POST", body: JSON.stringify(body) }),
-
-  // ── Room events ───────────────────────────────────────────────────────────
-  events: (id: string) =>
-    request<RoomEvent[]>(`/api/v1/devices/${encodeURIComponent(id)}/events`),
-  recordEvent: (id: string, body: { type: string; note?: string; occurred_at?: string }) =>
-    request<RoomEvent>(`/api/v1/devices/${encodeURIComponent(id)}/events`, {
-      method: "POST",
-      body: JSON.stringify(body),
-    }),
 };

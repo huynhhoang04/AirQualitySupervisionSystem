@@ -45,6 +45,13 @@ public interface ForecastPointRepository extends JpaRepository<ForecastPoint, Lo
                                      @Param("to") Instant to,
                                      @Param("tolerance") float tolerance);
 
+    /**
+     * Newest scored pairs for the drawer.
+     *
+     * <p>The horizon filter is part of the query, not applied after the page: filtering a page of
+     * 20 mixed rows down to one horizon left two or three usable rows and made the drawer look
+     * empty while the cohort held hundreds.
+     */
     @Query("""
             select new com.aqss.backend.service.ScoredForecastPoint(
                    p.targetAt, p.horizonMinutes, p.pm25, p.actualPm25, p.error,
@@ -55,11 +62,13 @@ public interface ForecastPointRepository extends JpaRepository<ForecastPoint, Lo
                and r.modelVersion = :modelVersion
                and p.evaluationStatus = 'SCORED'
                and p.targetAt >= :from
+               and (:horizon IS NULL OR p.horizonMinutes = :horizon)
              order by p.targetAt desc
             """)
     List<ScoredForecastPoint> recentScored(@Param("deviceId") String deviceId,
                                            @Param("modelVersion") String modelVersion,
                                            @Param("from") Instant from,
+                                           @Param("horizon") Integer horizon,
                                            Pageable pageable);
 
     interface HorizonAggregate {

@@ -3,8 +3,9 @@ import { Link } from "react-router-dom";
 import type { Device, Space, Telemetry } from "../api/types";
 import { Icon } from "../components/Icon";
 import { SeriesChart } from "../components/SeriesChart";
-import { useAiStatus, useDevices, useLatest, useSeries, useSpaces } from "../hooks/useAqss";
+import { useAiStatus, useDevices, useForecast, useLatest, useSeries, useSpaces } from "../hooks/useAqss";
 import { formatAgo, isOnline, roomState } from "../lib/room";
+import { modelLabel } from "../lib/modelLabel";
 
 /**
  * Overview: what is in the house, what the machines report, and whether the learning loop is alive.
@@ -16,6 +17,7 @@ export function RoomsPage() {
   const first = devices.data?.[0];
   const firstSpace = spaces.data?.find((space) => space.code === first?.space_code);
   const status = useAiStatus(first?.device_id);
+  const forecast = useForecast(first?.device_id);
   const series = useSeries(first?.device_id, 24, "5m");
 
   if (devices.isLoading) {
@@ -60,25 +62,27 @@ export function RoomsPage() {
 
   const filtering = machines.filter((device) => device.fan_state === "ON").length;
   const online = machines.filter((device) => isOnline(device.last_seen_at)).length;
-  const model = status.data?.current_model;
+  // The label must describe what produced the last forecast, not the sklearn registry. That
+  // registry is empty here because no learned sklearn model ever passed promotion, so reading it
+  // displayed "persistence" while Chronos-2 was in fact forecasting.
+  const model = modelLabel(forecast.data?.run);
 
   return (
-    <div className="space-y-6">
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <Kpi label="Máy lọc" value={`${machines.length}`} note={`${online} đang online`} />
-        <Kpi label="Đang lọc" value={`${filtering}`} note="thiết bị báo quạt ON" />
-        <Kpi
-          label="AI worker"
-          value={status.data?.worker_online ? "online" : "offline"}
-          note={status.data?.worker_online ? "đang nhận job" : "forecast dùng baseline"}
-          tone={status.data?.worker_online ? "good" : "muted"}
-        />
-        <Kpi
-          label="Model"
-          value={model ? model.algorithm ?? "learned" : "persistence"}
-          note={model ? `${model.status} · ${model.version.slice(0, 24)}` : "chưa có model đạt cổng promote"}
-          tone={model?.status === "PRODUCTION" ? "good" : "muted"}
-        />
+    <div className="space-y-5">
+      <section className="card flex flex-wrap items-center gap-x-6 gap-y-2 px-4 py-3 text-[12px]">
+        <span className="text-slate-200">
+          {machines.length} máy · {online} online
+        </span>
+        <span className={filtering > 0 ? "text-good" : "text-muted"}>{filtering} đang lọc</span>
+        <span className={status.data?.worker_online ? "text-good" : "text-muted"}>
+          AI {status.data?.worker_online ? "online" : "offline"}
+        </span>
+        <span className="text-muted">
+          model <span className="font-mono text-slate-300">{model}</span>
+        </span>
+        <Link to="/evaluation" className="ml-auto text-[11px] text-muted hover:text-white">
+          Thí nghiệm &amp; đánh giá →
+        </Link>
       </section>
 
       <section className="grid gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(300px,1fr)]">
@@ -115,26 +119,18 @@ export function RoomsPage() {
         </div>
 
         <div className="card p-4 lg:p-5">
-          <div className="label">Dữ liệu & mô hình</div>
-          <dl className="mt-3 space-y-3 text-[13px]">
+          <div className="label">Dòng dữ liệu</div>
+          <dl className="mt-2.5 space-y-2 text-[13px]">
             <Item label="Telemetry cuối" value={formatAgo(status.data?.latest_telemetry_recorded_at)} />
             <Item
               label="Backend nhận"
               value={formatAgo(status.data?.latest_telemetry_received_at)}
             />
             <Item label="Forecast phát hành" value={formatAgo(status.data?.latest_forecast_issued_at)} />
-            <Item
-              label="Forecast được nhận"
-              value={formatAgo(status.data?.latest_forecast_accepted_at)}
-            />
           </dl>
-          <div className="mt-4 rounded-xl border border-line/60 px-3 py-2.5 text-[11px] leading-relaxed text-muted">
-            AI không nằm trên đường điều khiển. Tắt worker chỉ làm forecast cũ đi, không ảnh hưởng
-            đo hay ngưỡng.
-          </div>
-          <Link to="/evaluation" className="btn-ghost mt-3 block py-2 text-center text-[12px]">
-            Thí nghiệm &amp; đánh giá
-          </Link>
+          <p className="mt-3 text-[11px] leading-relaxed text-muted">
+            AI không nằm trên đường điều khiển. Tắt worker chỉ làm forecast cũ đi.
+          </p>
         </div>
       </section>
 
@@ -172,29 +168,6 @@ export function RoomsPage() {
           </table>
         </div>
       </section>
-    </div>
-  );
-}
-
-function Kpi({
-  label,
-  value,
-  note,
-  tone = "default",
-}: {
-  label: string;
-  value: string;
-  note: string;
-  tone?: "default" | "good" | "muted";
-}) {
-  const valueTone = tone === "good" ? "text-good" : tone === "muted" ? "text-slate-200" : "text-white";
-  return (
-    <div className="card px-4 py-3.5">
-      <div className="label">{label}</div>
-      <div className={`mt-1 truncate font-mono text-[26px] font-semibold leading-none ${valueTone}`}>
-        {value}
-      </div>
-      <div className="mt-1 truncate text-[11px] text-muted">{note}</div>
     </div>
   );
 }

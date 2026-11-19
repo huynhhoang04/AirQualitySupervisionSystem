@@ -5,14 +5,13 @@ import { AccuracyPanel } from "../components/AccuracyPanel";
 import { LiveChart } from "../components/LiveChart";
 import { FanSelector } from "../components/FanSelector";
 import { Icon } from "../components/Icon";
-import { ReadingScale, Secondary, StatusWord, SystemLine } from "../components/Reading";
+import { ReadingScale, StatusWord, SystemLine } from "../components/Reading";
 import { SeriesChart } from "../components/SeriesChart";
 import {
   useCommands,
   useDevices,
   useFanCommand,
   useLatest,
-  useRecordEvent,
   useSamples,
   useSeries,
   useSpaces,
@@ -126,7 +125,6 @@ export function RoomPage({ deviceId }: { deviceId: string }) {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <EventRecorder deviceId={device.device_id} />
           <Link
             to={`/room/${encodeURIComponent(device.device_id)}/settings`}
             className="btn-ghost px-3 py-2 text-[12px]"
@@ -142,252 +140,199 @@ export function RoomPage({ deviceId }: { deviceId: string }) {
           <Link className="font-medium text-info hover:underline" to={`/room/${encodeURIComponent(deviceId)}/settings`}>Bổ sung hồ sơ phòng →</Link>
         </div>
       )}
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(340px,1fr)]">
-        <div className="space-y-4">
-          <section className="card p-5">
-            <div className="flex flex-wrap items-end justify-between gap-4">
-              <div>
-                <div className="label">Không khí</div>
-                <div className="mt-1 flex items-end gap-4">
-                  <StatusWord state={state} />
-                  <div className="pb-0.5">
-                    <span className="reading text-slate-100">
-                      {pm25 == null ? "—" : pm25.toFixed(1)}
-                    </span>
-                    <span className="reading-unit">µg/m³</span>
-                  </div>
-                </div>
-                <SystemLine state={state} />
-              </div>
-              <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-right">
-                <Metric label="Coverage 24h" value={summary.data ? `${Math.round(summary.data.coverage * 100)}%` : "—"} />
-                <Metric label="Phút vượt ngưỡng" value={summary.data ? `${summary.data.minutes_above_threshold}` : "—"} />
-                <Metric label="TB 24h" value={fmtNum(summary.data?.avg_pm25, 1)} />
-                <Metric label="Cao nhất" value={fmtNum(summary.data?.max_pm25, 1)} />
-              </div>
-            </div>
-            <div className="mt-4">
-              <ReadingScale value={pm25} threshold={threshold} status={state.status} />
-            </div>
-            {(stale || !online) && (
-              <p className="mt-3 rounded-xl border border-warn/30 bg-warn/10 px-3 py-2 text-[12px] leading-relaxed text-warn">
-                {!online
-                  ? `Máy không gửi dữ liệu. Lần cuối ${formatAgo(device.last_seen_at)}.`
-                  : "Số liệu mới nhất đã cũ hơn 5 phút, nên hệ thống đang tạm dừng tự động."}
-              </p>
-            )}
-          </section>
-
-          <section className="card p-4 lg:p-5">
-            <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <div className="label">PM2.5 · thực đo &amp; dự báo</div>
-                <span className={`chip border ${liveChip}`}>{liveText}</span>
-              </div>
-              <div
-                className="flex gap-1 rounded-lg border border-line p-0.5"
-                role="group"
-                aria-label="Chế độ chart"
-              >
-                <button
-                  type="button"
-                  aria-pressed={liveMode}
-                  onClick={() => setLiveMode(true)}
-                  className={modeTone(liveMode)}
-                >
-                  Trực tiếp
-                </button>
-                {RANGES.map((option) => (
-                  <button
-                    key={option.label}
-                    type="button"
-                    aria-pressed={!liveMode && range.hours === option.hours}
-                    onClick={() => {
-                      setLiveMode(false);
-                      setRange(option);
-                    }}
-                    className={modeTone(!liveMode && range.hours === option.hours)}
-                  >
-                    {option.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div className="mt-2">
-              <div className="grid gap-4 xl:grid-cols-[minmax(0,3fr)_minmax(250px,1fr)]">
-                <div className="min-w-0">
-                  {liveMode ? (
-                    <LiveChart
-                      samples={live.samples}
-                      forecast={live.forecast}
-                      threshold={threshold}
-                      status={live.status}
-                    />
-                  ) : (
-                    <SeriesChart
-                      items={series.data?.items ?? []}
-                      threshold={threshold}
-                      bucketSeconds={series.data?.bucket_seconds ?? 300}
-                      from={series.data?.from}
-                      to={series.data?.to}
-                    />
-                  )}
-                </div>
-                <AccuracyPanel deviceId={device.device_id} metricsVersion={live.metricsVersion} />
-              </div>
-            </div>
-            {liveMode && live.status === "error" && (
-              <p className="mt-2 rounded-lg border border-warn/30 bg-warn/5 px-3 py-2 text-[11px] text-warn">
-                {live.error ?? "Chưa kết nối được dòng dữ liệu trực tiếp."}
-              </p>
-            )}
-            <div className="mt-3 grid grid-cols-3 gap-3">
-              <Secondary
-                label="CO₂"
-                value={reading?.co2 == null ? "—" : `${Math.round(reading.co2)} ppm`}
-              />
-              <Secondary
-                label="Nhiệt độ"
-                value={reading?.temperature == null ? "—" : `${reading.temperature.toFixed(1)}°C`}
-              />
-              <Secondary
-                label="Độ ẩm"
-                value={reading?.humidity == null ? "—" : `${reading.humidity.toFixed(0)}%`}
-              />
-            </div>
-          </section>
-
-          <details className="card overflow-hidden">
-            <summary className="cursor-pointer px-4 py-3 text-[12px] text-slate-300 hover:text-white">
-              Bảng số đo gần nhất ({samples.data?.items.length ?? 0})
-            </summary>
-            <div className="overflow-x-auto border-t border-line/60">
-              <table className="w-full min-w-[760px] text-left text-[12px]">
-                <thead className="text-[10px] uppercase tracking-wider text-muted">
-                  <tr className="border-b border-line/50">
-                    <th className="px-3 py-2">Đo lúc</th>
-                    <th className="px-3 py-2">Nhận lúc</th>
-                    <th className="px-3 py-2 text-right">PM2.5</th>
-                    <th className="px-3 py-2 text-right">CO₂</th>
-                    <th className="px-3 py-2 text-right">T</th>
-                    <th className="px-3 py-2 text-right">RH</th>
-                    <th className="px-3 py-2">Chất lượng</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(samples.data?.items ?? []).map((sample) => (
-                    <tr key={sample.id} className="border-b border-line/30 last:border-0">
-                      <td className="whitespace-nowrap px-3 py-1.5 font-mono text-[11px]">
-                        {new Date(sample.recorded_at).toLocaleString("vi-VN")}
-                      </td>
-                      <td className="whitespace-nowrap px-3 py-1.5 font-mono text-[11px] text-muted">
-                        {sample.received_at ? new Date(sample.received_at).toLocaleTimeString("vi-VN") : "—"}
-                      </td>
-                      <td className="px-3 py-1.5 text-right font-mono">{fmtNum(sample.pm25, 1)}</td>
-                      <td className="px-3 py-1.5 text-right font-mono">{sample.co2 == null ? "—" : Math.round(sample.co2)}</td>
-                      <td className="px-3 py-1.5 text-right font-mono">{fmtNum(sample.temperature, 1)}</td>
-                      <td className="px-3 py-1.5 text-right font-mono">{fmtNum(sample.humidity, 0)}</td>
-                      <td className="px-3 py-1.5 text-[10px] text-muted">
-                        {sample.pm25_saturated ? "bão hoà" : sample.dust_fault ? "dust fault" : sample.time_quality ?? "—"}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </details>
-        </div>
-
-        <div className="space-y-4">
-          <section className="card p-4">
-            <FanSelector
-              device={device}
-              pending={fan.isPending}
-              error={fan.error?.message ?? null}
-              onCommand={(selection) => fan.mutate({ command: "set_actuator", params: selection })}
-            />
-            <div className="mt-3 rounded-xl border border-line/60 px-3 py-2 text-[11px] leading-relaxed">
-              <div className="flex justify-between gap-2">
-                <span className="text-muted">Máy báo</span>
-                <span className="text-slate-200">
-                  {device.fan_state} · mức {device.fan_level} · {device.fan_mode}
-                </span>
-              </div>
-              <div className="mt-1 flex justify-between gap-2">
-                <span className="text-muted">Lệnh gần nhất</span>
-                <span className={commandTone(latestCommand?.status)}>
-                  {latestCommand ? commandLabel(latestCommand.status) : "—"}
-                </span>
-              </div>
-              <div className="mt-1 flex justify-between gap-2">
-                <span className="text-muted">Báo cáo cuối</span>
-                <span className="font-mono text-slate-300">
-                  {formatAgo(device.last_actuator_received_at)}
-                </span>
-              </div>
-            </div>
-          </section>
-
-          <section className="card flex items-center justify-between gap-3 p-4">
-            <div className="flex min-w-0 items-center gap-3">
-              <span className={`shrink-0 ${filter.low ? "text-warn" : "text-slate-400"}`}>
-                <Icon name="filter" size={20} />
+      <section className="card p-5">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <div className="flex items-baseline gap-3">
+              <span className="reading text-slate-100">
+                {pm25 == null ? "—" : pm25.toFixed(1)}
               </span>
-              <div className="min-w-0">
-                <div className="text-[11px] uppercase tracking-[0.12em] text-muted">Lõi lọc</div>
-                <div className="font-mono text-sm text-slate-200">
-                  còn {formatHours(filter.remaining)}
-                  {filter.low && <span className="ml-2 text-warn">sắp hết</span>}
-                </div>
-              </div>
+              <span className="reading-unit">µg/m³</span>
+              <StatusWord state={state} />
             </div>
-            <Link
-              to={`/room/${encodeURIComponent(device.device_id)}/settings`}
-              className="shrink-0 text-[11px] text-muted underline-offset-4 hover:text-white hover:underline"
-            >
-              đổi lõi
-            </Link>
-          </section>
+            <SystemLine state={state} />
+          </div>
+          <div className="grid grid-cols-2 gap-x-6 gap-y-1 pt-1 text-right text-[11px] text-muted sm:grid-cols-4">
+            <Metric label="TB 24h" value={fmtNum(summary.data?.avg_pm25, 1)} />
+            <Metric label="Cao nhất" value={fmtNum(summary.data?.max_pm25, 1)} />
+            <Metric label="Phút vượt" value={`${summary.data?.minutes_above_threshold ?? "—"}`} />
+            <Metric label="Độ phủ" value={summary.data ? `${Math.round(summary.data.coverage * 100)}%` : "—"} />
+          </div>
+        </div>
+        <div className="mt-3">
+          <ReadingScale value={pm25} threshold={threshold} status={state.status} />
+        </div>
+        {(stale || !online) && (
+          <p className="mt-2 text-[11px] leading-relaxed text-warn">
+            {!online
+              ? `Máy không gửi dữ liệu. Lần cuối ${formatAgo(device.last_seen_at)}.`
+              : "Số liệu mới nhất đã cũ hơn 5 phút, nên hệ thống đang tạm dừng tự động."}
+          </p>
+        )}
+      </section>
 
+      <section className="card p-4 lg:p-5">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <div className="label">PM2.5 · thực đo &amp; dự báo</div>
+            <span className={`chip border ${liveChip}`}>{liveText}</span>
+          </div>
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex gap-4 text-[11px] text-muted">
+              <span>
+                CO₂ <span className="font-mono text-[13px] text-slate-200">{reading?.co2 == null ? "—" : Math.round(reading.co2)}</span>
+              </span>
+              <span>
+                Nhiệt độ{" "}
+                <span className="font-mono text-[13px] text-slate-200">
+                  {reading?.temperature == null ? "—" : reading.temperature.toFixed(1)}°
+                </span>
+              </span>
+              <span>
+                Ẩm{" "}
+                <span className="font-mono text-[13px] text-slate-200">
+                  {reading?.humidity == null ? "—" : Math.round(reading.humidity)}%
+                </span>
+              </span>
+            </div>
+            <div
+              className="flex gap-1 rounded-lg border border-line p-0.5"
+              role="group"
+              aria-label="Chế độ chart"
+            >
+              <button
+                type="button"
+                aria-pressed={liveMode}
+                onClick={() => setLiveMode(true)}
+                className={modeTone(liveMode)}
+              >
+                Trực tiếp
+              </button>
+              {RANGES.map((option) => (
+                <button
+                  key={option.label}
+                  type="button"
+                  aria-pressed={!liveMode && range.hours === option.hours}
+                  onClick={() => {
+                    setLiveMode(false);
+                    setRange(option);
+                  }}
+                  className={modeTone(!liveMode && range.hours === option.hours)}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+        <div className="mt-2">
+          {liveMode ? (
+            <LiveChart
+              samples={live.samples}
+              forecast={live.forecast}
+              threshold={threshold}
+              status={live.status}
+              height={430}
+            />
+          ) : (
+            <SeriesChart
+              items={series.data?.items ?? []}
+              threshold={threshold}
+              bucketSeconds={series.data?.bucket_seconds ?? 300}
+              from={series.data?.from}
+              to={series.data?.to}
+              height={430}
+            />
+          )}
+        </div>
+        {liveMode && live.status === "error" && (
+          <p className="mt-2 rounded-lg border border-warn/30 bg-warn/5 px-3 py-2 text-[11px] text-warn">
+            {live.error ?? "Chưa kết nối được dòng dữ liệu trực tiếp."}
+          </p>
+        )}
+      </section>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <AccuracyPanel deviceId={device.device_id} metricsVersion={live.metricsVersion} />
+
+        <section className="card p-4">
+          <FanSelector
+            device={device}
+            pending={fan.isPending}
+            error={fan.error?.message ?? null}
+            onCommand={(selection) => fan.mutate({ command: "set_actuator", params: selection })}
+          />
+          <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-line/50 pt-2.5 text-[11px] text-muted">
+            <span>
+              Máy báo{" "}
+              <span className="text-slate-200">
+                {device.fan_state} · mức {device.fan_level} · {device.fan_mode}
+              </span>
+            </span>
+            <span>
+              lệnh cuối{" "}
+              <span className={commandTone(latestCommand?.status)}>
+                {latestCommand ? commandLabel(latestCommand.status) : "—"}
+              </span>
+            </span>
+            <span className="ml-auto flex items-center gap-1.5">
+              <Icon name="filter" size={13} className={filter.low ? "text-warn" : ""} />
+              lõi còn {formatHours(filter.remaining)}
+              <Link
+                to={`/room/${encodeURIComponent(device.device_id)}/settings`}
+                className="underline-offset-4 hover:text-white hover:underline"
+              >
+                đổi
+              </Link>
+            </span>
+          </div>
           {device.last_reason && (
-            <p className="text-center text-[11px] text-muted">
+            <p className="mt-1.5 text-[11px] text-muted">
               Quyết định gần nhất {formatAgo(device.last_decision_at)} · {device.last_reason}
             </p>
           )}
-        </div>
+        </section>
       </div>
-    </div>
-  );
-}
 
-function EventRecorder({ deviceId }: { deviceId: string }) {
-  const record = useRecordEvent(deviceId);
-  const [sent, setSent] = useState<string | null>(null);
-  const types = [
-    { type: "door_open", label: "Mở cửa" },
-    { type: "activity", label: "Có người" },
-    { type: "window_open", label: "Mở cửa sổ" },
-  ];
-  return (
-    <div className="flex items-center gap-1">
-      {types.map((item) => (
-        <button
-          key={item.type}
-          type="button"
-          disabled={record.isPending}
-          onClick={() =>
-            record.mutate(
-              { type: item.type, note: `ghi từ phòng ${deviceId}` },
-              { onSuccess: () => setSent(item.label) },
-            )
-          }
-          className="rounded-lg border border-line px-2 py-1.5 text-[11px] text-slate-400 hover:border-slate-500 hover:text-white disabled:opacity-40"
-        >
-          {item.label}
-        </button>
-      ))}
-      {sent && <span className="text-[10px] text-good">đã ghi {sent}</span>}
-      {record.isError && <span className="text-[10px] text-bad">lỗi</span>}
+      <details className="card overflow-hidden">
+        <summary className="cursor-pointer px-4 py-3 text-[12px] text-slate-300 hover:text-white">
+          Bảng số đo gần nhất ({samples.data?.items.length ?? 0})
+        </summary>
+        <div className="overflow-x-auto border-t border-line/60">
+          <table className="w-full min-w-[760px] text-left text-[12px]">
+            <thead className="text-[10px] uppercase tracking-wider text-muted">
+              <tr className="border-b border-line/50">
+                <th className="px-3 py-2">Đo lúc</th>
+                <th className="px-3 py-2">Nhận lúc</th>
+                <th className="px-3 py-2 text-right">PM2.5</th>
+                <th className="px-3 py-2 text-right">CO₂</th>
+                <th className="px-3 py-2 text-right">T</th>
+                <th className="px-3 py-2 text-right">RH</th>
+                <th className="px-3 py-2">Chất lượng</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(samples.data?.items ?? []).map((sample) => (
+                <tr key={sample.id} className="border-b border-line/30 last:border-0">
+                  <td className="whitespace-nowrap px-3 py-1.5 font-mono text-[11px]">
+                    {new Date(sample.recorded_at).toLocaleString("vi-VN")}
+                  </td>
+                  <td className="whitespace-nowrap px-3 py-1.5 font-mono text-[11px] text-muted">
+                    {sample.received_at ? new Date(sample.received_at).toLocaleTimeString("vi-VN") : "—"}
+                  </td>
+                  <td className="px-3 py-1.5 text-right font-mono">{fmtNum(sample.pm25, 1)}</td>
+                  <td className="px-3 py-1.5 text-right font-mono">{sample.co2 == null ? "—" : Math.round(sample.co2)}</td>
+                  <td className="px-3 py-1.5 text-right font-mono">{fmtNum(sample.temperature, 1)}</td>
+                  <td className="px-3 py-1.5 text-right font-mono">{fmtNum(sample.humidity, 0)}</td>
+                  <td className="px-3 py-1.5 text-[10px] text-muted">
+                    {sample.pm25_saturated ? "bão hoà" : sample.dust_fault ? "dust fault" : sample.time_quality ?? "—"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </details>
     </div>
   );
 }
@@ -396,7 +341,7 @@ function Metric({ label, value }: { label: string; value: string }) {
   return (
     <div>
       <div className="text-[10px] uppercase tracking-wider text-muted">{label}</div>
-      <div className="font-mono text-[14px] text-slate-200">{value}</div>
+      <div className="font-mono text-[13px] text-slate-200">{value}</div>
     </div>
   );
 }

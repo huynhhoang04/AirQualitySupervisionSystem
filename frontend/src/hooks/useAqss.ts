@@ -133,14 +133,6 @@ export const useAiJobs = (deviceId?: string) =>
     refetchInterval: 5_000,
   });
 
-export const useEvents = (deviceId?: string) =>
-  useQuery({
-    queryKey: ["events", deviceId],
-    queryFn: () => api.events(deviceId!),
-    enabled: Boolean(deviceId),
-    refetchInterval: 60_000,
-  });
-
 export function useCreateJob(deviceId?: string) {
   const queryClient = useQueryClient();
   return useMutation({
@@ -149,14 +141,6 @@ export function useCreateJob(deviceId?: string) {
       queryClient.invalidateQueries({ queryKey: ["ai-jobs", deviceId] });
       queryClient.invalidateQueries({ queryKey: ["ai-status", deviceId] });
     },
-  });
-}
-
-export function useRecordEvent(deviceId?: string) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (body: { type: string; note?: string }) => api.recordEvent(deviceId!, body),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["events", deviceId] }),
   });
 }
 
@@ -174,7 +158,7 @@ function invalidate(queryClient: ReturnType<typeof useQueryClient>, deviceId?: s
   queryClient.invalidateQueries({ queryKey: ["devices"] });
   if (deviceId) {
     for (const key of ["latest", "history", "series", "summary", "samples", "commands",
-      "actuator-history", "forecast", "forecast-accuracy", "accuracy-points", "alerts", "events"]) {
+      "actuator-history", "forecast", "forecast-accuracy", "accuracy-points", "alerts"]) {
       queryClient.invalidateQueries({ queryKey: [key, deviceId] });
     }
   }

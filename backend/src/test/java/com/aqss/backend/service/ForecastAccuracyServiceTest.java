@@ -19,7 +19,9 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyFloat;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class ForecastAccuracyServiceTest {
@@ -118,20 +120,33 @@ class ForecastAccuracyServiceTest {
     }
 
     @Test
-    @DisplayName("Drawer rows are filtered to the requested horizon")
-    void should_FilterDrawerRowsByHorizon() {
+    @DisplayName("The drawer passes the requested horizon into the query")
+    void should_PassHorizonIntoQuery() {
         stubModel("model-a");
-        when(points.recentScored(anyString(), anyString(), any(), any(Pageable.class)))
+        when(points.recentScored(anyString(), anyString(), any(), any(), any(Pageable.class)))
                 .thenReturn(List.of(
-                        new ScoredForecastPoint(Instant.now(), 5, 20f, 22f, 2f,
-                                Instant.now(), "model-a", Instant.now()),
-                        new ScoredForecastPoint(Instant.now(), 15, 20f, 30f, 10f,
+                        new ScoredForecastPoint(Instant.now(), 30, 20f, 22f, 2f,
                                 Instant.now(), "model-a", Instant.now())));
 
-        List<ScoredForecastPoint> rows = service.recent("dev-1", 5, 6, null, 50);
+        List<ScoredForecastPoint> rows = service.recent("dev-1", 30, 6, null, 50);
 
+        // The filter belongs in SQL. Applying it to a page of mixed rows kept only the few 30-minute
+        // rows that happened to be in the first page — the drawer showed 2 rows for a cohort of 346.
+        verify(points).recentScored(eq("dev-1"), eq("model-a"), any(), eq(30), any(Pageable.class));
         assertThat(rows).hasSize(1);
-        assertThat(rows.get(0).horizonMinutes()).isEqualTo(5);
+        assertThat(rows.get(0).horizonMinutes()).isEqualTo(30);
+    }
+
+    @Test
+    @DisplayName("Horizon 0 means every horizon, passed as null")
+    void should_PassNullHorizon_When_ZeroRequested() {
+        stubModel("model-a");
+        when(points.recentScored(anyString(), anyString(), any(), any(), any(Pageable.class)))
+                .thenReturn(List.of());
+
+        service.recent("dev-1", 0, 6, null, 50);
+
+        verify(points).recentScored(eq("dev-1"), eq("model-a"), any(), isNull(), any(Pageable.class));
     }
 
     private void stubModel(String version) {

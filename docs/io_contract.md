@@ -674,20 +674,27 @@ Rules:
 
 ## 14.5 Context readiness
 
-The context is a 720-step grid ending at the newest usable sample. Two independent rules decide
-whether a forecast may be issued:
+The context is a grid of 5-second steps ending at the newest usable sample. Two independent rules
+decide whether a forecast may be issued, and a third decides which *claim* it supports:
 
 | Rule | Threshold | Why |
 | :--- | :--- | :--- |
-| Coverage | ≥ 80 % of the 720 steps carry a usable PM sample | A mostly-empty window is not a context |
-| Longest hole | ≤ 60 steps (5 minutes) | Coverage alone hides an outage: 120 missing steps is still 83 %, and a curve fitted across a ten-minute hole is a guess wearing a confidence band |
+| Full window | 720 steps with ≥ 80 % coverage | The normal case: one hour of history |
+| Warm-up | ≥ 180 steps (15 min) with ≥ 90 % coverage of the grid actually used | A newly installed node should not produce nothing for 48 minutes |
+| Longest hole | ≤ 60 steps (5 minutes), measured between the first and last sample | Coverage alone hides an outage: 120 missing steps is still 83 %, and a curve fitted across a ten-minute hole is a guess wearing a confidence band |
+
+`data_quality.readiness` carries `full` or `warmup`. A warm-up curve is a real forecast on real
+data; it is labelled because a 20-minute fit is a weaker claim than an hour-long one, and the UI must
+not present the two as the same thing.
 
 A sample snaps to its nearest grid point, keeping the newest per point. A device reporting every
 5.02 s drifts by 0.02 s per packet but stays within half a step of a grid point for hundreds of
 packets, so a healthy stream stays near 100 % coverage. Requiring a sample within half a step *in
-one direction* was the earlier bug and dropped about half of such a stream.
+one direction* was an earlier bug and dropped about half of such a stream.
 
-Missing steps stay `NaN`; they are never interpolated.
+Missing steps stay `NaN`; they are never interpolated. The empty region before the first sample is
+short history, not a hole: it is measured by coverage, and the gap rule only looks inside the
+observed span.
 
 ## 14.6 Latency and honesty
 

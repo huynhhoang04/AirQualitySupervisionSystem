@@ -84,18 +84,18 @@ export function LiveChart({ samples, forecast, threshold, status, height = 400 }
 
   return (
     <div>
-      <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-[11px] text-muted">
-        <span>µg/m³ · 30 phút trước và 30 phút dự báo · một trục thời gian</span>
+      <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2 text-[11px] text-muted">
+        <span>µg/m³ · 30 phút trước → 30 phút dự báo</span>
         <span className={ageSeconds > 15 ? "text-warn" : "text-muted"}>
           {status === "live"
             ? ageSeconds <= 5
               ? "vừa nhận mẫu mới"
               : `mẫu mới nhất ${ageLabel}`
             : status === "reconnecting"
-              ? "đang kết nối lại · giữ dữ liệu đã có"
+              ? "đang kết nối lại"
               : status === "loading"
-                ? "đang tải dữ liệu trực tiếp"
-                : "chưa kết nối được dòng trực tiếp"}
+                ? "đang tải"
+                : "mất dòng trực tiếp"}
         </span>
       </div>
       <div
@@ -237,19 +237,22 @@ export function LiveChart({ samples, forecast, threshold, status, height = 400 }
           </ComposedChart>
         </ResponsiveContainer>
       </div>
-      <div className="mt-2 flex flex-wrap items-center gap-x-5 gap-y-2 text-[11px] text-muted">
+      <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-muted">
         <span className="text-info">━ Thực đo</span>
         {visiblePath ? (
-          <span className="text-warn">┄ Dự báo 30 phút (360 bước)</span>
-        ) : futurePoints.length > 0 ? (
-          <span className="text-warn">┄ Dự báo 30 phút (3 mốc)</span>
-        ) : (
-          <span>
-            {forecast ? "dự báo đã cũ so với mẫu mới nhất" : "chưa có dự báo"}
+          <span className="text-warn">
+            ┄ Dự báo 30 phút
+            {forecast?.run.data_quality?.readiness === "warmup" && (
+              <span className="ml-1.5 rounded border border-warn/40 px-1 py-px text-[9px] uppercase tracking-wide">
+                warm-up
+              </span>
+            )}
           </span>
+        ) : (
+          <span>{forecast ? "dự báo cũ hơn mẫu mới nhất" : "chưa có dự báo"}</span>
         )}
-        <span className="text-bad">┄ Ngưỡng hiện tại</span>
-        <span className="ml-auto font-mono">{samples.length} mẫu / 30 phút</span>
+        <span className="text-bad">┄ Ngưỡng</span>
+        <span className="ml-auto font-mono">{samples.length} mẫu</span>
       </div>
     </div>
   );
